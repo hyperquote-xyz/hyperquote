@@ -1,0 +1,201 @@
+# Risk Management
+
+import { Callout } from 'nextra/components'
+
+The maker SDK includes a built-in risk framework that tracks open exposure and enforces configurable limits before any quote is submitted. This prevents makers from accumulating unbounded positions.
+
+## RiskState
+
+The `RiskState` class tracks the maker's current exposure across two dimensions:
+
+```ts
+class RiskState {
+  expiryBuckets: Map<bigint, ExpiryBucket>;     // delta by expiry
+  notionalByCollateral: Map<string, bigint>;      // notional by collateral token
+}
+```
+
+### ExpiryBucket
+
+Each unique option expiry has its own bucket tracking aggregate delta exposure and notional:
+
+```ts
+interface ExpiryBucket {
+  deltaExposure: number;  // signed: positive for calls, negative for puts
+  notional: bigint;       // total notional across all positions for this expiry
+}
+```
+
+### Per-Collateral Notional
+
+Total notional is tracked separately for each collateral token (USDC, USDH, USDT0). This allows the maker to set different exposure limits per stablecoin.
+
+## Risk Configuration
+
+Risk limits are defined in the `RiskConfig` interface:
+
+```ts
+interface RiskConfig {
+  maxNotionalPerCollateral: Record<string, bigint>;  // per collateral token
+  maxTenorSecs: number;          // max time to expiry in seconds
+  maxStrikeDeviationPct: number; // max strike deviation from spot (fraction)
+  maxDeltaPerExpiry: number;     // max absolute delta per expiry bucket
+  minPremium: Record<string, bigint>; // minimum premium per collateral token
+}
+```
+
+### Default Limits
+
+The SDK ships with these defaults:
+
+| Limit | Default Value | Description |
+|---|---|---|
+| `maxTenorSecs` | 7,776,000 (90 days) | Maximum time to option expiry |
+| `maxStrikeDeviationPct` | 0.5 (50%) | Maximum strike distance from spot |
+| `maxNotionalPerCollateral` | 1,000,000 USDC (1e12 units) | Maximum notional per collateral |
+| `maxDeltaPerExpiry` | 100 | Maximum absolute delta per expiry bucket |
+| `minPremium` | 1000 units (0.001 USDC) | Minimum premium to quote |
+
+## Risk Checks
+
+The `checkRisk` function runs five checks in sequence. If any check fails, the RFQ is skipped:
+
+```ts
+import { checkRisk, RiskState } from "@hyperquote/sdk-maker";
+
+const riskState = new RiskState();
+const result = checkRisk(rfq, market, config.risk, riskState, cDec, delta);
+
+if (!result.passed) {
+  console.log(`Risk check failed: ${result.reason}`);
+  return; // skip this RFQ
+}
+```
+
+### 1. Max Tenor Check
+
+Rejects RFQs with expiry too far in the future:
+
+```ts
+const tenor = Number(rfq.expiry - now);
+if (tenor > config.maxTenorSecs) {
+  return { passed: false, reason: `Tenor ${tenor}s exceeds max` };
+}
+```
+
+<Callout type="info">
+  The on-chain contract also enforces a 90-day maximum expiry (`MAX_EXPIRY_DURATION = 90 days`), but the maker can set a tighter limit.
+</Callout>
+
+### 2. Max Strike Deviation
+
+Rejects strikes that are too far from the current spot price:
+
+```ts
+const deviation = Math.abs(strike - spot) / spot;
+if (deviation > config.maxStrikeDeviationPct) {
+  return { passed: false, reason: `Strike deviation ${deviation * 100}% exceeds max` };
+}
+```
+
+A `maxStrikeDeviationPct` of 0.5 means the strike must be within 50% of spot. For a $25 spot, this allows strikes from $12.50 to $37.50.
+
+### 3. Per-Collateral Notional Limit
+
+Prevents total notional exposure from exceeding the configured maximum for each collateral token:
+
+```ts
+const notional = computeNotional(rfq.strike, rfq.quantity, 18, cDec);
+const currentNotional = state.notionalByCollateral.get(collateralKey) ?? 0n;
+if (currentNotional + notional > maxNotional) {
+  return { passed: false, reason: "Notional would exceed max" };
+}
+```
+
+Notional is computed as `ceilDiv(strike * quantity, 10^(18 + uDec - cDec))`, matching the on-chain `CollateralMath._strikeTimesQuantity` formula.
+
+### 4. Max Delta Per Expiry
+
+Prevents the delta exposure for any single expiry bucket from exceeding the configured limit:
+
+```ts
+const bucket = state.expiryBuckets.get(rfq.expiry);
+const newDelta = bucket.deltaExposure + delta;
+if (Math.abs(newDelta) > config.maxDeltaPerExpiry) {
+  return { passed: false, reason: "Delta exposure exceeds max for expiry" };
+}
+```
+
+Delta is signed: positive for calls, negative for puts. A `maxDeltaPerExpiry` of 100 means the absolute net delta per expiry cannot exceed 100 in either direction. Puts and calls can offset each other.
+
+### 5. Min Premium Check
+
+The RFQ's `minPremium` field is checked against the maker's configured minimum. This is a soft check -- the actual premium comparison happens after pricing.
+
+## Recording Quotes
+
+After a quote passes risk checks and is submitted, call `riskState.recordQuote()` to update the exposure tracking:
+
+```ts
+import { computeNotional } from "@hyperquote/sdk-maker";
+
+const notional = computeNotional(rfq.strike, rfq.quantity, 18, cDec);
+
+riskState.recordQuote(
+  rfq.collateral,    // collateral token address
+  rfq.expiry,        // expiry timestamp
+  notional,          // notional in collateral units
+  pricing.delta,     // signed delta from pricing engine
+  rfq.isCall,        // true for calls, false for puts
+);
+```
+
+This updates both the `notionalByCollateral` map and the `expiryBuckets` map, ensuring subsequent risk checks reflect the cumulative exposure.
+
+<Callout type="warning">
+  Risk state is tracked locally in memory. If the maker bot restarts, the risk state resets to zero. Production systems should persist risk state or resync from on-chain position data.
+</Callout>
+
+## Notional Computation
+
+The `computeNotional` function mirrors the on-chain `CollateralMath` calculation:
+
+```ts
+function computeNotional(
+  strike: bigint,    // 1e18 fixed-point
+  quantity: bigint,  // underlying base units
+  uDec: number,      // underlying decimals (18 for WHYPE)
+  cDec: number,      // collateral decimals (6 for USDC)
+): bigint {
+  const product = strike * quantity;
+  const exponent = 18n + BigInt(uDec) - BigInt(cDec);
+  const divisor = 10n ** exponent;
+  return (product - 1n) / divisor + 1n; // ceilDiv
+}
+```
+
+For example, a $25 strike on 1 WHYPE with USDC (6 decimals):
+
+```
+notional = ceilDiv(25e18 * 1e18, 10^(18+18-6))
+         = ceilDiv(25e36, 10^30)
+         = 25_000_000 (= $25 in USDC base units)
+```
+
+## Example Configuration
+
+```ts
+const riskConfig: RiskConfig = {
+  maxNotionalPerCollateral: {
+    [USDC.toLowerCase()]: 1_000_000n * 10n ** 6n,  // $1M in USDC
+    [USDH.toLowerCase()]: 500_000n * 10n ** 6n,     // $500K in USDH
+  },
+  maxTenorSecs: 30 * 24 * 3600,      // 30 days (tighter than protocol max)
+  maxStrikeDeviationPct: 0.3,         // 30% from spot
+  maxDeltaPerExpiry: 50,              // tighter delta limit
+  minPremium: {
+    [USDC.toLowerCase()]: 10_000n,    // $0.01 USDC minimum
+    [USDH.toLowerCase()]: 10_000n,
+  },
+};
+```

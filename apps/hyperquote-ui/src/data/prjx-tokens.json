@@ -1,0 +1,1526 @@
+[
+  {
+    "address": "0x000000000000780555bd0bca3791f89f9542c2d6",
+    "symbol": "\u0004KNTQ",
+    "name": "\u0018Kinetiq Governance Token",
+    "decimals": 18
+  },
+  {
+    "address": "0x0000000f2eb9f69274678c76222b35eec7588a65",
+    "symbol": "\u0005yoUSD",
+    "name": "\u0005yoUSD",
+    "decimals": 6
+  },
+  {
+    "address": "0x000722d8e17d57e3982a5e11123b6db798b3fdfb",
+    "symbol": "\u0003WWB",
+    "name": "\u0006Wowbit",
+    "decimals": 18
+  },
+  {
+    "address": "0x000b00ba5132aa6308aea44d44dc9bf98e0c086d",
+    "symbol": "\u0006HOTAIR",
+    "name": "\u0007Hot Air",
+    "decimals": 18
+  },
+  {
+    "address": "0x000beef24a2179e4fa3871450d329b6bec75ee9b",
+    "symbol": "\u0006HOTAIR",
+    "name": "\u0007Hot Air",
+    "decimals": 18
+  },
+  {
+    "address": "0x0017dd8d6c963032d075f1d7a2d12637636117e1",
+    "symbol": "\u000fV2-PiP-WHYPE-LP",
+    "name": "\u000fPiP/WHYPE V2 LP",
+    "decimals": 18
+  },
+  {
+    "address": "0x0028d5c95a9be5b59de344027d805eb73a193c87",
+    "symbol": "\u0005rHYPE",
+    "name": "\u0019Raga Hype Stable Strategy",
+    "decimals": 6
+  },
+  {
+    "address": "0x003c0654341e17b42d07b3506e6385d8e6674013",
+    "symbol": "\u0003ALB",
+    "name": "Albatross",
+    "decimals": 6
+  },
+  {
+    "address": "0x0055bf4c5585b749e7f6eb10c85808880304dc74",
+    "symbol": "conhUSDHLUSDT",
+    "name": "\"Concentrated Hyperbloom USDHL-USDT",
+    "decimals": 18
+  },
+  {
+    "address": "0x00663650376f973dc652a2ee240c46abff6238bc",
+    "symbol": "\bSTEERAV7",
+    "name": "\u0015STEER_ALGEBRA_VAULT_7",
+    "decimals": 18
+  },
+  {
+    "address": "0x007737c2cc7c9b9f8f23659c3885b7c03aba6ff1",
+    "symbol": "\u0002tu",
+    "name": "\u0003tut",
+    "decimals": 18
+  },
+  {
+    "address": "0x00786596b4a805380e60b64d4dc845c691ac11de",
+    "symbol": "\u0006HYPURR",
+    "name": "\u0006Hypurr",
+    "decimals": 6
+  },
+  {
+    "address": "0x00ac542cb232227642c0fdff5943a71f89a893ce",
+    "symbol": "\u001aveUS-voted (CL-USDH/kHYPE)",
+    "name": "!veUS voted for USDH/kHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x00fdbc53719604d924226215bc871d55e40a1009",
+    "symbol": "\u0004LOOP",
+    "name": "\u0012Looping Collective",
+    "decimals": 18
+  },
+  {
+    "address": "0x015e60a0b239214fdeab9ad21318b12c0d97c15d",
+    "symbol": "\u0006LVUSDC",
+    "name": "\u001eBummerLazyVault_LowerRisk_USDC",
+    "decimals": 6
+  },
+  {
+    "address": "0x017097f89c6319071f9dd067115e077773d68b1d",
+    "symbol": "brinkUSDT",
+    "name": "Brink USDT",
+    "decimals": 6
+  },
+  {
+    "address": "0x0725a349f733cc13c84232a706d9ca99d2a1ef23",
+    "symbol": "\u0005BOROS",
+    "name": "\u0005Boros",
+    "decimals": 18
+  },
+  {
+    "address": "0x07282144b48b54c18e4fb592bd07456a95094258",
+    "symbol": "\u0003FHM",
+    "name": "\u0013FIRST HYPERPIE MEME",
+    "decimals": 18
+  },
+  {
+    "address": "0x073dda19364bb91ddb5e838ca57ebd36353e4061",
+    "symbol": "\u001dcowHyperswapHyperevmPiP-WHYPE",
+    "name": "Cow Hyperswap Hyperevm PiP-WHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x0777c84b2025e949b9486fd71f7a7e97c0765265",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for WHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x07980e1545c0fde1e37368a9965924ce1dcbfefe",
+    "symbol": "\u0004MOKA",
+    "name": "MOKA SENJA",
+    "decimals": 18
+  },
+  {
+    "address": "0x07a50aec9b49cd605e66b0ca7e39d781e6ae0b79",
+    "symbol": "\u0012PLP-wNLP-15JAN2026",
+    "name": "\u0018PLP Nunchi nLP 15JAN2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x07a72dd310f836adc4bd202278c8adfe73577896",
+    "symbol": "\u0018Volatile - WHYPE/USD₮0",
+    "name": "\u001fRamses Volatile - WHYPE/USD₮0",
+    "decimals": 18
+  },
+  {
+    "address": "0x07b3ce030c3a6e72e27009fb399089135420cb37",
+    "symbol": "\u001aveUS-voted (CL-USOL/WHYPE)",
+    "name": "!veUS voted for USOL/WHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x07bc893b4743b0e823de309a46102513726fa46f",
+    "symbol": "\u0006purtet",
+    "name": "\u0006purtet",
+    "decimals": 18
+  },
+  {
+    "address": "0x07c57e32a3c29d5659bda1d3efc2e7bf004e3035",
+    "symbol": "\u0004NEST",
+    "name": "\u0004Nest",
+    "decimals": 18
+  },
+  {
+    "address": "0x08118ea78d20823a24aa03a31aba41109a65fefe",
+    "symbol": "\u0007HYPEGUY",
+    "name": "\u001aChill Perp Addicts on Hype",
+    "decimals": 18
+  },
+  {
+    "address": "0x0838e6a6fc8a456beabffa7d16520a29a5514c5e",
+    "symbol": "\u0011YT-HYPED-6NOV2025",
+    "name": ")YT Hyperdrive Liquid Staked HYPE 6NOV2025",
+    "decimals": 18
+  },
+  {
+    "address": "0x0843101b48cece9838b85ad9cb2cfd2a5edc2731",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for kHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x087fcc075335f89fdac49a21c16251cfb6b082d8",
+    "symbol": "\u0006STRTST",
+    "name": "\u0006STRTST",
+    "decimals": 18
+  },
+  {
+    "address": "0x08c00f8279dff5b0cb5a04d349e7d79708ceadf3",
+    "symbol": "\u0007gtUSDCc",
+    "name": "Gauntlet USDC",
+    "decimals": 18
+  },
+  {
+    "address": "0x08cda8631fb9f8f3b8bf8f3d3e5992999c11d362",
+    "symbol": "voted-veUS",
+    "name": "\u001fVoting Receipt for USDC rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x08e3303863c6df65c38f04d3ea78185acf345fb2",
+    "symbol": "\u0005ULTRA",
+    "name": "Ultraliqui",
+    "decimals": 18
+  },
+  {
+    "address": "0x12f8e2d9beb5c853c4b317d9a398fc4511c9f3ec",
+    "symbol": "\u001eveUS-voted (CL-hbUSDT/USD₮0)",
+    "name": "%veUS voted for hbUSDT/USD₮0 CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x1312c0ffaae068d5885f18d98aba60dea781715b",
+    "symbol": "voted-veUS",
+    "name": "!Voting Receipt for CATBAL rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x1338ceaea097eeb9a3b796c3512150257b8a6b5b",
+    "symbol": "STEERAV24",
+    "name": "\u0016STEER_ALGEBRA_VAULT_24",
+    "decimals": 18
+  },
+  {
+    "address": "0x1359b05241ca5076c9f59605214f4f84114c0de8",
+    "symbol": "\u0004WHLP",
+    "name": "Wrapped HLP",
+    "decimals": 6
+  },
+  {
+    "address": "0x1368ee9d1212ae5b26ff166049220051a9eebc42",
+    "symbol": "\u0007hakHYPE",
+    "name": "\u000eHarmonix kHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x136c918d2db75b87fdc9af49d0f5ac74570b5d7f",
+    "symbol": "\u0004toto",
+    "name": "Test token",
+    "decimals": 18
+  },
+  {
+    "address": "0x1370641ecc01a3fa7334000c01abe474a5fb778c",
+    "symbol": "\u001ecowProjectXHyperevmUSDT0-kHYPE",
+    "name": "!Cow ProjectX Hyperevm USDT0-kHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x137b3de689360562401549559e2d0fc05ebece86",
+    "symbol": "\u0004LONG",
+    "name": "\bLongcoin",
+    "decimals": 6
+  },
+  {
+    "address": "0x137c7f4ec614b41d76173baef9beb8d6205222ce",
+    "symbol": "voted-veUS",
+    "name": "\u001eVoting Receipt for PiP rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x13818b79a4ecc9cd35c769e92e988564d64d9c2b",
+    "symbol": "\u0004MOON",
+    "name": "HyperMoon",
+    "decimals": 9
+  },
+  {
+    "address": "0x140e81f8c033c0705036e55be2f2fbce43e4595c",
+    "symbol": "dgnHYPE++",
+    "name": "dgnHYPE++",
+    "decimals": 18
+  },
+  {
+    "address": "0x14148d1876bd40a39db1ed09675a81e14199c394",
+    "symbol": "\u0012hyWHYPE(haHYPE)-18",
+    "name": "\u0015hyWHYPE (haHYPE) - 18",
+    "decimals": 18
+  },
+  {
+    "address": "0x143a24569a73afb856a2ee3d554abca860118785",
+    "symbol": "hHyperEvmUSDH",
+    "name": "\u0017HyperLend HyperEVM USDH",
+    "decimals": 6
+  },
+  {
+    "address": "0x1472dc5b83befcc9d323bc7bffe2be77b2257aaa",
+    "symbol": "\u0005rHYPE",
+    "name": "\u0019Raga Hype Stable Strategy",
+    "decimals": 6
+  },
+  {
+    "address": "0x1ecd15865d7f8019d546f76d095d9c93cc34edfa",
+    "symbol": "\u0004LIQD",
+    "name": "LiquidLaunch",
+    "decimals": 18
+  },
+  {
+    "address": "0x1ee330d6d81d88915d1be72b719e0d35c9c14c80",
+    "symbol": "\u0006NAPKIN",
+    "name": "Soggy Napkin",
+    "decimals": 6
+  },
+  {
+    "address": "0x1eed3eff9790847192e31133e425f2fb507bab84",
+    "symbol": "gooseycoin",
+    "name": "gooseycoin",
+    "decimals": 18
+  },
+  {
+    "address": "0x1f170f59849bf2e11a051e9da1213d672baa8748",
+    "symbol": "\u0006ISLAND",
+    "name": "\u0006ISLAND",
+    "decimals": 18
+  },
+  {
+    "address": "0x1f1fb03114128e50deb6e6543a9c9e0ab80b348e",
+    "symbol": "Diaperliquid",
+    "name": "Diaperliquid.",
+    "decimals": 6
+  },
+  {
+    "address": "0x1f2153ac62270ae4aa28f0bc748c343fd30f703f",
+    "symbol": "\u0019Volatile - WHYPE/hyperRAM",
+    "name": "Ramses Volatile - WHYPE/hyperRAM",
+    "decimals": 18
+  },
+  {
+    "address": "0x1f6ea7a91477523b9ead6db13f1373eaeb312952",
+    "symbol": "\u0011YT-wNLP-15JAN2026",
+    "name": "\u0017YT Nunchi nLP 15JAN2026",
+    "decimals": 6
+  },
+  {
+    "address": "0x1fbccdc677c10671ee50b46c61f0f7d135112450",
+    "symbol": "\u0003ETH",
+    "name": "\u0005Ether",
+    "decimals": 18
+  },
+  {
+    "address": "0x1fe8ebbfa9f903817a3a94b2b905b1fce80ef754",
+    "symbol": "$CAT FLAP",
+    "name": "\bCAT FLAP",
+    "decimals": 6
+  },
+  {
+    "address": "0x1ff49a3b81f5d1732f25a5928dcbb1991dee5735",
+    "symbol": "voted-veUS",
+    "name": "\u001fVoting Receipt for USDC rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x1ffe8dc4899d03aa675aa063b6b8869fc003408c",
+    "symbol": "eqbPENDLE-LPT",
+    "name": "Pendle Market Equilibria Deposit",
+    "decimals": 18
+  },
+  {
+    "address": "0x20489136771dbb0f81c5ea47d1446150d5918c53",
+    "symbol": "\u000econhHYPESTHYPE",
+    "name": "-Concentrated Hyperbloom Hyperswap HYPE-STHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x205be226464ab29339695c1dbf02e7fff207c4d2",
+    "symbol": "\u0004KNTQ",
+    "name": "\u0018Kinetiq Governance Token",
+    "decimals": 18
+  },
+  {
+    "address": "0x207b3c21a33e5819d980beb90c1e5953f912f550",
+    "symbol": "\beWHYPE-1",
+    "name": "\u0012EVK Vault eWHYPE-1",
+    "decimals": 18
+  },
+  {
+    "address": "0x207ccae51ad2e1c240c4ab4c94b670d438d2201c",
+    "symbol": "\u0006feUSDH",
+    "name": "Felix USDH",
+    "decimals": 18
+  },
+  {
+    "address": "0x2089dda2f84274731df3be9f9608f6ec8dad8888",
+    "symbol": "\u0011dont buy its test",
+    "name": "\u0011dont buy its test",
+    "decimals": 18
+  },
+  {
+    "address": "0x20ecf3936df08556b62fd15a4e167ae99d73b957",
+    "symbol": "stathyUSDH",
+    "name": "\u0012Static USDH Hypurr",
+    "decimals": 6
+  },
+  {
+    "address": "0x2a7220b6afb5345cb94e3e7e3f459e799058e18e",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for kHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x2ab987ccddf714fda5a1f6c88925b28bd79d6c1e",
+    "symbol": "HyperPepe",
+    "name": "HyperPepe",
+    "decimals": 18
+  },
+  {
+    "address": "0x2ae10a7a0b169253fe0719871841ab914fb91cb3",
+    "symbol": "\u0006HYPSTR",
+    "name": "\u000fHypurr Strategy",
+    "decimals": 18
+  },
+  {
+    "address": "0x2afe655e4447a694a1d7b4c3d956adc56fde8888",
+    "symbol": "\u0003131",
+    "name": "\b46+46464",
+    "decimals": 18
+  },
+  {
+    "address": "0x2b37f3566933e4dbe59c6b86bedbc91c1e04d774",
+    "symbol": "\u0010HD-VLT-GAMMA-SYM",
+    "name": "\u0014Gamma Symphony Vault",
+    "decimals": 6
+  },
+  {
+    "address": "0x2b55b35d9be63d016ee902d87af29d2c4f397dc1",
+    "symbol": "\u0013YT-hbHYPE-18DEC2025",
+    "name": "!YT Hyperbeat Ultra HYPE 18DEC2025",
+    "decimals": 18
+  },
+  {
+    "address": "0x2bb9911a1f6b9a2c791c1d49806924b65762df5b",
+    "symbol": "\u0005KEIKO",
+    "name": "KEIKO COIN",
+    "decimals": 18
+  },
+  {
+    "address": "0x2bcf8294511f09af71aa8b726f545f8407818888",
+    "symbol": "\u0004bug1",
+    "name": "\u0004bug1",
+    "decimals": 18
+  },
+  {
+    "address": "0x2bd923b4496c779b67b957131e1f8fb4e56f1220",
+    "symbol": "\u0004HYSP",
+    "name": "HyperSpartan",
+    "decimals": 6
+  },
+  {
+    "address": "0x2be1f05b22397636298981a2fcc75caf3ce80b33",
+    "symbol": "\u0007TestTTT",
+    "name": "\u0007TestTTT",
+    "decimals": 18
+  },
+  {
+    "address": "0x2be9363060ada71851e715f70c8cf093cef8447d",
+    "symbol": "\u0004test",
+    "name": "\u0004test",
+    "decimals": 18
+  },
+  {
+    "address": "0x2bf95dba743106b2237a0b2ebbb7c12abc7d063a",
+    "symbol": "\u0017PLP-stHYPE-AMM-4JUN2026",
+    "name": "\u0017PLP stHYPE AMM 4JUN2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x36f3f78548e7c0e0c4a57974066cfcbc3b69984d",
+    "symbol": "\u0004test",
+    "name": "\btest.eth",
+    "decimals": 18
+  },
+  {
+    "address": "0x3727c797073840936e3c18b4088f3574cd1a72a3",
+    "symbol": "\u0004TSLA",
+    "name": "\u0011Tesla - Wagyu.xyz",
+    "decimals": 8
+  },
+  {
+    "address": "0x3735bee5fc3aa0b6af43464445053d5fcb180c88",
+    "symbol": "STEERAV28",
+    "name": "\u0016STEER_ALGEBRA_VAULT_28",
+    "decimals": 18
+  },
+  {
+    "address": "0x374d280e3676ff974dc4423cd8f1b63157defb74",
+    "symbol": "\u0007EXTRACT",
+    "name": "Max Extract",
+    "decimals": 6
+  },
+  {
+    "address": "0x37650b29279b517023a4879917400523423e30e9",
+    "symbol": "\u0003CMI",
+    "name": "\u0014Correlated Madness I",
+    "decimals": 18
+  },
+  {
+    "address": "0x376e599dd333a83c01912466357f3ebbd4a84a1f",
+    "symbol": "\u0007testcap",
+    "name": "\u0007testcap",
+    "decimals": 18
+  },
+  {
+    "address": "0x3792af7796a258d45d3b782f5d9057684f023cd9",
+    "symbol": "\u0004SWIM",
+    "name": "DegenSwim",
+    "decimals": 18
+  },
+  {
+    "address": "0x37bd7e5463303adda760c6d8e64fa93409c08888",
+    "symbol": "大聪明",
+    "name": "大聪明",
+    "decimals": 18
+  },
+  {
+    "address": "0x37d6382b6889ccef8d6871a8b60e667115eddbcf",
+    "symbol": "\u0006pufETH",
+    "name": "\u0006pufETH",
+    "decimals": 18
+  },
+  {
+    "address": "0x37fc85112e85732b62b56a01cb3e1b9194c38ee5",
+    "symbol": "\u0007testhwo",
+    "name": "\u0007testhwo",
+    "decimals": 18
+  },
+  {
+    "address": "0x3804f051503ae267d61da8926eef1f05f600c7c3",
+    "symbol": "\u0004POOP",
+    "name": "hyperpoop",
+    "decimals": 6
+  },
+  {
+    "address": "0x38230d78c1969049734a32421fbcdd61efed216c",
+    "symbol": "\u0017YT-liquidHYPE-29JAN2026",
+    "name": "\u001eYT Liquid HYPE Yield 29JAN2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x3828ed069835cad28f83baf6e6449c626768073c",
+    "symbol": "\u001bveUS-voted (CL-WHYPE/NOCEX)",
+    "name": "\"veUS voted for WHYPE/NOCEX CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x42a1a6d32c819cbcbfad7483b574776e42964682",
+    "symbol": "\u0004CULT",
+    "name": "\bThe Cult",
+    "decimals": 18
+  },
+  {
+    "address": "0x42bc7413f27f43f9205ffe3e40e568d651968888",
+    "symbol": "\u0006Tyttyy",
+    "name": "\u0007Tttttyt",
+    "decimals": 18
+  },
+  {
+    "address": "0x42e3568e99850d6a2f4fbade7ff2d50612e408e9",
+    "symbol": "\u0005FRABY",
+    "name": "FRABY THE DOG",
+    "decimals": 18
+  },
+  {
+    "address": "0x42e4e7e81bcbb648282d5fa261b2c0840747c8f3",
+    "symbol": "\u0005BTC5S",
+    "name": "BTC 5x Short",
+    "decimals": 18
+  },
+  {
+    "address": "0x42f40d9a279160a34389b4e7c4f8e8cf485e6a80",
+    "symbol": "\u0012PLP-WHLP-25JUN2026",
+    "name": "\u0019PLP Wrapped HLP 25JUN2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x433081c58a8bff30060014134eed2601e5922759",
+    "symbol": "PENDLE-LPT",
+    "name": "Pendle Market",
+    "decimals": 18
+  },
+  {
+    "address": "0x4345174b530e431c1123221ade77e19b26c08888",
+    "symbol": "\u0016K线空投过期时间",
+    "name": "\u0016K线空投过期时间",
+    "decimals": 18
+  },
+  {
+    "address": "0x4346c98e690c17efbb999ae8e1da96b089be320b",
+    "symbol": "\u0007rerUSDC",
+    "name": "\u0014Relend Network rUSDC",
+    "decimals": 18
+  },
+  {
+    "address": "0x4354f2c471a1c3a383b100ddbce9e0c5cd7374d8",
+    "symbol": "eqbPENDLE-LPT",
+    "name": "Pendle Market Equilibria Deposit",
+    "decimals": 18
+  },
+  {
+    "address": "0x4378d5838193fdc3ed256f6c9d37dcde2c3a60cd",
+    "symbol": "\u0017Volatile - USDC/USD₮0",
+    "name": "\u001eRamses Volatile - USDC/USD₮0",
+    "decimals": 18
+  },
+  {
+    "address": "0x437cc33344a0b27a429f795ff6b469c72698b291",
+    "symbol": "\u0002wM",
+    "name": "\u000fWrappedM by M^0",
+    "decimals": 6
+  },
+  {
+    "address": "0x4386391e9481050cfc2d694d65914a1ae05a0727",
+    "symbol": "\u0011YT-USDe-27NOV2025",
+    "name": "\u0018YT Ethena USDe 27NOV2025",
+    "decimals": 18
+  },
+  {
+    "address": "0x438a5973eed017e9b4e6a0dcfcfae67290b07ee0",
+    "symbol": "PENDLE-LPT",
+    "name": "Pendle Market",
+    "decimals": 18
+  },
+  {
+    "address": "0x43a187a0ed7504e6d9015babdeb15bb11811442e",
+    "symbol": "\u0006HYPSTR",
+    "name": "\u000fHypurr Strategy",
+    "decimals": 18
+  },
+  {
+    "address": "0x43b5406549c866ccbc8802de347ab65650dbde51",
+    "symbol": "\u0003BTC",
+    "name": "\u0007Bitcoin",
+    "decimals": 18
+  },
+  {
+    "address": "0x448bb5895a90e42f1b18431bfa072ac030a18728",
+    "symbol": "\u0010tabungan anak bg",
+    "name": "\u0010tabungan anak bg",
+    "decimals": 22
+  },
+  {
+    "address": "0x4edc00fa2018d85c87d7dc26aae72bb3dc41e58f",
+    "symbol": "SPT-PT/IBT",
+    "name": "\u000eSpectra-PT/IBT",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f322145abedb2b39f69e7d4531ab4b2e6483154",
+    "symbol": "\u0006HiHYPE",
+    "name": "\u0014Hyperion Staked HYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f409f763e3252a951d3d4191949eeb894cf082a",
+    "symbol": "\u0006Hyprst",
+    "name": "\u000fHypurr Strategy",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f41e0a6c93ae094f4236c8e4a77dc5902a88888",
+    "symbol": "\u0005PULSE",
+    "name": "\u0005Pulse",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f613bc7369281b14cdf3e4640212933d45c397a",
+    "symbol": "voted-veUS",
+    "name": "!Voting Receipt for thBILL rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f7c506ea3cfd607a7ef7ef8dc678ca886e03e16",
+    "symbol": "\u0017Volatile - RAM/hyperRAM",
+    "name": "\u001eRamses Volatile - RAM/hyperRAM",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f8b2e34c85ebe8ee9c0a19e8de9a7e92a64bf63",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for WHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f8d10b4ad4d587e6fd322e965300828e4fce08d",
+    "symbol": "LICKOMYBALLS",
+    "name": "\u000eLicko my balls",
+    "decimals": 18
+  },
+  {
+    "address": "0x4f96b683714377c38123631f2d17cdf18b3f46a7",
+    "symbol": "\u0004SEDA",
+    "name": "\u0004SEDA",
+    "decimals": 18
+  },
+  {
+    "address": "0x4fa8c870f1d146419e31b8b4c4436008d30973f8",
+    "symbol": "\u0019veUS-voted (CL-USDH/UETH)",
+    "name": "veUS voted for USDH/UETH CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x4fb3711d29172574cc1ea769dd04aab1335d1285",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for kHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x4fdc8bc634a3ac7911e7edf1f31812891f41772d",
+    "symbol": "\u0006XLHYPE",
+    "name": "\u0006XLHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x4ff7bd15eaa29750e9d34eedfb00274ec987e022",
+    "symbol": "\u001bveUS-voted (CL-USDH/kmHYPE)",
+    "name": "\"veUS voted for USDH/kmHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x502ee789b448aa692901fe27ab03174c90f07dd1",
+    "symbol": "\u0006stLOOP",
+    "name": "Staked LOOP",
+    "decimals": 18
+  },
+  {
+    "address": "0x5a8c1ad77b249361b6526a186622724a176fe7a8",
+    "symbol": "voted-veUS",
+    "name": "\"Voting Receipt for USD₮0 rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x5a944b49251509c647531e2518c7d8a8840c57ed",
+    "symbol": "\bTestcoin",
+    "name": "\bTestcoin",
+    "decimals": 18
+  },
+  {
+    "address": "0x5a95f64ab22762e3cde4d40f5910c440670599b7",
+    "symbol": "\u0014YT-hakHYPE-22JAN2026",
+    "name": "\u001bYT Harmonix kHYPE 22JAN2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x5a98c6605249679adecbb1aee4cef04f06c9fc28",
+    "symbol": "\u001dveUS-voted (CL-WHYPE/wstHYPE)",
+    "name": "$veUS voted for WHYPE/wstHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x5a9f7d128d367f8ecb483b269b23457e15359174",
+    "symbol": "\u0006MASCOT",
+    "name": "HFUN Mascot",
+    "decimals": 8
+  },
+  {
+    "address": "0x5acf4c7b1d969035241a88bc6862a91a7a34301a",
+    "symbol": "\u0005KEIKO",
+    "name": "KEIKO TOKEN",
+    "decimals": 18
+  },
+  {
+    "address": "0x5aee5f57d8bcab86d38b01bb1be9e837f8a30a95",
+    "symbol": "\u0005HYDRO",
+    "name": "\u0005HYDRO",
+    "decimals": 6
+  },
+  {
+    "address": "0x5b234db9744f0d2960c878a2de370ca4d47cba16",
+    "symbol": "\u0004test",
+    "name": "\u0004TEST",
+    "decimals": 18
+  },
+  {
+    "address": "0x5b40da5f158e998bc65560176aab9b64b6d00cc2",
+    "symbol": "\u0006BACOIN",
+    "name": "\u0006Bacoin",
+    "decimals": 6
+  },
+  {
+    "address": "0x5b640b5307b09d25e91188326920cd7b4da32a06",
+    "symbol": "stathyUSDe",
+    "name": "\u0012Static USDe Hypurr",
+    "decimals": 18
+  },
+  {
+    "address": "0x5b6e350ce124abafa158775f72bac88bd180ad3a",
+    "symbol": "\u0006HFS-LP",
+    "name": "\u0010HyperFarmSwap LP",
+    "decimals": 18
+  },
+  {
+    "address": "0x5bb97ead24bd76d12b871c68e92deb4cdc5b3fc1",
+    "symbol": "\u0004HYFU",
+    "name": "\u0007HypeFun",
+    "decimals": 18
+  },
+  {
+    "address": "0x5bdc7b3ce9aa694573b21bfdc36026eb51288888",
+    "symbol": "\u0004Wife",
+    "name": "\u0004Wife",
+    "decimals": 18
+  },
+  {
+    "address": "0x5bff88ca1442c2496f7e475e9e7786383bc070c0",
+    "symbol": "\u0007sfrxUSD",
+    "name": "\u000fStaked Frax USD",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c060fb9c29d21c16aed770ef3905c0c6c178888",
+    "symbol": "\u0004DiDi",
+    "name": "\u0004DiDi",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c235275583048bf99c14c1e20de35eeb23aadd7",
+    "symbol": "\bnaWHYPEc",
+    "name": "\u001eNabla Crypto Hub WHYPE Swap LP",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c2c41bf9f0465d95f67e0ecc979037f19045f48",
+    "symbol": "\u0006HBOOST",
+    "name": "HypeBoost",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c4f3897a942acc72a1f7ab6cb20c6539afa7c42",
+    "symbol": "\u001cveUS-voted (CL-WHYPE/vkHYPE)",
+    "name": "#veUS voted for WHYPE/vkHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c542ce2e3dc25b4ef197b79b239261aae27b3dd",
+    "symbol": "\u0007naETHUc",
+    "name": "\u001dNabla Crypto Hub ETHU Swap LP",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c5b9d8e67fcf49c8ca587289fb0fd81968b00e6",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for WHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x5c61318494f3962764c3a58c00e103cd7923d5c5",
+    "symbol": "\u001aveUS-voted (CL-WHYPE/USDe)",
+    "name": "!veUS voted for WHYPE/USDe CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x6584086e8c20858e3ebf8f345fa5f06da0dd2603",
+    "symbol": "\u0006HYPSTR",
+    "name": "\u0016Hyperliquid Strategies",
+    "decimals": 18
+  },
+  {
+    "address": "0x65846f7718d45688fae3b20b70a281b3dfc57688",
+    "symbol": "\u0003ORB",
+    "name": "\u0010pondering my orb",
+    "decimals": 18
+  },
+  {
+    "address": "0x659f2fa0efd504b137cf5932b1d78fb1c2d5dd3b",
+    "symbol": "\u0010Test-vault-v5-00",
+    "name": "\u0010Test-vault-v5-00",
+    "decimals": 22
+  },
+  {
+    "address": "0x65ae484079156383a5f685bd3c86ace385140959",
+    "symbol": "\u001cveUS-voted (CL-USDH/USD₮0)",
+    "name": "#veUS voted for USDH/USD₮0 CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x6611f7b027a9855ad7ca7dfad091ea7e684a885d",
+    "symbol": "\u0017IV-HYPE-WHYPE-kHYPE-100",
+    "name": "\u0014ICHI Vault Liquidity",
+    "decimals": 18
+  },
+  {
+    "address": "0x662d197dd54f0c9997545cb5708f00827cb9c41a",
+    "symbol": "voted-veUS",
+    "name": "\"Voting Receipt for USD₮0 rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x6647896391e5e2cd4e0f78877de00069b1ec4fe4",
+    "symbol": "\u0002LX",
+    "name": "\u0002LX",
+    "decimals": 18
+  },
+  {
+    "address": "0x664e101c4ea519954ffcf049f29c40d85a777a9b",
+    "symbol": "\u0004SCAT",
+    "name": "StanceCat",
+    "decimals": 6
+  },
+  {
+    "address": "0x66616297801127ea586a7a87ce9715d374c57f7e",
+    "symbol": "SY-hwHYPE",
+    "name": "\u0011SY Hyperwave HYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x667591e49580669d639c0b9e37392aaa216dc000",
+    "symbol": "feUSDBOLD",
+    "name": "feUSD/BOLD",
+    "decimals": 18
+  },
+  {
+    "address": "0x66894de1ca1e08aaffbe70809512d57d725e30fd",
+    "symbol": "\u0005HDROP",
+    "name": "HypAirdrop",
+    "decimals": 18
+  },
+  {
+    "address": "0x669abe85f96a9e3b34723f7be9bc6f250abc0cc1",
+    "symbol": "\u0007beatUSD",
+    "name": "Hyperbeat USD",
+    "decimals": 6
+  },
+  {
+    "address": "0x669c662bd7ba7de96607bf00ce142b1ea64af3b3",
+    "symbol": "\u0017hyUSD₮0-feUSDhl-hwHLP",
+    "name": "Balancer hyUSD₮0-feUSDhl-hwHLP",
+    "decimals": 18
+  },
+  {
+    "address": "0x669d6091ebe167ff0403f338b7829182d808175d",
+    "symbol": "\u0004TEST",
+    "name": "\u0004TEST",
+    "decimals": 6
+  },
+  {
+    "address": "0x66b685a92b0ba16092e49c21debc38ce907bcf53",
+    "symbol": "\u0005Flork",
+    "name": "\u0005Flork",
+    "decimals": 6
+  },
+  {
+    "address": "0x66c07ad569d79264466289b126fd331ea2368888",
+    "symbol": "\u00052311r",
+    "name": "\u0005Asasf",
+    "decimals": 18
+  },
+  {
+    "address": "0x66c556734a5078e7604964799db4530af6128888",
+    "symbol": "\u0007FLERKEN",
+    "name": "\u0007Flerken",
+    "decimals": 18
+  },
+  {
+    "address": "0x66c58ccee34539bcc507dfbb62b7dc37518e8ec9",
+    "symbol": "\bHYPERSKI",
+    "name": "Hyper Ski",
+    "decimals": 18
+  },
+  {
+    "address": "0x66c71204b70ae27be6dc3eb41f9af5868e68fdb6",
+    "symbol": "\bfeUSDhl2",
+    "name": "\u0010USDhl (Frontier)",
+    "decimals": 18
+  },
+  {
+    "address": "0x66e51292257f65a4dca1dbe1789c3dbdda05b50a",
+    "symbol": "\u0005SUICA",
+    "name": "\u0005Suica",
+    "decimals": 6
+  },
+  {
+    "address": "0x66e5a1c9868813fce6df5924d71ccfccd57e8888",
+    "symbol": "\u0002Bb",
+    "name": "\u0002Ff",
+    "decimals": 18
+  },
+  {
+    "address": "0x66edf9343d7db8a1a970058cc2ac1c0d5484f504",
+    "symbol": "PENDLE-LPT",
+    "name": "Pendle Market",
+    "decimals": 18
+  },
+  {
+    "address": "0x66f1f39b323d1f87ad1d4ff84232f6a8c382a894",
+    "symbol": "\u0006HYPOOR",
+    "name": "\u0006HYPOOR",
+    "decimals": 18
+  },
+  {
+    "address": "0x6763b125cd2aff99b3701b2061e5fd6584cb9b2b",
+    "symbol": "feUSD-feUSDhl",
+    "name": "feUSD feUSDhl",
+    "decimals": 18
+  },
+  {
+    "address": "0x70a55422a2175f1f031a700b7196f1cf6c4527ea",
+    "symbol": "\u0004test",
+    "name": "\u0004test",
+    "decimals": 18
+  },
+  {
+    "address": "0x70ac2feeb9ab4417591a97ad2607dd0e87bb3e33",
+    "symbol": "USHUSD₮0",
+    "name": "USH/USD₮0",
+    "decimals": 18
+  },
+  {
+    "address": "0x70ba7944c34e050202b1ddcb13cf1b2c726d4125",
+    "symbol": "\u0011YT-HLPe-19MAR2026",
+    "name": "\u0011YT HLPe 19MAR2026",
+    "decimals": 18
+  },
+  {
+    "address": "0x710a6c044d23949ba3b98ce13d762503c9708ba3",
+    "symbol": "\u0005BEATS",
+    "name": ")BEATS AI - the agentic music creation lab",
+    "decimals": 18
+  },
+  {
+    "address": "0x711900e0b4fe02b6bb59da492ba75454f7169765",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for BUDDY rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x71191dee96662936806154f9af42965f788d70df",
+    "symbol": "\u0005GRAPE",
+    "name": "Grape Seed",
+    "decimals": 18
+  },
+  {
+    "address": "0x713f4c66221c3920578675dfc45cfa71b5f1f307",
+    "symbol": "\u0005PURRO",
+    "name": "\u0005Purro",
+    "decimals": 18
+  },
+  {
+    "address": "0x716d2dd531d826eb3fa1f1ffcfdd7102217a3199",
+    "symbol": "cowKittenswapHyperevmUSDT0-WHYPE",
+    "name": "#Cow Kittenswap Hyperevm USDT0-WHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x71c70906a3758b08334e0731d589886dadf53033",
+    "symbol": "\bsw-kHYPE",
+    "name": ",Spectra ERC4626 Wrapper: Kinetiq Staked HYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x720fb3d4ab32f9db6d3804f7802641b819b9a951",
+    "symbol": "\bHyperBag",
+    "name": "\bHyperBag",
+    "decimals": 18
+  },
+  {
+    "address": "0x7280cc1f369ab574c35cb8a8d0885e9486e3b733",
+    "symbol": "\u0005YEETI",
+    "name": "\u0005YEETI",
+    "decimals": 18
+  },
+  {
+    "address": "0x72873f73ea0e6398ca8c271899901bead2f98888",
+    "symbol": "\u0005ILMLS",
+    "name": "\u0012Ilostmylifesavings",
+    "decimals": 18
+  },
+  {
+    "address": "0x729655088da8624c1004bf2705e3a3eeebdf0d6d",
+    "symbol": "\u0005USDT0",
+    "name": "\u0005USDT0",
+    "decimals": 18
+  },
+  {
+    "address": "0x7d6bdf20b3a4af26e01914cfec455141f76d8888",
+    "symbol": "\u0003Tet",
+    "name": "\u0003Tet",
+    "decimals": 18
+  },
+  {
+    "address": "0x7d80cf39eb26a477d62a4c2bcbbe63892216acf5",
+    "symbol": "HyperVault",
+    "name": "HyperVault",
+    "decimals": 10
+  },
+  {
+    "address": "0x7daa84f4c204ce4e5cfbaab5b99b61817fbbff92",
+    "symbol": "\u0005testo",
+    "name": "\u0005testo",
+    "decimals": 18
+  },
+  {
+    "address": "0x7dcc0c4ba7547613dd05b2dda20f35713a2e7f4d",
+    "symbol": "DCNTRL WHYPE",
+    "name": "DCNTRL WHYPE",
+    "decimals": 22
+  },
+  {
+    "address": "0x7dcffcb06b40344eeced2d1cbf096b299fe4b405",
+    "symbol": "\u0003RUB",
+    "name": "\u0003RUB",
+    "decimals": 18
+  },
+  {
+    "address": "0x7dd479aef22d681f6328407a555f709a47b0514c",
+    "symbol": "\u0006IPHCAM",
+    "name": "iPhone Camel",
+    "decimals": 18
+  },
+  {
+    "address": "0x7e2f27e5781aea75734e3bb7a37fbc9d145c8888",
+    "symbol": "测试111qwrq",
+    "name": "测试111",
+    "decimals": 18
+  },
+  {
+    "address": "0x7e4b0e1b12d54919f0dfe20157a60d6ac5a24340",
+    "symbol": "\u0007HYPEXBT",
+    "name": "\u0007hypexbt",
+    "decimals": 6
+  },
+  {
+    "address": "0x7e824f1ccb462e09b98355702de18fd4bcf44306",
+    "symbol": "\bMOONDOGE",
+    "name": "\bMoonDoge",
+    "decimals": 18
+  },
+  {
+    "address": "0x7e923513a8326c5dd75621fb29482440ba895ec0",
+    "symbol": "4PT-LP hyWHYPE (mHYPE Isolated) (WHYPE)-20NOV2025-PRT",
+    "name": "4PT-LP hyWHYPE (mHYPE Isolated) (WHYPE)-20NOV2025-PRT",
+    "decimals": 18
+  },
+  {
+    "address": "0x7ef405f40b47a2858231544ea1ba8b85bbd45e22",
+    "symbol": "\bHYPIOSTR",
+    "name": "HypioStrategy",
+    "decimals": 18
+  },
+  {
+    "address": "0x7f20f09ea0156b3302ef1752d61fcd56075681a6",
+    "symbol": "SPT-PT/IBT",
+    "name": "\u000eSpectra-PT/IBT",
+    "decimals": 18
+  },
+  {
+    "address": "0x7f2c007f1c1ba599a82a1f4289d042d63e2228fa",
+    "symbol": "\u00025P",
+    "name": "\u00055pool",
+    "decimals": 18
+  },
+  {
+    "address": "0x88e7606172f587366fc6ee662fab89543c8b33ec",
+    "symbol": "\u0004FISH",
+    "name": "Fish Token",
+    "decimals": 18
+  },
+  {
+    "address": "0x8957f9db2ef9ac983e3acaf1805e9431f2118888",
+    "symbol": "\u0005Qqqqq",
+    "name": "Assadsdgg",
+    "decimals": 18
+  },
+  {
+    "address": "0x896ab745155e8c354183face6bff6270c01fb106",
+    "symbol": "\u0004HOLD",
+    "name": "HyperGold",
+    "decimals": 18
+  },
+  {
+    "address": "0x89a0cb789851ca0a3f00231511a39186a554d468",
+    "symbol": "\u0005vHYPE",
+    "name": "\u0005vHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0x89b0fe193887d731a2b48a5d87a1185214482ad5",
+    "symbol": "\u0004FUND",
+    "name": "\u0007HL Fund",
+    "decimals": 18
+  },
+  {
+    "address": "0x89d3e1d6531595d59344d1a4e633b2826f2abe3b",
+    "symbol": "mcUSR-gtUSDT0",
+    "name": "\u0016Balancer mcUSR-gtUSDT0",
+    "decimals": 18
+  },
+  {
+    "address": "0x89f9b5cedeacb92754fb2883600832257bac72d4",
+    "symbol": "\u0013V2-HYPEGUY-WHYPE-LP",
+    "name": "\u0013HYPEGUY/WHYPE V2 LP",
+    "decimals": 18
+  },
+  {
+    "address": "0x8a4545827df5446ba120b904e5306e58acca4e89",
+    "symbol": "\u0007eUBTC-3",
+    "name": "\u0011EVK Vault eUBTC-3",
+    "decimals": 8
+  },
+  {
+    "address": "0x8a82cf92e0e290e843e4ebcff92df788a34add3f",
+    "symbol": "\u0006thBILL",
+    "name": "\u0006thBILL",
+    "decimals": 18
+  },
+  {
+    "address": "0x8a862fd6c12f9ad34c9c2ff45ab2b6712e8cea27",
+    "symbol": "\u0006feUSDC",
+    "name": "Felix USDC",
+    "decimals": 18
+  },
+  {
+    "address": "0x8aa68830c72c3782a5ac9cd246ae67802291c44a",
+    "symbol": "voted-veUS",
+    "name": "\u001eVoting Receipt for PUP rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0x8aaaab947d8b18ceaa0ca06b5e60f7ab2f5ec92e",
+    "symbol": "\u0004LGHL",
+    "name": "\u0004LGHL",
+    "decimals": 6
+  },
+  {
+    "address": "0x8ad5eb8f4535f277a2b5ed9cb9f54bf9a6f9b41d",
+    "symbol": "\u0005SOL5S",
+    "name": "SOL 5x Short",
+    "decimals": 18
+  },
+  {
+    "address": "0x94f5c76a93f12057d73991ae5b4f70e9287b5b28",
+    "symbol": "eUSD₮0-3",
+    "name": "\u0014EVK Vault eUSD₮0-3",
+    "decimals": 6
+  },
+  {
+    "address": "0x94f7a5a6ac7beb44371e526b0bf1b6a5fd1def42",
+    "symbol": "\u0010WHYPE-kHYPE-UBTC",
+    "name": "\u0010WHYPE kHYPE UBTC",
+    "decimals": 18
+  },
+  {
+    "address": "0x9513659732ee6aa78dfa2e285a3f3c407cca90dc",
+    "symbol": "\u0017IV-HYPE-kHYPE-WHYPE-100",
+    "name": "\u0014ICHI Vault Liquidity",
+    "decimals": 18
+  },
+  {
+    "address": "0x9531805d251cae8ee7040431fc3e57f266d28888",
+    "symbol": "\u0003PRX",
+    "name": "Paper Rex",
+    "decimals": 18
+  },
+  {
+    "address": "0x95687daf51ab758e7e58fc28f7a8a36e4ccc8888",
+    "symbol": "\u00043131",
+    "name": "\u00045656",
+    "decimals": 18
+  },
+  {
+    "address": "0x9577da597ebec8dfe3fb835d56fe447d2efa9d04",
+    "symbol": "\u001dPT-sw-kHYPE(WHYPE)-2026/01/28",
+    "name": "+Principal Token: sw-kHYPE(WHYPE) 2026/01/28",
+    "decimals": 18
+  },
+  {
+    "address": "0x95a8c55723753176480a36b4b45fe6e8223d3223",
+    "symbol": "\u0015Farming WHYPE-USD₮0",
+    "name": "\u0015Farming WHYPE-USD₮0",
+    "decimals": 10
+  },
+  {
+    "address": "0x95d401f8f4e2544e8a6f6988110a9e45b80f9393",
+    "symbol": "feUSD-feUSDhl",
+    "name": "feUSD feUSDhl",
+    "decimals": 18
+  },
+  {
+    "address": "0x95deab5435df2fac8c61b18e41908fb5a66c1266",
+    "symbol": "\u001150WHYPE-50USD₮0",
+    "name": "\u001150WHYPE 50USD₮0",
+    "decimals": 18
+  },
+  {
+    "address": "0x9612639b31822071f23abd7729a2475ab06c0ab6",
+    "symbol": "\bCATAPULT",
+    "name": "\u0012Catapult Launchpad",
+    "decimals": 18
+  },
+  {
+    "address": "0x968873ebe3c5234cf7ad42aa2a1e18255e7d9bb9",
+    "symbol": "voted-veUS",
+    "name": "\u001fVoting Receipt for USOL rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0xa18e0878d47b2c22b4b84832c04544c02fd4991a",
+    "symbol": "\u0005BTC2L",
+    "name": "BTC 2x Long",
+    "decimals": 18
+  },
+  {
+    "address": "0xa18fdd2ec2bacaa73634e69a74044af1c89d7355",
+    "symbol": "\bhSOL_sub",
+    "name": "\bhSOL_sub",
+    "decimals": 9
+  },
+  {
+    "address": "0xa1e616736854e9df719be42956edbe86df568888",
+    "symbol": "\u0004Jeff",
+    "name": "\u0007jeff.hl",
+    "decimals": 18
+  },
+  {
+    "address": "0xa202b1af6f51eac6cc02791a7c28ed0340c6857f",
+    "symbol": "\u0003ass",
+    "name": "\u0003ass",
+    "decimals": 18
+  },
+  {
+    "address": "0xa20d05e1467d0d5ef0020a5ed1c5100470621efc",
+    "symbol": "\u0003RAM",
+    "name": "\u0006RAMSES",
+    "decimals": 18
+  },
+  {
+    "address": "0xa211b48c67d52da6bd6cb792fb582219a503f234",
+    "symbol": "\bSTEERUV1",
+    "name": "\u0013STEER_UNIV3_VAULT_1",
+    "decimals": 18
+  },
+  {
+    "address": "0xa2201ee761a1a838f5fcc55180c66d6395fde4d7",
+    "symbol": "\u0004Test",
+    "name": "\u0004Test",
+    "decimals": 18
+  },
+  {
+    "address": "0xa26414feda78e6a2d5b897c238e5f3b77f561018",
+    "symbol": "\u0006LIQSTR",
+    "name": "\u0014LIQUIDATION STRATEGY",
+    "decimals": 18
+  },
+  {
+    "address": "0xa26495510a97812d114d878f27827224afaa9c02",
+    "symbol": "\u0004HXRL",
+    "name": "\u001aGameFI experience by Chris",
+    "decimals": 18
+  },
+  {
+    "address": "0xa2687257e53a7cbdbb4f16c6c6a9d4f5601700e9",
+    "symbol": "\u0007CHECKER",
+    "name": "\u000eLiquid Checker",
+    "decimals": 6
+  },
+  {
+    "address": "0xa28c9e5c93f0ad6bec7180b90c7a33b947cf4219",
+    "symbol": "\u0007$STABLE",
+    "name": "\u0006STABLE",
+    "decimals": 18
+  },
+  {
+    "address": "0xa2bca6654966f836fdaf6627081950256c63fae5",
+    "symbol": "\u0004💩",
+    "name": "\u0004SHET",
+    "decimals": 18
+  },
+  {
+    "address": "0xadaef1405b36e632c925f4b4ae7a68fa480e2885",
+    "symbol": "\u0011V2-UFART-WHYPE-LP",
+    "name": "\u0011UFART/WHYPE V2 LP",
+    "decimals": 18
+  },
+  {
+    "address": "0xae60eafb73eb0516951ab20089cff32ac9dc63b7",
+    "symbol": "\u0002US",
+    "name": "UltraSolid",
+    "decimals": 18
+  },
+  {
+    "address": "0xae72c8cb0d30ea9b467e8f5dde330be1974f8888",
+    "symbol": "\u0006hahaha",
+    "name": "\u0003wxn",
+    "decimals": 18
+  },
+  {
+    "address": "0xaea02692f502b47e116bdfa9a4ceb3138bd8b516",
+    "symbol": "\u0007hyfeUSD",
+    "name": "feUSD Hypurr",
+    "decimals": 18
+  },
+  {
+    "address": "0xaf1b0cbc24876f62978f1f95aba686c13faf0cef",
+    "symbol": "\bHYPRRSTR",
+    "name": "\u001aToken.Works HypurrStrategy",
+    "decimals": 18
+  },
+  {
+    "address": "0xba0163e18b8b6236d5046841e698f2f2d89bd4bd",
+    "symbol": "\u0013stathyUSD₮0-USDXL",
+    "name": "\u001eBalancer Stata hyUSD₮0-USDXL",
+    "decimals": 18
+  },
+  {
+    "address": "0xbae4c796e2936e118367f12ea8adaa6eea658888",
+    "symbol": "\u0003TFT",
+    "name": "\u0003TFT",
+    "decimals": 18
+  },
+  {
+    "address": "0xbb16c60904cad0b2f8e4667914bb1b34ec6340b7",
+    "symbol": "\bCROAKULT",
+    "name": "\bCroakult",
+    "decimals": 18
+  },
+  {
+    "address": "0xc65b7ed65ef904222f9cb8938a66e2d8d4cf4cc1",
+    "symbol": "\u0004FRAC",
+    "name": "\u0004FRAC",
+    "decimals": 18
+  },
+  {
+    "address": "0xc6db1a93d1395e8c7fc9c481f7f0b0558eaa172e",
+    "symbol": "\u0005TITTY",
+    "name": "LiquidTitty",
+    "decimals": 6
+  },
+  {
+    "address": "0xd2e3d254cb38439f147ce57a7072960b3fafcbae",
+    "symbol": "\u001aveUS-voted (CL-USDC/kHYPE)",
+    "name": "!veUS voted for USDC/kHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0xd2f7d32f0309821fc8504bcdb0153f671423cf1f",
+    "symbol": "\u0013PT-haHYPE-20NOV2025",
+    "name": "\u0013PT haHYPE 20NOV2025",
+    "decimals": 18
+  },
+  {
+    "address": "0xd31db306e5d79f0018ac92e08492284201493ea1",
+    "symbol": "syrupUSDC",
+    "name": "Syrup USDC",
+    "decimals": 6
+  },
+  {
+    "address": "0xd3837dbf2e6ea4a69124a53686ee32b0e0d38888",
+    "symbol": "\u0003Sag",
+    "name": "\u0003Asf",
+    "decimals": 18
+  },
+  {
+    "address": "0xd40412c9f00575c5e4cc04cc61ab2b43253295e5",
+    "symbol": "\u0004HOPE",
+    "name": "\u0004HOPE",
+    "decimals": 18
+  },
+  {
+    "address": "0xd496d3fe28eb38ec6e94abd3709bb5ed39d16c04",
+    "symbol": "eqbPENDLE-LPT",
+    "name": "Pendle Market Equilibria Deposit",
+    "decimals": 18
+  },
+  {
+    "address": "0xe055ccfc930e4b702d92db85edcec99c9e441d76",
+    "symbol": "\u001fcowKittenswapHyperevmPURR-WHYPE",
+    "name": "\"Cow Kittenswap Hyperevm PURR-WHYPE",
+    "decimals": 18
+  },
+  {
+    "address": "0xe0d2f528bf6187b85639714e653ead66f8cbef22",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for WHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0xed7d51268283e7108eed1bb16e9e0fed3c028888",
+    "symbol": "\u0004bug3",
+    "name": "\u0004bug3",
+    "decimals": 18
+  },
+  {
+    "address": "0xed912f61368be50835ad7696f67d106b0cd08fe2",
+    "symbol": "\u0004SENT",
+    "name": "Sentient AI",
+    "decimals": 18
+  },
+  {
+    "address": "0xedde20b9cdb42023b1806eea045e509b8a01ec4d",
+    "symbol": "\u0006MYSTIC",
+    "name": "MysticRebase",
+    "decimals": 18
+  },
+  {
+    "address": "0xedf27e5035bf1321923f63a1f6595a737f5d7a65",
+    "symbol": "\u0019veUS-voted (CL-USDC/UETH)",
+    "name": "veUS voted for USDC/UETH CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0xf9775085d726e782e83585033b58606f7731ab18",
+    "symbol": "\u0006uniBTC",
+    "name": "\u0006uniBTC",
+    "decimals": 8
+  },
+  {
+    "address": "0xf9c625faf1160f00e3ac16e8e3e24f09b107ae53",
+    "symbol": "\bhythBILL",
+    "name": "thBILL Hypurr",
+    "decimals": 6
+  },
+  {
+    "address": "0xf9e104d08cbbbb3edc446cae4f457eaaa218d724",
+    "symbol": "\u0003DDD",
+    "name": "Demon Drip",
+    "decimals": 18
+  },
+  {
+    "address": "0xfa3f86cbaf75ddf67dfdb582bd62057e559bcb27",
+    "symbol": "voted-veUS",
+    "name": "Voting Receipt for WHYPE rewards",
+    "decimals": 18
+  },
+  {
+    "address": "0xfa45140db66d1dbc1b8bbaa1c907b174f5fc7258",
+    "symbol": "\u001cveUS-voted (CL-USDH/wstHYPE)",
+    "name": "#veUS voted for USDH/wstHYPE CL Pool",
+    "decimals": 18
+  },
+  {
+    "address": "0xfa5faba5ec32c374b4b989ffef1ea90b681a6e95",
+    "symbol": "\u000f50USDXL-50WHYPE",
+    "name": "\u000f50USDXL 50WHYPE",
+    "decimals": 18
+  }
+]

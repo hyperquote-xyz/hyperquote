@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  },
+  "references": [
+    { "path": "apps/hyperquote-ui" },
+    { "path": "packages/sdk-maker" },
+    { "path": "services/relay" },
+    { "path": "services/terminal-api" },
+    { "path": "services/terminal-ingest" }
+  ],
+  "files": []
+}

@@ -1,0 +1,260 @@
+# Authentication
+
+import { Callout, Tabs } from 'nextra/components'
+
+HyperQuote APIs support multiple authentication methods depending on the use case. Public endpoints require no authentication. Agent endpoints require a Bearer token. Quote signing uses EIP-712 typed data signatures verified both by the relay and the on-chain settlement contract.
+
+## Authentication Methods
+
+| Method | Use Case | Header / Location |
+|--------|----------|-------------------|
+| **Bearer Token** | Agent API endpoints (`/api/v1/agent/*`) | `Authorization: Bearer hq_live_...` |
+| **EIP-191 Signature** | Agent registration, wallet ownership proof | Signed message in request body |
+| **EIP-712 Typed Data** | Quote signing for on-chain settlement | Signature in quote submission payload |
+
+Public endpoints (leaderboard, feed, badges, profile, SOR) do not require authentication.
+
+## Bearer Token Authentication
+
+Agent API endpoints (`/api/v1/agent/*`) require a Bearer token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer hq_live_abc123..." \
+  https://hyperquote.xyz/api/v1/agent/rfqs
+```
+
+API keys are issued during [agent registration](/api/agent-registration) and follow the format `hq_live_` followed by a base64url-encoded random string.
+
+### How It Works
+
+1. Extract the token from the `Authorization: Bearer hq_live_...` header
+2. SHA-256 hash the raw key
+3. Look up the agent record by hash in the database
+4. Verify the agent is `ACTIVE`, within rate limits, and has the required role
+
+If authentication fails, the API returns one of:
+
+| Status | Error |
+|--------|-------|
+| `401` | Missing or invalid Authorization header |
+| `401` | Invalid API key format (must start with `hq_live_`) |
+| `401` | Invalid API key (no matching agent found) |
+| `403` | Agent is suspended or revoked |
+| `429` | Rate limit exceeded |
+
+### Verifying Your Key
+
+Use the auth check endpoint to verify your API key is valid and inspect your agent configuration:
+
+**Request:**
+
+```bash
+curl https://hyperquote.xyz/api/v1/agent/auth \
+  -H "Authorization: Bearer hq_live_abc123..."
+```
+
+**Response:**
+
+```json
+{
+  "agentId": "clx1abc2d0001...",
+  "name": "My Trading Bot",
+  "roles": ["taker", "monitor"],
+  "wallet": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "owner": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "rateLimit": {
+    "perMinute": 60,
+    "perHour": 1000
+  }
+}
+```
+
+| Status | Error |
+|--------|-------|
+| `401` | Missing or invalid API key |
+| `403` | Agent is suspended or revoked |
+
+## EIP-191 Wallet Signature Authentication
+
+For operations that prove wallet ownership without a persistent API key, HyperQuote uses EIP-191 `personal_sign` verification.
+
+The agent registration endpoint uses this method. The owner wallet signs a structured message:
+
+```
+HyperQuote Agent: {name}:{agentWallet}:{timestamp}
+```
+
+The `agentWallet` in the message must be **lowercased**. The `timestamp` must be within **5 minutes** (300 seconds) of the server's current time.
+
+### Signing Example
+
+<Tabs items={['ethers v6', 'viem']}>
+<Tabs.Tab>
+```ts
+import { Wallet, verifyMessage } from "ethers";
+
+const ownerWallet = new Wallet(process.env.OWNER_PRIVATE_KEY!);
+const name = "My Trading Bot";
+const agentWallet = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+const timestamp = Math.floor(Date.now() / 1000);
+
+const message = `HyperQuote Agent: ${name}:${agentWallet.toLowerCase()}:${timestamp}`;
+const signature = await ownerWallet.signMessage(message);
+
+// Verify locally before sending
+const recovered = verifyMessage(message, signature);
+console.log("Signer:", recovered); // Should match ownerWallet.address
+```
+</Tabs.Tab>
+<Tabs.Tab>
+```ts
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.OWNER_PRIVATE_KEY as `0x${string}`);
+const name = "My Trading Bot";
+const agentWallet = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8";
+const timestamp = Math.floor(Date.now() / 1000);
+
+const message = `HyperQuote Agent: ${name}:${agentWallet.toLowerCase()}:${timestamp}`;
+const signature = await account.signMessage({ message });
+```
+</Tabs.Tab>
+</Tabs>
+
+### Signature Freshness
+
+Signatures must be generated within **5 minutes** (300 seconds) of the current server time. Expired signatures are rejected:
+
+```json
+{
+  "error": "Signature expired. Timestamp must be within 300s of current time."
+}
+```
+
+## EIP-712 Typed Data Signatures
+
+Makers sign quotes using EIP-712 typed data signatures. These signatures serve two purposes:
+
+1. **Relay validation** — The relay verifies the signature before broadcasting the quote to other clients.
+2. **On-chain settlement** — The SpotRFQ contract verifies the same signature when the taker submits the fill transaction.
+
+### Domain
+
+```ts
+const domain = {
+  name: "HyperQuote",
+  version: "1",
+  chainId: 999,                   // HyperEVM
+  verifyingContract: SPOT_RFQ_ADDRESS,
+};
+```
+
+### Quote Types
+
+```ts
+const QUOTE_TYPES = {
+  Quote: [
+    { name: "maker",    type: "address" },
+    { name: "taker",    type: "address" },
+    { name: "tokenIn",  type: "address" },
+    { name: "tokenOut", type: "address" },
+    { name: "amountIn", type: "uint256" },
+    { name: "amountOut",type: "uint256" },
+    { name: "expiry",   type: "uint256" },
+    { name: "nonce",    type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+};
+```
+
+### Signing a Quote
+
+<Tabs items={['ethers v6', 'viem']}>
+<Tabs.Tab>
+```ts
+import { Wallet } from "ethers";
+
+const maker = new Wallet(process.env.MAKER_PRIVATE_KEY!);
+
+const quoteValues = {
+  maker: maker.address,
+  taker: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  tokenIn: "0xb88339cb7199b77e23db6e890353e22632ba630f",   // USDC
+  tokenOut: "0x5555555555555555555555555555555555555555",   // wHYPE
+  amountIn: 1000000000n,          // 1000 USDC
+  amountOut: 50000000000000000000n, // 50 wHYPE
+  expiry: BigInt(Math.floor(Date.now() / 1000) + 60),
+  nonce: 42n,
+  deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
+};
+
+const signature = await maker.signTypedData(domain, QUOTE_TYPES, quoteValues);
+```
+</Tabs.Tab>
+<Tabs.Tab>
+```ts
+import { privateKeyToAccount } from "viem/accounts";
+
+const maker = privateKeyToAccount(process.env.MAKER_PRIVATE_KEY as `0x${string}`);
+
+const signature = await maker.signTypedData({
+  domain,
+  types: QUOTE_TYPES,
+  primaryType: "Quote",
+  message: {
+    maker: maker.address,
+    taker: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    tokenIn: "0xb88339cb7199b77e23db6e890353e22632ba630f",
+    tokenOut: "0x5555555555555555555555555555555555555555",
+    amountIn: 1000000000n,
+    amountOut: 50000000000000000000n,
+    expiry: BigInt(Math.floor(Date.now() / 1000) + 60),
+    nonce: 42n,
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
+  },
+});
+```
+</Tabs.Tab>
+</Tabs>
+
+<Callout type="error">
+  The `verifyingContract` in the domain **must** match the deployed SpotRFQ address. Signatures constructed with a mismatched domain will be rejected by both the relay and the on-chain contract. See [Contract Addresses](/smart-contracts/contract-addresses) for the canonical address.
+</Callout>
+
+## Agent Roles
+
+Each agent is assigned one or more roles that determine which endpoints they can access:
+
+| Role | Access |
+|------|--------|
+| `taker` | Create RFQs, accept quotes, execute fills |
+| `maker` | Submit quotes for RFQ broadcasts |
+| `monitor` | Read-only access to RFQs, quotes, and feeds |
+
+If an agent attempts to access an endpoint outside their role, the API returns:
+
+```json
+{
+  "error": "Insufficient permissions. Required role: maker. Your roles: monitor"
+}
+```
+
+## Security Best Practices
+
+- API keys should never be committed to source control or shared publicly
+- Use environment variables or a secrets manager to store keys
+- Rotate keys periodically using `POST /api/v1/agent/keys/rotate`
+- Each owner wallet can register up to **10 agents**
+- Use the minimum required roles for each agent (principle of least privilege)
+
+<Callout type="info">
+  The raw API key (`hq_live_...`) is shown only once at registration time. The server stores only the SHA-256 hash. If you lose your key, use the [key rotation endpoint](/api/agent-registration#key-rotation) to generate a new one.
+</Callout>
+
+## Related Pages
+
+- [Agent Registration](/api/agent-registration) — Register a new agent and obtain an API key
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — Real-time quote submission via WebSocket
+- [Error Codes](/api/error-codes) — Full error reference
+- [Contract Addresses](/smart-contracts/contract-addresses) — EIP-712 domain parameters

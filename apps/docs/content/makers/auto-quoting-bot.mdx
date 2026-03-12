@@ -1,0 +1,574 @@
+# Auto-Quoting Bot
+
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+This tutorial walks you through building an automated quoting bot that connects to the HyperQuote relay, prices incoming RFQs, enforces risk limits, and submits signed quotes -- all without manual intervention. By the end, you will have a production-ready bot architecture that you can extend with your own pricing model and market data feeds.
+
+<Callout type="warning">
+  Running an automated quoting bot involves real financial risk. Incorrectly priced quotes can result in adverse fills. Always test thoroughly on a local Anvil instance before deploying to a live network. Start with conservative risk limits and small position sizes.
+</Callout>
+
+## Architecture Overview
+
+The bot processes each incoming RFQ through a sequential pipeline:
+
+```
+Connect to Relay WebSocket
+       |
+  Listen for RFQ_BROADCAST
+       |
+  1. Filter (underlying, collateral, expiry validity)
+       |
+  2. Price (Black-Scholes + vol surface + market data)
+       |
+  3. Min Premium Check (rfq.minPremium vs computed premium)
+       |
+  4. Risk Check (tenor, strike, notional, delta limits)
+       |
+  5. Build Quote (assemble Quote struct)
+       |
+  6. Sign (EIP-712 typed data)
+       |
+  7. Record Risk (update exposure state)
+       |
+  8. Submit (QUOTE_SUBMIT to relay)
+```
+
+If any stage fails, the RFQ is skipped and the bot moves on to the next broadcast. The pipeline is intentionally linear -- each stage has a clear responsibility and can be customized independently.
+
+## Running the Bundled Bot
+
+The SDK ships with `makerRelay.ts`, a fully functional bot that implements the pipeline above:
+
+```bash
+npx tsx src/makerRelay.ts
+```
+
+Output:
+
+```
+=== HyperQuote Maker Bot (Relay Mode) ===
+  Maker:    0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  Chain ID: 31337
+  Engine:   0x5FbDB2315678afecb367f032d93F642f64180aa3
+  Relay:    ws://127.0.0.1:8080
+  Spot:     $25
+
+[CONNECTED] Relay WebSocket open
+```
+
+All configuration is loaded from environment variables at startup. See [SDK Quickstart](/makers/maker-sdk-quickstart) for the full variable reference.
+
+## Pricing Logic
+
+The heart of any maker bot is its pricing engine. The SDK provides a `PricingEngine` interface and a stub Black-Scholes implementation. Production makers typically replace this with a proprietary model.
+
+### Fetching Market Prices
+
+The default bot reads spot price from an environment variable (`HYPE_SPOT_USD`). For a production bot, you need real-time prices from one or more sources.
+
+<Tabs items={['HyperCore API', 'External CEX', 'On-Chain Oracle']}>
+  <Tabs.Tab>
+```ts
+// Fetch spot from HyperCore's REST API
+async function fetchHyperCoreSpot(): Promise<number> {
+  const response = await fetch("https://api.hyperliquid.xyz/info", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "allMids" }),
+  });
+  const data = await response.json();
+  return parseFloat(data["HYPE"]);
+}
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```ts
+// Fetch spot from a CEX WebSocket (e.g., Binance)
+import WebSocket from "ws";
+
+let latestSpot = 25.0;
+
+function connectPriceFeed() {
+  const ws = new WebSocket("wss://stream.binance.com:9443/ws/hypeusdt@ticker");
+  ws.on("message", (raw) => {
+    const data = JSON.parse(raw.toString());
+    latestSpot = parseFloat(data.c); // last price
+  });
+  ws.on("close", () => setTimeout(connectPriceFeed, 5000));
+}
+
+function getSpotPrice(): number {
+  return latestSpot;
+}
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```ts
+// Fetch spot from an on-chain TWAP or oracle
+import { Contract, JsonRpcProvider } from "ethers";
+
+const ORACLE_ABI = ["function latestAnswer() view returns (int256)"];
+
+async function fetchOracleSpot(
+  oracleAddress: string,
+  provider: JsonRpcProvider,
+): Promise<number> {
+  const oracle = new Contract(oracleAddress, ORACLE_ABI, provider);
+  const answer: bigint = await oracle.latestAnswer();
+  return Number(answer) / 1e8; // Chainlink uses 8 decimals
+}
+```
+  </Tabs.Tab>
+</Tabs>
+
+<Callout type="info">
+  For latency-sensitive quoting, a WebSocket price feed is preferred over REST polling. Stale prices lead to mispriced quotes that can be adversely selected by informed takers.
+</Callout>
+
+### Building the MarketData Snapshot
+
+Regardless of your data source, construct a `MarketData` object before each pricing call:
+
+```ts
+import type { MarketData } from "@hyperquote/sdk-maker";
+
+function getMarketData(): MarketData {
+  const spotUsd = getSpotPrice(); // from your price feed
+  return {
+    spotPrice: BigInt(Math.round(spotUsd * 1e18)),
+    ivBps: getCurrentIvBps(),         // e.g., 8000 = 80%
+    riskFreeRateBps: getRiskFreeRate(), // e.g., 500 = 5%
+  };
+}
+```
+
+### Spread Calculation
+
+The spread is the maker's edge over fair value -- the primary source of revenue. The `StubPricingEngine` applies spread as a fixed percentage of notional:
+
+```
+premium = fairValue + (spreadBps / 10000) * (strike * quantity)
+```
+
+For a more sophisticated approach, consider dynamic spreads:
+
+```ts
+function computeSpreadBps(rfq: RFQ, market: MarketData, riskState: RiskState): number {
+  let spread = 200; // base: 2%
+
+  // Widen spread for larger sizes (liquidity premium)
+  const qtyUnits = Number(rfq.quantity) / 1e18;
+  if (qtyUnits > 10) spread += 50;
+  if (qtyUnits > 100) spread += 100;
+
+  // Widen spread in high-volatility regimes
+  if (market.ivBps > 10000) spread += 100; // > 100% IV
+
+  // Widen spread when approaching risk limits
+  const collateralKey = rfq.collateral.toLowerCase();
+  const currentNotional = riskState.notionalByCollateral.get(collateralKey) ?? 0n;
+  const maxNotional = 1_000_000n * 10n ** 6n;
+  const utilization = Number(currentNotional) / Number(maxNotional);
+  if (utilization > 0.7) spread += Math.floor(utilization * 200);
+
+  return spread;
+}
+```
+
+<Callout type="warning">
+  Takers see competing quotes from all makers and select the most competitive one. Setting spreads too wide means you win fewer fills. Setting them too tight risks adverse selection. Calibrate based on fill rate data and market conditions.
+</Callout>
+
+## Risk Limits
+
+The risk module prevents runaway exposure. Five checks are enforced before every quote.
+
+### Configuring Risk Limits
+
+```ts
+import type { RiskConfig } from "@hyperquote/sdk-maker";
+
+const riskConfig: RiskConfig = {
+  maxNotionalPerCollateral: {
+    [USDC.toLowerCase()]: 1_000_000n * 10n ** 6n,  // $1M max in USDC
+    [USDH.toLowerCase()]: 500_000n * 10n ** 6n,     // $500K max in USDH
+  },
+  maxTenorSecs: 30 * 24 * 3600,      // 30 days (tighter than the 90-day protocol max)
+  maxStrikeDeviationPct: 0.3,         // strikes must be within 30% of spot
+  maxDeltaPerExpiry: 50,              // max absolute delta per expiry bucket
+  minPremium: {
+    [USDC.toLowerCase()]: 10_000n,    // $0.01 USDC minimum
+    [USDH.toLowerCase()]: 10_000n,
+  },
+};
+```
+
+### Risk Check Details
+
+| Check | What It Prevents | Failure Reason |
+|---|---|---|
+| **Max Tenor** | Long-dated exposure with high uncertainty | `Tenor Xs exceeds max Ys` |
+| **Strike Deviation** | Deep OTM/ITM strikes that are hard to price | `Strike deviation X% exceeds max Y%` |
+| **Notional Limit** | Unbounded total exposure per collateral token | `Notional would exceed max for <token>` |
+| **Delta per Expiry** | Directional risk concentration at a single expiry | `Delta exposure X would exceed max Y` |
+| **Min Premium** | Dust quotes that are not worth the gas | Soft check (deferred to post-pricing) |
+
+### Max Position Size
+
+The per-collateral notional limit acts as an effective max position size. For example, with a $25 spot and a $1M notional limit in USDC, the maximum position is approximately 40,000 WHYPE options (at $25 strike).
+
+To limit exposure per individual trade, add a per-quote notional check:
+
+```ts
+const MAX_SINGLE_QUOTE_NOTIONAL = 100_000n * 10n ** 6n; // $100K per quote
+
+const notional = computeNotional(rfq.strike, rfq.quantity, 18, cDec);
+if (notional > MAX_SINGLE_QUOTE_NOTIONAL) {
+  console.log("[SKIP] Single quote notional too large");
+  return;
+}
+```
+
+### Token Exposure Tracking
+
+The `RiskState` class tracks exposure along two axes:
+
+- **Per-collateral notional** -- Total USD-equivalent exposure per stablecoin.
+- **Per-expiry delta** -- Net directional exposure per expiry date. Calls contribute positive delta, puts contribute negative delta, allowing them to partially offset.
+
+```ts
+import { RiskState, computeNotional } from "@hyperquote/sdk-maker";
+
+const riskState = new RiskState();
+
+// After each successful quote submission:
+const notional = computeNotional(rfq.strike, rfq.quantity, 18, cDec);
+riskState.recordQuote(
+  rfq.collateral,
+  rfq.expiry,
+  notional,
+  pricing.delta,
+  rfq.isCall,
+);
+```
+
+## Implementing the Pricing Callback
+
+Replace the stub engine by implementing the `PricingEngine` interface:
+
+```ts
+import type { PricingEngine, PricingResult, MarketData } from "@hyperquote/sdk-maker";
+import type { RFQ } from "@hyperquote/sdk-maker";
+
+class ProductionPricingEngine implements PricingEngine {
+  private volSurface: Map<string, number>; // strike -> IV mapping
+
+  constructor() {
+    this.volSurface = new Map();
+    // Initialize with vol surface data from Deribit, etc.
+  }
+
+  price(rfq: RFQ, market: MarketData, cDec: number): PricingResult {
+    const spot = Number(market.spotPrice) / 1e18;
+    const strike = Number(rfq.strike) / 1e18;
+    const now = Math.floor(Date.now() / 1000);
+    const T = (Number(rfq.expiry) - now) / (365.25 * 24 * 3600);
+
+    // 1. Look up implied vol from your calibrated surface
+    const iv = this.getImpliedVol(strike, T, rfq.isCall);
+
+    // 2. Compute fair value using your BSM or proprietary model
+    const { price: fairPricePerUnit, delta } = this.blackScholes(
+      spot, strike, T, iv, market.riskFreeRateBps / 10000, rfq.isCall,
+    );
+
+    // 3. Apply dynamic spread
+    const qtyUnits = Number(rfq.quantity) / 1e18;
+    const spreadBps = this.computeSpread(rfq, market);
+    const spreadAdj = (spreadBps / 10000) * (strike * qtyUnits);
+    const premiumUsd = fairPricePerUnit * qtyUnits + spreadAdj;
+
+    // 4. Convert to collateral units
+    const multiplier = 10 ** cDec;
+    const premium = BigInt(Math.ceil(premiumUsd * multiplier));
+    const fairValue = BigInt(Math.ceil(fairPricePerUnit * qtyUnits * multiplier));
+
+    return {
+      premium: premium > 0n ? premium : 1n,
+      delta,
+      fairValue,
+      ivUsed: iv,
+    };
+  }
+
+  private getImpliedVol(strike: number, T: number, isCall: boolean): number {
+    // Your vol surface lookup logic
+    return 0.80; // placeholder
+  }
+
+  private blackScholes(
+    S: number, K: number, T: number, sigma: number, r: number, isCall: boolean,
+  ): { price: number; delta: number } {
+    // Standard BSM implementation
+    // ... (see SDK source for reference)
+    return { price: 0, delta: 0 }; // placeholder
+  }
+
+  private computeSpread(rfq: RFQ, market: MarketData): number {
+    return 200; // placeholder: 2%
+  }
+}
+```
+
+Then plug it into your bot:
+
+```ts
+const pricingEngine = new ProductionPricingEngine();
+// In the RFQ handler:
+const pricing = pricingEngine.price(rfq, market, cDec);
+```
+
+## Handling Multiple Token Pairs
+
+V1 supports only WHYPE as the underlying, but multiple collateral tokens. Your bot should handle all configured collaterals:
+
+```ts
+const config: MakerConfig = {
+  // ...
+  allowedUnderlying: [WHYPE],
+  collateralTokens: {
+    [USDC.toLowerCase()]: { decimals: 6, symbol: "USDC" },
+    [USDH.toLowerCase()]: { decimals: 6, symbol: "USDH" },
+    [USDT0.toLowerCase()]: { decimals: 6, symbol: "USDT0" },
+  },
+  risk: {
+    maxNotionalPerCollateral: {
+      [USDC.toLowerCase()]: 1_000_000n * 10n ** 6n,
+      [USDH.toLowerCase()]: 500_000n * 10n ** 6n,
+      [USDT0.toLowerCase()]: 250_000n * 10n ** 6n,  // lower limit for USDT0
+    },
+    // ...
+  },
+};
+```
+
+The filter stage automatically rejects RFQs for unsupported underlyings or collateral tokens:
+
+```ts
+function isRfqAcceptable(rfq: RFQ, config: MakerConfig): boolean {
+  // 1. Underlying must be in the allowlist
+  if (!config.allowedUnderlying.some(
+    (u) => u.toLowerCase() === rfq.underlying.toLowerCase()
+  )) return false;
+
+  // 2. Collateral must be recognized
+  const collateralKey = rfq.collateral.toLowerCase();
+  if (!config.collateralTokens[collateralKey]) return false;
+
+  // 3. Expiry must be at 08:00 UTC and in the future
+  if (Number(rfq.expiry) % 86400 !== 28800) return false;
+  if (Number(rfq.expiry) <= Math.floor(Date.now() / 1000)) return false;
+
+  return true;
+}
+```
+
+## Complete Bot Example
+
+Here is a production-ready bot skeleton combining all the concepts above:
+
+```ts
+import { Wallet } from "ethers";
+import WebSocket from "ws";
+import {
+  Quote, MakerConfig, RFQ, MarketData,
+  RFQBroadcastMessage, QuoteSubmitMessage, RelayMessage,
+  quoteToJson, rfqFromJson,
+  signQuote, StubPricingEngine,
+  RiskState, checkRisk, computeNotional,
+} from "@hyperquote/sdk-maker";
+
+// ---- Configuration ----
+const WHYPE = process.env.WHYPE_ADDRESS ?? "0x0000000000000000000000000000000000000001";
+const USDC  = process.env.USDC_ADDRESS  ?? "0x0000000000000000000000000000000000000002";
+const USDH  = process.env.USDH_ADDRESS  ?? "0x0000000000000000000000000000000000000003";
+
+const config: MakerConfig = {
+  privateKey: process.env.MAKER_PRIVATE_KEY!,
+  chainId: parseInt(process.env.CHAIN_ID ?? "31337"),
+  engineAddress: process.env.ENGINE_ADDRESS ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  relayWsUrl: process.env.RELAY_WS_URL ?? "ws://127.0.0.1:8080",
+  allowedUnderlying: [WHYPE],
+  collateralTokens: {
+    [USDC.toLowerCase()]: { decimals: 6, symbol: "USDC" },
+    [USDH.toLowerCase()]: { decimals: 6, symbol: "USDH" },
+  },
+  risk: {
+    maxNotionalPerCollateral: {
+      [USDC.toLowerCase()]: 1_000_000n * 10n ** 6n,
+      [USDH.toLowerCase()]: 1_000_000n * 10n ** 6n,
+    },
+    maxTenorSecs: 90 * 24 * 3600,
+    maxStrikeDeviationPct: 0.5,
+    maxDeltaPerExpiry: 100,
+    minPremium: {
+      [USDC.toLowerCase()]: 1000n,
+      [USDH.toLowerCase()]: 1000n,
+    },
+  },
+  quoteDeadlineSecs: 120,
+};
+
+// ---- State ----
+const wallet = new Wallet(config.privateKey);
+const pricingEngine = new StubPricingEngine();
+const riskState = new RiskState();
+let nonce = 0n;
+
+function getMarketData(): MarketData {
+  const spotUsd = parseFloat(process.env.HYPE_SPOT_USD ?? "25");
+  return {
+    spotPrice: BigInt(Math.round(spotUsd * 1e18)),
+    ivBps: parseInt(process.env.HYPE_IV_BPS ?? "8000"),
+    riskFreeRateBps: parseInt(process.env.RISK_FREE_RATE_BPS ?? "500"),
+  };
+}
+
+function isRfqAcceptable(rfq: RFQ): boolean {
+  if (!config.allowedUnderlying.some(u => u.toLowerCase() === rfq.underlying.toLowerCase())) return false;
+  if (!config.collateralTokens[rfq.collateral.toLowerCase()]) return false;
+  if (Number(rfq.expiry) % 86400 !== 28800) return false;
+  if (Number(rfq.expiry) <= Math.floor(Date.now() / 1000)) return false;
+  return true;
+}
+
+// ---- Pipeline ----
+async function processRfq(rfqId: string, rfq: RFQ, ws: WebSocket) {
+  // 1. Filter
+  if (!isRfqAcceptable(rfq)) return;
+
+  // 2. Price
+  const market = getMarketData();
+  const collateralKey = rfq.collateral.toLowerCase();
+  const cDec = config.collateralTokens[collateralKey]?.decimals ?? 6;
+  const pricing = pricingEngine.price(rfq, market, cDec);
+
+  // 3. Min premium check
+  if (rfq.minPremium > 0n && pricing.premium < rfq.minPremium) return;
+
+  // 4. Risk check
+  const riskResult = checkRisk(rfq, market, config.risk, riskState, cDec, pricing.delta);
+  if (!riskResult.passed) {
+    console.log(`  [SKIP] Risk: ${riskResult.reason}`);
+    return;
+  }
+
+  // 5. Build quote
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const quote: Quote = {
+    maker: wallet.address,
+    taker: "0x0000000000000000000000000000000000000000",
+    underlying: rfq.underlying,
+    collateral: rfq.collateral,
+    isCall: rfq.isCall,
+    isMakerSeller: false,
+    strike: rfq.strike,
+    quantity: rfq.quantity,
+    premium: pricing.premium,
+    expiry: rfq.expiry,
+    deadline: now + BigInt(config.quoteDeadlineSecs),
+    nonce,
+  };
+
+  // 6. Sign
+  const signature = await signQuote(wallet, quote, config.chainId, config.engineAddress);
+
+  // 7. Record risk
+  const notional = computeNotional(rfq.strike, rfq.quantity, 18, cDec);
+  riskState.recordQuote(rfq.collateral, rfq.expiry, notional, pricing.delta, rfq.isCall);
+  nonce += 1n;
+
+  // 8. Submit
+  const submitMsg: QuoteSubmitMessage = {
+    type: "QUOTE_SUBMIT",
+    data: { rfqId, quote: quoteToJson(quote), makerSig: signature },
+  };
+  ws.send(JSON.stringify(submitMsg));
+  console.log(`[QUOTE] ${rfqId.slice(0, 14)}... premium=${pricing.premium} delta=${pricing.delta.toFixed(4)}`);
+}
+
+// ---- WebSocket Lifecycle ----
+function connect() {
+  const ws = new WebSocket(config.relayWsUrl!);
+
+  ws.on("open", () => console.log("[CONNECTED] Relay WebSocket open"));
+
+  ws.on("message", async (data) => {
+    try {
+      const msg: RelayMessage = JSON.parse(data.toString());
+      if (msg.type === "PING") { ws.send(JSON.stringify({ type: "PONG", data: {} })); return; }
+      if (msg.type === "ERROR") { console.error("[ERROR]", (msg.data as any).message); return; }
+      if (msg.type === "RFQ_BROADCAST") {
+        const broadcast = msg as unknown as RFQBroadcastMessage;
+        await processRfq(broadcast.data.rfqId, rfqFromJson(broadcast.data.rfq), ws);
+      }
+    } catch (err) {
+      console.error("[ERROR] Processing message:", err);
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("[DISCONNECTED] Reconnecting in 3s...");
+    setTimeout(connect, 3000);
+  });
+
+  ws.on("error", (err) => console.error("[WS ERROR]", err.message));
+
+  // Keepalive
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "PING", data: {} }));
+    }
+  }, 30_000);
+  ws.on("close", () => clearInterval(pingInterval));
+}
+
+// ---- Startup ----
+console.log(`=== HyperQuote Maker Bot ===`);
+console.log(`  Maker:  ${wallet.address}`);
+console.log(`  Relay:  ${config.relayWsUrl}`);
+connect();
+```
+
+## Pipeline Customization Points
+
+| Stage | What to Customize | How |
+|---|---|---|
+| **Filter** | Add token pair restrictions, blocklists, time-of-day filters | Modify `isRfqAcceptable()` |
+| **Pricing** | Replace stub BSM with a proprietary model | Implement `PricingEngine` interface |
+| **Market Data** | Add real-time price feeds (WebSocket, REST, oracle) | Replace `getMarketData()` |
+| **Risk** | Adjust limits, add per-trade caps, position-aware checks | Modify `RiskConfig` values and extend `checkRisk` |
+| **Quote Building** | Target specific takers, adjust deadlines dynamically | Modify the `quote` construction |
+| **Reconnect** | Add exponential backoff, alerting, health monitoring | Modify the `ws.on("close")` handler |
+
+<Callout type="info">
+  The bot also ships with an offline mock mode (`main.ts`) that processes a built-in set of RFQs without a relay connection. This is useful for testing pricing and risk logic in isolation: `npx tsx src/main.ts`
+</Callout>
+
+## Monitoring and Observability
+
+For production deployments, consider adding:
+
+- **Structured logging** -- Log each pipeline stage with RFQ ID, timing, and outcome.
+- **Metrics** -- Track quotes submitted, quotes skipped (by reason), fill rate, average premium.
+- **Alerting** -- Alert on relay disconnects, risk limit breaches, and pricing engine errors.
+- **Local reliability tracking** -- Monitor your cancel rate to maintain a high [reliability score](/makers/maker-reliability-score).
+
+## Next Steps
+
+- [SDK Reference](/makers/maker-sdk-reference) -- Full API documentation for every module and function.
+- [Pricing Strategies](/makers/pricing-strategies) -- Deep dive into vol surfaces, skew, and spread optimization.
+- [Risk Management](/makers/risk-management) -- Detailed explanation of all five risk checks.
+- [Relay Connection](/makers/relay-connection) -- WebSocket protocol, heartbeat, and auto-reconnect with exponential backoff.
+- [Private RFQ Routing](/makers/private-rfq-routing) -- How to receive exclusive quoting opportunities.

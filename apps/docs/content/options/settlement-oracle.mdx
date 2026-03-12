@@ -1,0 +1,159 @@
+# Settlement Oracle
+
+import { Callout } from 'nextra/components'
+
+The settlement oracle provides the reference price used to determine whether options expire in-the-money or out-of-the-money. HyperQuote V1 uses the `SettlementPublisher` contract, which implements a commit-reveal mechanism to prevent front-running of settlement prices.
+
+## ISettlementOracle Interface
+
+The OptionsEngine interacts with the oracle through a minimal interface, allowing the oracle implementation to be swapped in future versions (e.g., for a HyperCore precompile reader) without modifying the options engine.
+
+```solidity
+interface ISettlementOracle {
+    function getSettlementPrice(address asset, uint256 expiry)
+        external view returns (uint256 price, bool settled);
+
+    function hasPriceFor(address asset, uint256 expiry)
+        external view returns (bool);
+
+    event SettlementPricePublished(
+        address indexed asset,
+        uint256 indexed expiry,
+        uint256 price,
+        address publisher
+    );
+}
+```
+
+### `getSettlementPrice`
+
+Returns the settlement price for a given asset and expiry timestamp. The `settled` boolean indicates whether a finalized price exists. If `settled` is `false`, the `price` value is zero and should not be used.
+
+### `hasPriceFor`
+
+Convenience function that returns `true` if a price has been finalized for the given asset/expiry pair.
+
+## Price Format
+
+Settlement prices are denominated in **USD with 18 decimal places**:
+
+| Price | On-Chain Value |
+|---|---|
+| $1.00 | `1000000000000000000` (1e18) |
+| $25.00 | `25000000000000000000` (25e18) |
+| $24.57 | `24570000000000000000` (24.57e18) |
+
+This matches the strike price format used in the `Quote` struct, enabling direct comparison during settlement (e.g., `settlementPrice > pos.strike` for covered call ITM check).
+
+## SettlementPublisher: Commit-Reveal
+
+The V1 oracle uses a two-phase commit-reveal process to prevent front-running. A publisher cannot simply post a price in a single transaction because MEV searchers could observe the price in the mempool and settle positions before the price is recorded.
+
+### Phase 1: Commit
+
+An authorized publisher calls `commitPrice(commitHash)` where:
+
+```
+commitHash = keccak256(abi.encodePacked(asset, expiry, price, salt))
+```
+
+The contract stores the commit timestamp. The commit must happen **before** the option's expiry timestamp to prevent post-expiry price manipulation:
+
+```solidity
+if (committedAt >= expiry) revert CommitAfterExpiry();
+```
+
+<Callout type="info">
+The commitment does not reveal the actual price. Only the hash is stored on-chain, so observers cannot extract the settlement price from the commit transaction.
+</Callout>
+
+### Phase 2: Reveal
+
+After a mandatory delay, the publisher calls `revealPrice(asset, expiry, price, salt)` with the original parameters. The contract verifies the reveal against the stored commitment.
+
+```solidity
+function revealPrice(
+    address asset,
+    uint256 expiry,
+    uint256 price,
+    bytes32 salt
+) external onlyPublisher
+```
+
+The reveal must satisfy four timing constraints:
+
+| Constraint | Check | Purpose |
+|---|---|---|
+| Price not already set | `!_settled[asset][expiry]` | Prevents overwriting |
+| Expiry has passed | `block.timestamp >= expiry` | Price only revealed after expiry |
+| Reveal delay elapsed | `block.timestamp >= committedAt + REVEAL_DELAY` | Prevents same-block front-running |
+| Within reveal window | `block.timestamp <= committedAt + REVEAL_WINDOW` | Ensures timely publication |
+
+### Timing Constants
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `REVEAL_DELAY` | 5 minutes | Minimum time between commit and reveal |
+| `REVEAL_WINDOW` | 24 hours | Maximum time after commit to perform the reveal |
+
+### Verification
+
+The contract recomputes the commit hash from the revealed parameters and verifies it matches the stored commitment:
+
+```solidity
+bytes32 commitHash = keccak256(abi.encodePacked(asset, expiry, price, salt));
+uint256 committedAt = commitTimestamps[commitHash];
+if (committedAt == 0) revert NotCommitted();
+```
+
+After successful verification, the price is stored permanently and the commitment is deleted to free storage.
+
+## Authorized Publishers
+
+The contract owner manages a set of authorized publishers via:
+
+- `addPublisher(address)` -- Grants price publishing authorization
+- `removePublisher(address)` -- Revokes authorization
+
+Both `commitPrice` and `revealPrice` are gated by the `onlyPublisher` modifier. Only authorized addresses can publish settlement prices.
+
+## Commit-Reveal Timeline
+
+```
+        Commit                  Expiry              Reveal
+          │                       │                   │
+          │    REVEAL_DELAY       │                   │
+          │◄─────(5 min)────────►│                   │
+          │                       │                   │
+          │◄──────────── REVEAL_WINDOW (24h) ────────►│
+          │                       │                   │
+  commitPrice()             Option expires      revealPrice()
+  (stores hash)            (08:00 UTC)         (stores price)
+```
+
+The publisher can commit at any time before expiry. After expiry, they wait at least 5 minutes past the commit time, then reveal the price. The reveal must occur within 24 hours of the commit.
+
+<Callout type="warning">
+If a publisher fails to reveal within the 24-hour window, the commitment expires and a new commit-reveal cycle must be started. Positions depending on this price will remain in `pending_expiry` until a valid price is published.
+</Callout>
+
+## Storage Model
+
+Prices are stored in a double mapping indexed by asset address and expiry timestamp:
+
+```
+asset => expiry => price     (uint256)
+asset => expiry => settled   (bool)
+```
+
+Once a price is set (`settled = true`), it cannot be changed. This immutability ensures that settlement outcomes are deterministic and cannot be altered after the fact.
+
+## Future Oracle Implementations
+
+The `ISettlementOracle` interface is designed to be swappable. The contract owner can call `setOracle(address)` on the OptionsEngine to point to a new oracle implementation. Potential future implementations include:
+
+- A HyperCore precompile reader that derives settlement prices from the HyperCore order book
+- A multi-source aggregator that combines prices from multiple feeds
+- A decentralized oracle network integration
+
+Any replacement must implement `getSettlementPrice` and `hasPriceFor` with the same 18-decimal USD price format.

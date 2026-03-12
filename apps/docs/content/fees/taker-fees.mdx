@@ -1,0 +1,86 @@
+# Taker Fees
+
+import { Callout } from 'nextra/components'
+
+As a taker, the fees you pay on HyperQuote are transparent and visible before you confirm any trade. The protocol deducts a percentage from the output tokens you receive, and the UI displays both the gross and net amounts so you always know the effective rate.
+
+## How Fees Appear in the UI
+
+When you request a quote and receive responses from makers, the quote comparison panel shows:
+
+- **Gross amount** -- The raw `amountOut` the maker quoted.
+- **Protocol fee** -- The fee deducted by the settlement contract, calculated as `amountOut * feePips / 10000`.
+- **Net amount** -- What you actually receive: `amountOut - fee`.
+- **Effective rate** -- Your net amount divided by your input, expressed as a per-token price.
+
+All quotes in the comparison panel are ranked by **net amount**, not gross amount. This ensures you are always comparing apples to apples.
+
+<Callout type="info">
+  The quote comparison panel automatically accounts for fees. The "best quote" badge is awarded to the maker whose quote delivers the highest net amount to you after the protocol fee deduction.
+</Callout>
+
+## Effective Rate After Fees
+
+The effective rate is the price you actually pay per output token after all fees:
+
+```
+Input:          10,000 USDC
+Gross amountOut: 500 HYPE (maker quote)
+feePips:         250 bps
+
+Fee:            500 * 250 / 10000 = 12.5 HYPE
+Net received:   487.5 HYPE
+
+Effective rate: 10,000 / 487.5 = 20.51 USDC per HYPE
+Gross rate:     10,000 / 500   = 20.00 USDC per HYPE
+```
+
+The fee increases your effective cost by the `feePips` percentage. At 250 bps, this adds approximately 2.56% to the gross rate (since the fee is on the output side, the percentage impact on the rate is slightly higher than the raw bps figure).
+
+## Comparison Against AMM Swap Fees
+
+The HyperQuote UI includes a venue comparison engine that fetches parallel quotes from AMM DEXes on HyperEVM and the HyperCore native order book. This lets you directly compare the all-in cost of executing via RFQ versus alternative venues.
+
+| Venue | Typical Fee | Price Impact | MEV Risk |
+|-------|-------------|--------------|----------|
+| **HyperQuote RFQ** | 250 bps (feePips) | None (firm quote) | None (atomic settlement) |
+| **Uniswap-style AMM** | 30 bps (pool fee) | Scales with size | Sandwich risk |
+| **HyperCore CLOB** | Variable (taker fee) | Depends on book depth | Minimal |
+
+For small trades (under ~$1,000), AMM fees are typically lower in raw percentage terms. However, AMM execution includes **price impact** that increases with trade size, plus potential **MEV extraction** from sandwich attacks. For larger trades, the fixed RFQ fee often results in better net execution despite the higher nominal fee rate, because there is zero price impact and zero MEV risk.
+
+<Callout type="warning">
+  The venue comparison shows the best available route for each venue at the time of your request. Market conditions change rapidly, so the comparison is a snapshot. If you wait too long before executing, the quotes and venue prices may shift.
+</Callout>
+
+## When RFQ Beats AMMs
+
+RFQ execution tends to outperform AMM execution in the following scenarios:
+
+- **Large trades** ($5,000+) -- AMM price impact often exceeds the RFQ fee for size.
+- **Thin liquidity pairs** -- Pairs with shallow AMM pools suffer severe slippage. RFQ makers can source liquidity off-chain.
+- **Volatile markets** -- AMM quotes are stale during rapid price movements. RFQ makers price in real-time conditions.
+- **MEV-sensitive trades** -- Any trade routed through a public mempool is vulnerable to sandwich attacks. RFQ trades settle atomically with no mempool exposure.
+
+## When AMMs May Be Cheaper
+
+- **Small trades** (under ~$500) -- The fixed percentage fee on AMM pools (e.g., 30 bps) may be lower than the RFQ fee, and price impact is negligible at small sizes.
+- **Highly liquid pairs** -- Major stablecoin pairs with deep AMM liquidity may have negligible price impact even at moderate sizes.
+- **No active makers** -- If no makers are online to quote your pair, AMM execution is the only available option.
+
+## Fee Transparency
+
+Every fee charged by HyperQuote is:
+
+1. **On-chain** -- The `feePips` value is a public state variable on the settlement contract.
+2. **Pre-displayed** -- Shown in the UI before you confirm the trade.
+3. **Deterministic** -- Calculated by the smart contract at execution time using the exact formula.
+4. **Non-negotiable** -- The same fee rate applies to all takers equally.
+
+There are no hidden spreads, rebates, or off-chain charges.
+
+## Related Pages
+
+- [Fee Structure](/fees/fee-structure) -- Complete overview of all protocol fees
+- [Maker Fees](/fees/maker-fees) -- How makers account for fees in pricing
+- [Venue Comparison Engine](/trading/venue-comparison-engine) -- How the UI compares RFQ against other venues

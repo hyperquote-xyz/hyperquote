@@ -1,0 +1,71 @@
+# Quote Expiry Risk
+
+import { Callout } from 'nextra/components'
+
+Every RFQ quote includes a deadline (TTL) after which it becomes invalid. If a taker does not submit the settlement transaction before the deadline, the quote expires and cannot be used. This creates timing risks that participants should understand.
+
+## TTL Deadlines
+
+Each signed quote includes a `deadline` field, which is a Unix timestamp after which the settlement contract will reject the quote. The deadline is set by the maker at the time of quoting and is part of the EIP-712 signed data.
+
+Typical TTL values range from 30 seconds to a few minutes. Shorter TTLs protect makers from price movement risk but give takers less time to compare and execute. Longer TTLs give takers more flexibility but expose makers to stale pricing.
+
+| TTL Duration | Maker Risk | Taker Risk |
+|-------------|------------|------------|
+| 15-30 seconds | Low (fresh pricing) | High (must act quickly) |
+| 30-60 seconds | Moderate | Moderate |
+| 60-120 seconds | Higher (price may move) | Low (plenty of time) |
+
+## Price Movement During TTL
+
+Between the time a quote is generated and the time the taker submits the settlement transaction, the market price may move. This creates asymmetric risk:
+
+- **If price moves in the taker's favor** -- The maker's quote is still valid. The maker fulfills the trade at a now-unfavorable price (from their perspective). The maker accepted this risk when setting the TTL.
+- **If price moves against the taker** -- The quote may now be worse than alternative venues. The taker should check the venue comparison before executing, as a better option may be available.
+
+<Callout type="info">
+  Makers account for potential price movement when setting their quotes. Longer TTLs typically come with wider spreads to compensate for the additional risk. This is why takers may see tighter prices from makers who offer shorter deadlines.
+</Callout>
+
+## Network Congestion
+
+HyperEVM transaction inclusion depends on network conditions. If the network is congested at the time the taker submits the settlement transaction:
+
+- The transaction may be delayed in the mempool.
+- If the delay pushes the transaction past the quote deadline, the settlement will revert.
+- The taker loses the gas cost of the reverted transaction.
+- The trade is not executed, and the taker must request a new quote.
+
+During periods of high network activity, takers should submit settlement transactions promptly after receiving a quote, leaving a buffer for potential inclusion delays.
+
+## Stale Pricing
+
+A quote that is valid (not yet past its deadline) may still represent stale pricing if market conditions have changed significantly since it was generated. The settlement contract only checks the deadline, not whether the price is still market-competitive.
+
+A taker who receives a quote and waits 50 seconds of a 60-second TTL is technically able to execute, but the pricing reflects conditions from 50 seconds ago. In volatile markets, this can be material.
+
+<Callout type="warning">
+  The venue comparison in the UI shows real-time alternative prices. If you notice that a maker's RFQ quote is significantly worse than the AMM route shown in the comparison, the quote may be stale even if it has not expired.
+</Callout>
+
+## Maker Quote Cancellation
+
+A maker can invalidate outstanding quotes by calling `incrementNonce()` on-chain. This cancels all quotes signed with the previous nonce, even if they have not expired. If a taker attempts to execute a quote whose nonce has been invalidated:
+
+- The settlement transaction will revert.
+- The taker loses the gas cost of the reverted transaction.
+
+Nonce cancellation is rare in normal operation but may occur during rapid market moves when makers need to withdraw stale quotes quickly.
+
+## Mitigation Strategies
+
+1. **Execute promptly** -- Submit the settlement transaction as soon as you have selected a quote. Do not wait until the last seconds of the TTL.
+2. **Check the venue comparison** -- Before executing, verify that the RFQ quote is still competitive against real-time alternative venues.
+3. **Use adequate gas** -- Set a gas price that ensures timely inclusion. Underpaying for gas increases the risk of missing the deadline.
+4. **Understand revert costs** -- A reverted settlement transaction costs gas but does not transfer any tokens. Factor this into your decision to execute close to a deadline.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Liquidity Risk](/risk/liquidity-risk) -- Quote availability concerns
+- [Volatility Risk](/risk/volatility-risk) -- Market movement risks

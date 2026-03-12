@@ -1,0 +1,234 @@
+# Reliability Score
+
+import { Callout, Steps } from 'nextra/components'
+
+The maker reliability score is a metric that tracks how dependably a maker follows through on submitted quotes. Makers who consistently honor their quotes receive a bonus to their league ranking, while makers who frequently cancel are penalized. This page explains the formula, what counts as a cancellation, how the score affects RFQ routing, the tier system, and how to maintain a high score.
+
+## What the Reliability Score Measures
+
+The reliability score captures three aspects of maker behavior:
+
+- **Response rate** -- How consistently the maker quotes on RFQs they receive.
+- **Fill rate** -- How often submitted quotes result in successful fills (i.e., the maker does not cancel before the taker executes).
+- **Quote quality** -- Indirectly, through the cancel rate. Makers who quote speculatively and then cancel have poor quality.
+
+The primary input to the score is the **cancel rate**: the ratio of cancelled quotes to total quotes submitted.
+
+## How It's Calculated
+
+The reliability factor is computed using a weighted formula:
+
+```
+reliabilityFactor = clamp(1.1 - cancelRate * 1.5, 0.5, 1.1)
+```
+
+Where:
+
+- `cancelRate` = number of cancelled quotes / total quotes submitted (a decimal between 0 and 1).
+- `clamp(x, min, max)` = constrain `x` to the range `[min, max]`.
+- The coefficient `1.5` on `cancelRate` means even modest cancel rates have a noticeable impact.
+
+### Worked Examples
+
+| Cancel Rate | Calculation | Reliability Factor |
+|---|---|---|
+| 0% (never cancels) | `1.1 - 0 * 1.5 = 1.1` | **1.10** (maximum bonus) |
+| 5% | `1.1 - 0.05 * 1.5 = 1.025` | **1.025** |
+| 6.7% (neutral) | `1.1 - 0.067 * 1.5 = 1.0` | **1.00** (no bonus or penalty) |
+| 10% | `1.1 - 0.10 * 1.5 = 0.95` | **0.95** |
+| 20% | `1.1 - 0.20 * 1.5 = 0.80` | **0.80** |
+| 30% | `1.1 - 0.30 * 1.5 = 0.65` | **0.65** |
+| 40%+ | `1.1 - 0.40 * 1.5 = 0.50` | **0.50** (minimum, clamped) |
+
+Key thresholds:
+
+- **7% cancel rate** drops the factor to approximately 1.0 -- the neutral level where there is no bonus and no penalty.
+- **20% cancel rate** drops the factor to 0.8 -- a meaningful 20% penalty.
+- **40%+ cancel rate** clamps at the floor of 0.5 -- your effective score is halved.
+
+## What Counts as a Cancellation
+
+A quote is considered "cancelled" under any of these conditions:
+
+1. **On-chain cancellation** -- The maker calls `OptionsEngine.cancelQuote(quote)`, which marks the quote's EIP-712 digest as used and prevents execution.
+2. **Bulk nonce invalidation** -- The maker calls `OptionsEngine.incrementNonce()`, which invalidates all outstanding quotes with nonces below the new on-chain nonce. Each invalidated quote counts individually.
+3. **Relay-side withdrawal** -- The maker sends a withdrawal message to the relay to retract a quote before the taker can execute it.
+
+<Callout type="info">
+  Quotes that simply expire because the `deadline` passes are **not** counted as cancellations. The deadline is a natural validity window, and letting a quote expire is expected behavior. Only active cancellation actions affect the score.
+</Callout>
+
+### The Rolling Cancel Rate
+
+The cancel rate is computed as a rolling metric over recent activity:
+
+```
+cancelRate = cancelledQuotes / totalQuotesSubmitted
+```
+
+Each cancellation increases the numerator while each submitted quote increases the denominator. Over time, consistent quoting without cancellations drives the cancel rate toward zero.
+
+<Callout type="warning">
+  Rapid-fire quoting followed by mass cancellation is the fastest way to destroy your reliability score. Calling `incrementNonce()` when 50 quotes are outstanding registers as 50 individual cancellations. This can spike your cancel rate dramatically in a single event.
+</Callout>
+
+## How It Affects RFQ Routing Priority
+
+The reliability factor serves as a multiplier in the maker league ranking system:
+
+```
+effectiveScore = baseScore * reliabilityFactor
+```
+
+This means:
+
+- A maker with a perfect reliability factor (1.10) gets a **10% bonus** to their league score.
+- A maker with a 0.50 reliability factor has their **score halved**.
+- Two makers with identical base scores will be ranked differently based on their reliability.
+
+### Routing Implications
+
+While all connected makers receive public `RFQ_BROADCAST` messages regardless of score, the reliability factor influences:
+
+- **League ranking** -- Higher-ranked makers are more visible to takers reviewing the leaderboard.
+- **Taker preferences** -- Informed takers reviewing the leaderboard may preferentially route [private RFQs](/makers/private-rfq-routing) to makers with high reliability scores.
+- **Future routing features** -- The reliability score provides infrastructure for potential future features like priority routing or tiered broadcast ordering.
+
+## Score Tiers
+
+Makers are grouped into tiers based on their reliability factor:
+
+| Tier | Reliability Factor | Cancel Rate Range | League Impact |
+|---|---|---|---|
+| **Gold** | 1.05 -- 1.10 | 0% -- 3.3% | Score boosted up to 10%. Premium visibility. |
+| **Silver** | 0.95 -- 1.05 | 3.3% -- 10% | Near-neutral impact. Solid standing. |
+| **Bronze** | 0.75 -- 0.95 | 10% -- 23% | Noticeable penalty. Score reduced up to 25%. |
+| **At Risk** | 0.50 -- 0.75 | 23% -- 40% | Significant penalty. Score reduced up to 50%. |
+
+<Callout type="info">
+  New makers with no quoting history start with a reliability factor of 1.10 (Gold tier). This assumes good faith and gives new participants a fair starting position. The factor adjusts as quoting activity accumulates.
+</Callout>
+
+## How to Check Your Score
+
+### Local Tracking
+
+Track your cancel rate locally within your maker bot:
+
+```ts
+let totalSubmitted = 0;
+let totalCancelled = 0;
+
+function onQuoteSubmitted() {
+  totalSubmitted++;
+  logReliability();
+}
+
+function onQuoteCancelled() {
+  totalCancelled++;
+  logReliability();
+}
+
+function getReliabilityFactor(): number {
+  if (totalSubmitted === 0) return 1.1; // no history, assume perfect
+  const cancelRate = totalCancelled / totalSubmitted;
+  return Math.max(0.5, Math.min(1.1, 1.1 - cancelRate * 1.5));
+}
+
+function getTier(): string {
+  const factor = getReliabilityFactor();
+  if (factor >= 1.05) return "Gold";
+  if (factor >= 0.95) return "Silver";
+  if (factor >= 0.75) return "Bronze";
+  return "At Risk";
+}
+
+function logReliability() {
+  const factor = getReliabilityFactor();
+  const tier = getTier();
+  const rate = totalSubmitted > 0 ? (totalCancelled / totalSubmitted * 100).toFixed(1) : "0.0";
+  console.log(
+    `[RELIABILITY] ${tier} | factor=${factor.toFixed(3)} | `
+    + `cancel_rate=${rate}% | submitted=${totalSubmitted} cancelled=${totalCancelled}`
+  );
+}
+```
+
+### Relay Health Endpoint
+
+Monitor your maker's overall activity via the relay REST endpoint:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+The response includes `totalQuotes` and `connectedClients`, which can be used alongside your local tracking for cross-verification.
+
+## Tips for Maintaining a High Score
+
+<Steps>
+
+### Only quote when confident
+
+Run full pricing and risk validation before submitting. Do not submit speculative quotes that you plan to cancel if conditions change.
+
+### Use appropriate deadlines
+
+Set `quote.deadline` to a duration you can commit to honoring. If your quotes are valid for 120 seconds, ensure your pricing remains valid for that window. Shorter deadlines (60s) reduce exposure to stale prices.
+
+```ts
+// Conservative: 60-second deadline
+const deadline = BigInt(Math.floor(Date.now() / 1000)) + 60n;
+
+// Standard: 120-second deadline
+const deadline = BigInt(Math.floor(Date.now() / 1000)) + 120n;
+```
+
+### Avoid bulk nonce invalidation unless necessary
+
+Calling `incrementNonce()` cancels **all** outstanding quotes. If 50 quotes were live at the time, that registers as 50 cancellations. Only use this as an emergency kill switch.
+
+### Let unwanted quotes expire naturally
+
+If a quote is no longer favorable but has not been executed, let it expire via `deadline` rather than actively cancelling. Expired quotes are not counted as cancellations.
+
+### Monitor market conditions before quoting
+
+If you anticipate high volatility (e.g., around major announcements), consider temporarily widening spreads or pausing quoting rather than quoting and then cancelling.
+
+### Keep your bot connected
+
+Disconnecting and reconnecting does not count as cancellation, but it means you miss RFQs during downtime. Implement auto-reconnect with exponential backoff as described in [Relay Connection](/makers/relay-connection).
+
+</Steps>
+
+## Score Boundaries
+
+| Boundary | Factor | Cancel Rate | Description |
+|---|---|---|---|
+| Maximum | 1.10 | 0% | Perfect maker, zero cancellations, 10% league bonus |
+| Gold threshold | 1.05 | ~3.3% | Premium tier, strong bonus |
+| Neutral | 1.00 | ~6.7% | No bonus or penalty |
+| Silver threshold | 0.95 | ~10% | Slight penalty begins |
+| Bronze threshold | 0.75 | ~23% | Moderate penalty |
+| Minimum | 0.50 | 40%+ | Floor, score halved |
+
+## Recovery
+
+If your score drops due to a spike in cancellations (e.g., an accidental `incrementNonce()` call), recovery requires consistent quoting without further cancellations. Since the metric is a ratio, submitting many new quotes without cancelling gradually dilutes the historical cancel rate.
+
+For example, if you have 100 total quotes with 20 cancellations (20% cancel rate, factor = 0.80):
+- After 100 additional quotes with 0 cancellations: 200 total, 20 cancelled = 10% rate, factor = 0.95.
+- After 200 additional quotes with 0 cancellations: 300 total, 20 cancelled = 6.7% rate, factor = 1.00.
+- After 400 additional quotes with 0 cancellations: 500 total, 20 cancelled = 4% rate, factor = 1.04.
+
+<Callout type="info">
+  Recovery is gradual. There is no way to instantly reset your reliability score. The most effective strategy is to prevent cancellations in the first place by quoting conservatively and using appropriate deadlines.
+</Callout>
+
+## Next Steps
+
+- [Maker Overview](/makers/maker-overview) -- How reliability fits into the broader maker framework.
+- [Submitting Quotes](/makers/submitting-quotes) -- Best practices for quote construction and deadline management.
+- [Nonce Management](/makers/nonce-management) -- How `incrementNonce()` affects your reliability score.
+- [Private RFQ Routing](/makers/private-rfq-routing) -- How reliability influences taker preferences for exclusive routing.

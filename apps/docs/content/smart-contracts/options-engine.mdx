@@ -1,0 +1,200 @@
+# OptionsEngine
+
+import { Callout } from 'nextra/components'
+
+`OptionsEngine` is the core contract for the HyperQuote Options RFQ system. It handles EIP-712 quote execution, ERC-721 position NFTs, collateral management, and physical settlement at expiry.
+
+## Contract Identity
+
+- **Name**: `"HyperQuote Option"` (ERC-721)
+- **Symbol**: `HQOPT`
+- **EIP-712 Domain**: `name = "HyperQuote Options"`, `version = "1"`
+- **Solidity**: 0.8.24 with via-IR
+- **Inherits**: ERC721, EIP712, Ownable, Pausable, ReentrancyGuard
+
+## Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `SETTLEMENT_WINDOW` | 24 hours | Time after expiry during which ITM positions can be settled |
+| `MIN_EXPIRY_DURATION` | 24 hours | Minimum time until option expiry |
+| `MAX_EXPIRY_DURATION` | 90 days | Maximum time until option expiry |
+| `EXPIRY_TIME_OF_DAY` | 28800 (08:00 UTC) | All expiries must be at 08:00 UTC |
+| `MAX_KEEPER_BPS` | 50 | Maximum keeper fee (0.50%) |
+
+## Storage Layout
+
+```solidity
+ISettlementOracle public oracle;                     // Settlement oracle reference
+mapping(address => bool) public allowedCollateral;   // Collateral token allowlist
+mapping(address => bool) public allowedUnderlying;   // Underlying token allowlist
+mapping(address => uint256) public nonces;           // Per-maker nonce for replay protection
+mapping(bytes32 => bool) public usedQuotes;          // Executed/cancelled quote hashes
+mapping(uint256 => Position) internal _positions;    // Position data keyed by NFT ID
+uint256 public nextPositionId = 1;                   // Sequential position ID counter
+uint16 public keeperBps = 10;                        // Keeper fee in basis points (default 0.10%)
+mapping(address => uint256) public maxKeeperFee;     // Per-collateral max keeper fee cap
+```
+
+The `_positions` mapping stores the full `Position` struct for each NFT ID:
+
+```solidity
+struct Position {
+    address seller;
+    address buyer;
+    address underlying;
+    address collateral;
+    bool isCall;
+    uint256 strike;
+    uint256 quantity;
+    uint256 premium;
+    uint256 expiry;
+    uint256 collateralLocked;
+    PositionState state;        // Active | Settled | Expired
+}
+```
+
+The `nonces` mapping tracks each maker's current nonce. Quotes signed with a nonce below the maker's current on-chain nonce are rejected, enabling bulk cancellation via `incrementNonce()`.
+
+## Core Functions
+
+### `execute(quote, signature) -> positionId`
+
+Executes a signed EIP-712 quote to create an options position. Called by the taker (seller in V1).
+
+```solidity
+function execute(QuoteLib.Quote calldata quote, bytes calldata signature)
+    external nonReentrant whenNotPaused
+    returns (uint256 positionId);
+```
+
+**Validation steps:**
+1. Quantity, premium, and strike must be > 0
+2. `isMakerSeller` must be false (V1 constraint: taker = seller, maker = buyer)
+3. Collateral and underlying must be in the allowlist
+4. Expiry must be at 08:00 UTC, between 24h and 90d from now
+5. Quote deadline must not have passed
+6. Nonce must be \>= maker's current nonce
+7. Taker address must match `msg.sender` (or be `address(0)` for open quotes)
+8. Quote hash must not have been used before
+9. EIP-712 signature must recover to the maker address
+
+**Execution steps:**
+1. Mark quote hash as used
+2. Create position struct and store it
+3. Mint ERC-721 NFT to buyer (maker)
+4. Transfer premium from buyer to seller (in collateral token)
+5. Lock collateral from seller (underlying for calls, collateral for puts)
+
+### `settle(positionId)`
+
+Settles an ITM position after expiry via physical delivery. Anyone can call this (keeper model).
+
+```solidity
+function settle(uint256 positionId) external nonReentrant;
+```
+
+**Requirements:**
+- Position must be `Active`
+- Current time must be \>= position expiry
+- Oracle must have a settlement price for this asset/expiry
+- Position must be in-the-money (call: S > K, put: S < K)
+
+**For Covered Calls (ITM):**
+- Buyer delivers `strike * quantity` in collateral to contract
+- Contract sends net amount (minus keeper fee) to seller
+- Contract sends locked underlying to buyer
+
+**For Cash-Secured Puts (ITM):**
+- Buyer delivers underlying to seller
+- Contract sends locked collateral (minus keeper fee) to buyer
+
+The caller receives a keeper fee as incentive.
+
+### `expirePosition(positionId)`
+
+Releases collateral for OTM/ATM positions after the settlement window closes.
+
+```solidity
+function expirePosition(uint256 positionId) external nonReentrant;
+```
+
+**Requirements:**
+- Position must be `Active`
+- Current time must be > `expiry + SETTLEMENT_WINDOW`
+- Oracle must have a settlement price
+- Position must be out-of-the-money or at-the-money
+
+Returns locked collateral to the seller and burns the position NFT.
+
+<Callout type="warning">
+ITM positions can never be expired. They must be settled. This prevents sellers from reclaiming collateral on positions that should pay out to buyers.
+</Callout>
+
+### `cancelQuote(quote)`
+
+Cancels a specific quote by marking its hash as used. Only the maker can cancel their own quotes.
+
+### `incrementNonce()`
+
+Increments the caller's nonce, bulk-cancelling all outstanding quotes signed with lower nonces.
+
+## Admin Functions
+
+| Function | Description |
+|----------|-------------|
+| `setAllowedCollateral(token, bool)` | Add or remove a collateral token from the allowlist |
+| `setAllowedUnderlying(token, bool)` | Add or remove an underlying token from the allowlist |
+| `setOracle(address)` | Update the settlement oracle address |
+| `setKeeperBps(uint16)` | Set keeper fee in basis points (max 50 = 0.50%) |
+| `setMaxKeeperFee(token, uint256)` | Set per-token maximum keeper fee (capped at 50 units) |
+| `pause()` / `unpause()` | Emergency pause/resume of quote execution |
+
+## Events
+
+```solidity
+event QuoteExecuted(bytes32 indexed quoteHash, uint256 indexed positionId, address indexed maker, address taker);
+event QuoteCancelled(bytes32 indexed quoteHash, address indexed maker);
+event NonceIncremented(address indexed maker, uint256 newNonce);
+event PositionSettled(uint256 indexed positionId, address indexed settler, uint256 settlementPrice, uint256 underlyingTransferred, uint256 collateralTransferred);
+event PositionExpired(uint256 indexed positionId, uint256 collateralReturned, address indexed returnedTo);
+event KeeperFeePaid(uint256 indexed positionId, address indexed keeper, uint256 fee);
+event CollateralTokenUpdated(address indexed token, bool allowed);
+event UnderlyingTokenUpdated(address indexed token, bool allowed);
+event OracleUpdated(address indexed newOracle);
+event KeeperBpsUpdated(uint16 newBps);
+```
+
+## Error Codes
+
+| Error | Meaning |
+|-------|---------|
+| `InvalidSignature()` | EIP-712 signature does not recover to maker |
+| `QuoteAlreadyUsed()` | Quote hash was already executed or cancelled |
+| `QuoteExpired()` | Quote deadline has passed |
+| `NonceTooLow()` | Quote nonce is below maker's current nonce |
+| `TakerMismatch()` | msg.sender does not match quote.taker |
+| `CollateralNotAllowed()` | Collateral token not in allowlist |
+| `UnderlyingNotAllowed()` | Underlying token not in allowlist |
+| `InvalidExpiry()` | Expiry not at 08:00 UTC or outside valid range |
+| `ZeroQuantity()` | Quantity is zero |
+| `ZeroPremium()` | Premium is zero |
+| `ZeroStrike()` | Strike is zero |
+| `PositionNotActive()` | Position already settled or expired |
+| `NotBeforeExpiry()` | Attempting to settle before expiry |
+| `SettlementWindowNotClosed()` | Attempting to expire before settlement window ends |
+| `OptionNotITM()` | Attempting to settle an OTM position |
+| `PositionNotOTM()` | Attempting to expire an ITM position |
+| `OraclePriceNotAvailable()` | Oracle has no settlement price for this expiry |
+| `TakerMustBeSeller()` | V1 constraint: isMakerSeller must be false |
+| `ZeroAddress()` | Provided address is zero |
+| `KeeperBpsTooHigh()` | Keeper BPS exceeds MAX_KEEPER_BPS |
+
+## View Functions
+
+```solidity
+function getPosition(uint256 positionId) external view returns (Position memory);
+function hashQuote(QuoteLib.Quote calldata quote) external view returns (bytes32);
+function isQuoteUsed(bytes32 quoteHash) external view returns (bool);
+function domainSeparator() external view returns (bytes32);
+```

@@ -1,0 +1,127 @@
+# Leaderboard Endpoints
+
+import { Callout } from 'nextra/components'
+
+The leaderboard API provides ranking data for HyperQuote participants based on points earned from trading activity. Points include NFT badge boosts applied at query time.
+
+## Get Leaderboard
+
+### `GET /api/v1/leaderboard`
+
+Returns ranked entries sorted by points within the selected time window. No authentication required.
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tab` | `string` | `"makers"` | Ranking tab: `"makers"` or `"takers"` (also accepts `role`) |
+| `window` | `string` | `"7d"` | Time window: `"7d"`, `"30d"`, or `"all"` |
+| `cursor` | `string` | -- | Address-based cursor for pagination |
+
+#### Response
+
+```json
+{
+  "tab": "makers",
+  "window": "7d",
+  "entries": [
+    {
+      "rank": 1,
+      "address": "0xabcd1234...",
+      "points": 12500,
+      "volume": 2500000.00,
+      "fills": 85,
+      "avgImprovementBps": 150,
+      "boostMultiplier": 1.5
+    },
+    {
+      "rank": 2,
+      "address": "0xefgh5678...",
+      "points": 9800,
+      "volume": 1800000.00,
+      "fills": 62,
+      "avgImprovementBps": 120,
+      "boostMultiplier": 1.0
+    }
+  ],
+  "totalParticipants": 342,
+  "hasMore": true
+}
+```
+
+#### Entry Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rank` | `number` | Position in the leaderboard |
+| `address` | `string` | Wallet address (lowercased) |
+| `points` | `number` | Total points (with NFT badge boost applied) |
+| `volume` | `number` | Total USD volume traded |
+| `fills` | `number` | Number of completed fills |
+| `avgImprovementBps` | `number` | Average price improvement in basis points |
+| `boostMultiplier` | `number` | NFT badge multiplier applied to points |
+
+The leaderboard returns up to **100 entries** per request. When `hasMore` is `true`, use the last entry's `address` as the `cursor` for the next page.
+
+## Get My Ranking
+
+### `GET /api/v1/leaderboard/me`
+
+Returns a specific address's rank within the full leaderboard. No authentication required.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | `string` | Yes | Wallet address to look up (`0x` + 40 hex) |
+| `tab` | `string` | No | `"makers"` or `"takers"` (default: `"makers"`) |
+| `window` | `string` | No | `"7d"`, `"30d"`, or `"all"` (default: `"7d"`) |
+
+#### Response (Ranked)
+
+```json
+{
+  "rank": 15,
+  "entry": {
+    "rank": 15,
+    "address": "0x1234...",
+    "points": 4200,
+    "volume": 125000.00,
+    "fills": 8,
+    "avgImprovementBps": 85,
+    "boostMultiplier": 1.0
+  },
+  "totalParticipants": 342
+}
+```
+
+#### Response (No Activity)
+
+If the address has no fills in the selected window:
+
+```json
+{
+  "rank": null,
+  "entry": null,
+  "totalParticipants": 342
+}
+```
+
+## Leaderboard Tabs
+
+| Tab | Ranks By | Description |
+|-----|----------|-------------|
+| `makers` | Maker points | Ranks maker addresses by points earned from quoting |
+| `takers` | Taker points | Ranks taker addresses by points earned from taking |
+
+<Callout type="info">
+  Points include NFT badge boosts (Hypio and Hypurr NFTs). The `boostMultiplier` field shows the multiplier applied. See [NFT Boosts](/points/nft-boosts) for how boost values are calculated.
+</Callout>
+
+## Agent Leaderboard
+
+### `GET /api/v1/agent/leaderboard`
+
+Agent-authenticated version of the leaderboard endpoint with the same query parameters and response format.
+
+**Headers:** `Authorization: Bearer hq_live_...`

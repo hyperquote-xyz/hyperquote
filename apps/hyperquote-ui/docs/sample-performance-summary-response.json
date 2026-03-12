@@ -1,0 +1,19 @@
+{
+  "timeframe": "7d",
+  "totalRfqs": 142,
+  "totalWithPerformance": 128,
+  "totalFills": 87,
+
+  "fills": {
+    "avgImprovementBps": 23,
+    "medianImprovementBps": 18,
+    "percentBeatBaseline": 78.16,
+    "count": 87
+  },
+
+  "allQuotes": {
+    "avgImprovementBps": 15,
+    "medianImprovementBps": 11,
+    "count": 342
+  }
+}

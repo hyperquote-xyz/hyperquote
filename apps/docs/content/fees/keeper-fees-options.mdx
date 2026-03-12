@@ -1,0 +1,107 @@
+# Keeper Fees (Options)
+
+import { Callout } from 'nextra/components'
+
+Options on HyperQuote use a keeper-incentivized settlement mechanism. When an option expires in-the-money (ITM), anyone can call the `settle()` function on the `OptionsEngine` contract to execute physical settlement. The keeper who performs this action earns a fee from the settlement proceeds as compensation for gas costs and the service of triggering timely settlement.
+
+## Keeper Fee Formula
+
+The keeper fee is calculated as:
+
+```
+keeperFee = min(notional * keeperBps / 10000, maxKeeperFee)
+```
+
+Where:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `keeperBps` | Basis points charged on the notional settlement value | 10 bps (0.10%) |
+| `maxKeeperFee` | Absolute cap on the keeper fee in collateral token units | Configurable by admin |
+| `notional` | The settlement value of the ITM option at expiry | Computed from oracle price |
+
+The `min()` function ensures the keeper fee never exceeds `maxKeeperFee`, regardless of how large the notional value is. This protects large position holders from disproportionate fees.
+
+## Worked Example
+
+A covered call on HYPE with strike $20 expires when the oracle publishes a settlement price of $25.
+
+```
+intrinsicValue = $25 - $20 = $5 per HYPE
+positionSize   = 1,000 HYPE
+notional       = 1,000 * $5 = $5,000
+
+keeperBps      = 10
+maxKeeperFee   = $50 (in USDC terms)
+
+keeperFee      = min(5000 * 10 / 10000, 50)
+               = min(5.00, 50)
+               = $5.00
+```
+
+The keeper receives $5.00 from the settlement proceeds. The remaining $4,995.00 is distributed according to the settlement logic (transferred to the long position holder).
+
+### Large Position Example
+
+If the same option had a notional of $500,000:
+
+```
+keeperFee = min(500000 * 10 / 10000, 50)
+          = min(50.00, 50)
+          = $50.00
+```
+
+The `maxKeeperFee` cap limits the fee to $50.00, even though 10 bps of $500,000 would be $50.00 (which happens to equal the cap in this example). For larger notionals, the cap becomes binding.
+
+## Who Pays the Keeper Fee
+
+The keeper fee is deducted from the **settlement payout** of the ITM option. The fee reduces the amount received by the party entitled to the intrinsic value at expiry.
+
+- For a **covered call** that expires ITM, the call buyer (maker in V1) receives the intrinsic value minus the keeper fee.
+- For a **cash-secured put** that expires ITM, the put buyer (maker in V1) receives the settlement payout minus the keeper fee.
+
+<Callout type="info">
+  The keeper fee is only charged on ITM settlement. Options that expire out-of-the-money (OTM) do not trigger settlement, and no keeper fee is charged. Collateral is simply returned to the seller.
+</Callout>
+
+## Keeper Incentive Design
+
+The keeper mechanism is designed to ensure timely settlement without requiring any centralized operator:
+
+1. **Permissionless** -- Anyone can call `settle()`. There is no whitelisted keeper set.
+2. **Competitive** -- Multiple keepers may race to settle profitable positions. The first successful transaction wins the fee.
+3. **Self-sustaining** -- The fee covers gas costs and provides profit, incentivizing keepers to monitor expiring positions.
+4. **Time-bounded** -- Options have a 24-hour settlement window after expiry (08:00 UTC). If no keeper settles within this window, the option expires and collateral is returned.
+
+<Callout type="warning">
+  If no keeper settles an ITM option within the settlement window, the option holder loses the intrinsic value. The keeper incentive is designed to make this extremely unlikely, since the fee provides clear economic motivation to settle profitable positions.
+</Callout>
+
+## Admin Configurability
+
+The keeper fee parameters are configurable by the contract admin:
+
+| Parameter | Range | Admin Action |
+|-----------|-------|--------------|
+| `keeperBps` | 0 -- 50 bps | Can be adjusted via `setKeeperBps()` |
+| `maxKeeperFee` | Any uint256 | Can be adjusted via `setMaxKeeperFee()` |
+
+The maximum allowed value for `keeperBps` is 50 bps (0.50%), enforced by the contract. This hard cap prevents the admin from setting an unreasonably high keeper fee percentage.
+
+Changes to keeper fee parameters apply to all future settlements. Previously settled options are unaffected.
+
+## Impact on Option Pricing
+
+Makers (option buyers in V1) should factor the potential keeper fee into their premium pricing:
+
+- For deep ITM outcomes, the keeper fee is a known cost that reduces the effective payout.
+- For near-ATM outcomes, the keeper fee may represent a larger percentage of the small intrinsic value.
+- The `maxKeeperFee` cap makes the fee predictable for large positions.
+
+A maker pricing a $2.00 premium on a put should consider that if the put expires ITM with $100 in intrinsic value, the keeper will take $0.10 (10 bps), leaving $99.90 net. This is a negligible cost for most positions but becomes more meaningful for small intrinsic values near the strike.
+
+## Related Pages
+
+- [Fee Structure](/fees/fee-structure) -- Overview of all protocol fees
+- [Settlement & Expiry](/options/settlement-and-expiry) -- Full settlement lifecycle
+- [Maker Fees](/fees/maker-fees) -- How makers account for fees in pricing

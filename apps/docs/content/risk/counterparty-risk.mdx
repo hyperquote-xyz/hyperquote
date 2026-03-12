@@ -1,0 +1,95 @@
+# Counterparty Risk
+
+import { Callout } from 'nextra/components'
+
+Counterparty risk in HyperQuote varies significantly between spot and options products. Understanding the settlement mechanics for each product clarifies where counterparty risk exists and where it is eliminated.
+
+## Spot RFQ: Atomic Settlement
+
+For spot RFQ trades, counterparty risk is **eliminated by design** through atomic settlement.
+
+When a taker submits a maker's signed quote to the `RFQSettlement` contract, the settlement executes in a single transaction:
+
+1. The contract verifies the maker's EIP-712 signature.
+2. The contract transfers `amountIn` from the taker to the maker.
+3. The contract transfers `amountOut - fee` from the maker to the taker.
+4. If any transfer fails, the entire transaction reverts.
+
+Because both token transfers occur in the same atomic transaction, there is no state where one party has sent tokens but the other has not. The taker cannot lose their input without receiving the output, and the maker cannot lose their output without receiving the input.
+
+<Callout type="info">
+  Atomic settlement means there is zero counterparty risk on settled spot trades. The only risk is that the settlement transaction reverts (e.g., due to insufficient balance or nonce invalidation), in which case no tokens move and only gas is lost.
+</Callout>
+
+### Pre-Settlement Counterparty Risk
+
+Before settlement, the only counterparty risk is that a maker's quote becomes invalid before the taker can execute it:
+
+- The maker increments their nonce, cancelling all outstanding quotes.
+- The quote deadline passes.
+- The maker's token balance or allowance drops below the required amount.
+
+In all cases, the settlement transaction simply reverts. The taker does not lose funds.
+
+## Options: Collateral Locking
+
+Options introduce a time delay between the initial fill and final settlement at expiry. During this period, the `OptionsEngine` contract manages counterparty risk through collateral locking.
+
+### At Fill Time
+
+When an options quote is executed:
+
+- **Covered call (taker is seller)** -- The taker's underlying tokens (e.g., HYPE) are locked in the contract as collateral. The maker's premium payment is transferred to the taker.
+- **Cash-secured put (taker is seller)** -- The taker's stablecoins (e.g., USDC) are locked as collateral at the strike price. The maker's premium payment is transferred to the taker.
+
+Once locked, the collateral cannot be withdrawn by the seller until expiry.
+
+### At Expiry and Settlement
+
+- **ITM settlement** -- A keeper calls `settle()` with the oracle price. The contract computes the intrinsic value and transfers the appropriate amounts between the locked collateral and the position holder.
+- **OTM expiry** -- If the option is out-of-the-money, the collateral is returned to the seller. No settlement transaction is needed (the seller can claim their collateral after the settlement window).
+
+<Callout type="warning">
+  Between fill and expiry, the seller's collateral is locked and cannot be used for other purposes. This is a form of opportunity cost, not counterparty risk. The collateral is held by the smart contract, not by the counterparty.
+</Callout>
+
+## Keeper Dependency
+
+The keeper mechanism introduces an indirect counterparty-like risk:
+
+- ITM options require a keeper to call `settle()` within the settlement window.
+- If no keeper settles the option, the ITM holder loses the intrinsic value, and collateral is returned to the seller after the window.
+- The keeper is incentivized by the keeper fee, but there is no guarantee of settlement.
+
+This is not classical counterparty risk (where a counterparty defaults on an obligation), but it is a dependency on third-party action for value recovery. See [Keeper Fees (Options)](/fees/keeper-fees-options) for details on the incentive design.
+
+## Unsigned Taker Quotes
+
+In the HyperQuote protocol, only the **maker** signs the EIP-712 quote. The taker submits the settlement transaction and is identified by `msg.sender`. This asymmetric design has implications:
+
+- **Maker commitment** -- The maker's signature is a binding commitment to the quoted terms. The maker cannot deny or modify the quote after signing.
+- **Taker optionality** -- The taker is not committed until they submit the settlement transaction. The taker can compare multiple maker quotes and choose the best one, or choose not to execute at all.
+- **No taker guarantee** -- A maker who signs a quote has no guarantee that the taker will execute it. The taker may let the quote expire, use a competing maker's quote instead, or execute on an alternative venue.
+
+From the maker's perspective, this optionality is a form of adverse selection risk: takers are more likely to execute quotes that are favorable to them (i.e., when the market has moved in their favor since the quote was generated).
+
+<Callout type="info">
+  The asymmetric signing model is standard in RFQ protocols. Makers compensate for taker optionality by pricing in the expected adverse selection cost, which is reflected in the spread.
+</Callout>
+
+## Summary Table
+
+| Risk Dimension | Spot RFQ | Options |
+|---------------|----------|---------|
+| Settlement risk | None (atomic) | Managed by collateral lock |
+| Counterparty default | Impossible (atomic) | Collateral protects against seller default |
+| Keeper dependency | None | Required for ITM settlement |
+| Taker optionality | Maker bears adverse selection | Maker bears adverse selection |
+| Collateral lock period | None | Fill to expiry (up to days/weeks) |
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Smart Contract Risk](/risk/smart-contract-risk) -- Contract-level vulnerabilities
+- [Oracle Risk](/risk/oracle-risk) -- Settlement price risks for options
+- [Keeper Fees (Options)](/fees/keeper-fees-options) -- Keeper incentive details

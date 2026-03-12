@@ -1,0 +1,93 @@
+# Badge Endpoints
+
+import { Callout } from 'nextra/components'
+
+The Badge API provides NFT badge ownership lookup and boost multiplier calculation for wallet addresses. Badges are ERC-721 NFTs on HyperEVM that grant points multipliers.
+
+## Get Badges for Address
+
+### `GET /api/v1/badges/:address`
+
+Returns NFT badge ownership status and the computed boost multiplier for a wallet address. No authentication required.
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `address` | `string` | Wallet address (`0x` + 40 hex chars) |
+
+#### Response (200 OK)
+
+```json
+{
+  "hasHypio": true,
+  "hasHypurr": false,
+  "boostMultiplier": 1.25
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hasHypio` | `boolean` | Whether the address holds a Hypio NFT |
+| `hasHypurr` | `boolean` | Whether the address holds a Hypurr NFT |
+| `boostMultiplier` | `number` | Combined boost multiplier applied to points |
+
+### Boost Multiplier Calculation
+
+The boost multiplier is computed based on which NFTs the address holds:
+
+| Held NFTs | Boost Multiplier |
+|-----------|-----------------|
+| None | 1.0x |
+| Hypio only | 1.25x |
+| Hypurr only | 1.25x |
+| Both Hypio + Hypurr | 1.5x |
+
+<Callout type="info">
+  Badge balances are checked via ERC-721 `balanceOf` calls on HyperEVM. Results are cached in-memory for **10 minutes** to reduce RPC load. The `Cache-Control` header is set to `max-age=600`.
+</Callout>
+
+## Badge Collections
+
+Badges are minted as on-chain ERC-721 NFTs on HyperEVM:
+
+| Collection | Description |
+|-----------|-------------|
+| **Hypio** | Early supporter badge |
+| **Hypurr** | Community participation badge |
+
+## How Boosts Apply
+
+The `boostMultiplier` from this endpoint is used by the leaderboard to scale point awards:
+
+```
+boostedPoints = basePoints * boostMultiplier
+```
+
+Points are computed at fill-recording time without the boost. The boost is applied at query time when building the leaderboard, ensuring that acquiring or transferring an NFT immediately affects rankings.
+
+## Fallback Behavior
+
+If the HyperEVM RPC is unavailable or the `balanceOf` call fails, the endpoint returns a safe default:
+
+```json
+{
+  "hasHypio": false,
+  "hasHypurr": false,
+  "boostMultiplier": 1.0
+}
+```
+
+This response always returns HTTP 200 -- it never fails with an error status. This prevents badge lookup failures from breaking the leaderboard or profile UI.
+
+## Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Invalid address format (must be `0x` + 40 hex characters) |
+
+<Callout type="warning">
+  Badge ownership is determined by on-chain ERC-721 balances. Transferring an NFT will immediately change the boost multiplier after the cache expires (up to 10 minutes).
+</Callout>

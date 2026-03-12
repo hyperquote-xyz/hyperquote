@@ -1,0 +1,121 @@
+# QuoteLib
+
+import { Callout } from 'nextra/components'
+
+`QuoteLib` is a Solidity library that defines the `Quote` struct and computes its EIP-712 typed data hash. It is used by the OptionsEngine for on-chain signature verification and by the SDK/relay for off-chain signature creation.
+
+## Quote Struct
+
+```solidity
+struct Quote {
+    address maker;          // Maker (buyer in V1) wallet address
+    address taker;          // Taker (seller in V1) wallet, or address(0) for open quotes
+    address underlying;     // Underlying token address (e.g. wHYPE)
+    address collateral;     // Collateral token address (e.g. USDC)
+    bool isCall;            // true = Covered Call, false = Cash-Secured Put
+    bool isMakerSeller;     // V1: must be false (taker = seller, maker = buyer)
+    uint256 strike;         // Strike price in USD, 18 decimals (1e18 = $1.00)
+    uint256 quantity;       // Amount of underlying in underlying token decimals
+    uint256 premium;        // Premium in collateral token units
+    uint256 expiry;         // Option expiry timestamp (must be 08:00 UTC)
+    uint256 deadline;       // Quote validity deadline (unix timestamp)
+    uint256 nonce;          // Maker nonce for replay protection
+}
+```
+
+### Field Details
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `maker` | `address` | The wallet that signed the quote. In V1, the maker is always the option buyer. |
+| `taker` | `address` | The counterparty. Set to `address(0)` for quotes open to any taker. If non-zero, only that address can execute the quote. |
+| `underlying` | `address` | The ERC-20 token used as the underlying asset. V1 supports wHYPE only. |
+| `collateral` | `address` | The ERC-20 stablecoin used for collateral and premium. V1 supports USDC, USDH, USDT0. |
+| `isCall` | `bool` | `true` for a Covered Call, `false` for a Cash-Secured Put. |
+| `isMakerSeller` | `bool` | Determines which party is the seller. In V1, this must always be `false` (taker = seller, maker = buyer). |
+| `strike` | `uint256` | The strike price in USD with 18 decimal precision. For example, $25.00 is represented as `25000000000000000000` (25e18). |
+| `quantity` | `uint256` | The number of underlying tokens, using the underlying token's native decimals. For 10 wHYPE: `10000000000000000000` (10e18). |
+| `premium` | `uint256` | The premium amount in collateral token units. For 5 USDC: `5000000` (5e6). |
+| `expiry` | `uint256` | The option expiry timestamp. Must be at 08:00 UTC (28800 seconds into the day) and between 24 hours and 90 days from now. |
+| `deadline` | `uint256` | The quote's off-chain validity window. After this timestamp, the quote can no longer be executed on-chain. |
+| `nonce` | `uint256` | The maker's nonce at the time of signing. Must be \>= the maker's current on-chain nonce. |
+
+## EIP-712 Typehash
+
+The typehash is the keccak256 of the canonical type string:
+
+```solidity
+bytes32 internal constant QUOTE_TYPEHASH = keccak256(
+    "Quote(address maker,address taker,address underlying,address collateral,"
+    "bool isCall,bool isMakerSeller,uint256 strike,uint256 quantity,"
+    "uint256 premium,uint256 expiry,uint256 deadline,uint256 nonce)"
+);
+```
+
+## `hash()` Function
+
+Computes the EIP-712 struct hash for a Quote:
+
+```solidity
+function hash(Quote calldata q) internal pure returns (bytes32) {
+    return keccak256(
+        abi.encode(
+            QUOTE_TYPEHASH,
+            q.maker,
+            q.taker,
+            q.underlying,
+            q.collateral,
+            q.isCall,
+            q.isMakerSeller,
+            q.strike,
+            q.quantity,
+            q.premium,
+            q.expiry,
+            q.deadline,
+            q.nonce
+        )
+    );
+}
+```
+
+This struct hash is then combined with the EIP-712 domain separator by the OptionsEngine's `_hashTypedDataV4()` to produce the final digest that the maker signs.
+
+<Callout type="info">
+The `hash()` function uses `calldata` for gas efficiency. All fields are `abi.encode`d in order, matching the EIP-712 specification for struct hashing.
+</Callout>
+
+## Usage in OptionsEngine
+
+```solidity
+// Compute the EIP-712 digest
+bytes32 digest = _hashTypedDataV4(QuoteLib.hash(quote));
+
+// Verify the maker's signature
+address signer = ECDSA.recover(digest, signature);
+if (signer != quote.maker) revert InvalidSignature();
+```
+
+## Usage in SDK / Relay
+
+Off-chain signers (SDK, relay) must use the identical type definition and domain to produce valid signatures:
+
+```ts
+const QUOTE_TYPES = {
+  Quote: [
+    { name: "maker", type: "address" },
+    { name: "taker", type: "address" },
+    { name: "underlying", type: "address" },
+    { name: "collateral", type: "address" },
+    { name: "isCall", type: "bool" },
+    { name: "isMakerSeller", type: "bool" },
+    { name: "strike", type: "uint256" },
+    { name: "quantity", type: "uint256" },
+    { name: "premium", type: "uint256" },
+    { name: "expiry", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+  ],
+};
+```
+
+Any mismatch in field names, types, or ordering will produce a different digest and cause signature verification to fail on-chain.

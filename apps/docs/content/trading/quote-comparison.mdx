@@ -1,0 +1,102 @@
+# Quote Comparison
+
+import { Callout } from 'nextra/components'
+
+After submitting an RFQ, maker quotes stream in over the WebSocket relay. HyperQuote displays every quote as a structured card and automatically ranks them so you can identify the best execution with a glance.
+
+## How Quotes Arrive
+
+Makers receive your RFQ broadcast (public) or your shared RFQ JSON (private) and respond with a signed `RFQQuote`. Each quote includes:
+
+- **maker** -- the maker's Ethereum address.
+- **amountIn / amountOut** -- the exact amounts for the trade.
+- **expiry** -- Unix timestamp after which the quote can no longer be filled.
+- **nonce** -- the maker's on-chain nonce, preventing replay.
+- **signature** -- an EIP-191 signature over the on-chain `getQuoteHash()` output, proving the maker committed to these terms.
+
+Quotes from the same maker replace any earlier quote for the same `requestId`, so you always see each maker's latest and best offer.
+
+## Quote Card Anatomy
+
+Each quote is rendered as a card with the following sections:
+
+### Maker Identity
+
+The maker's address is displayed in truncated `0xAbCd...1234` format. This lets you identify repeat makers and, if you have favourites saved, quickly spot trusted counterparties.
+
+### Amounts
+
+- **You Pay** -- the `amountIn` formatted in the input token's decimals and symbol.
+- **You Receive** -- the `amountOut` formatted in the output token's decimals and symbol, highlighted in green.
+- **Fee** -- the protocol fee (2.5 bps) deducted from `amountIn`, shown separately so you can see the gross and net cost.
+
+### Rate
+
+The effective exchange rate: 1 unit of Token In = X units of Token Out. This is computed as:
+
+```
+price = amountOut / amountIn  (normalised by respective decimals)
+```
+
+### Baseline Comparison
+
+When an AMM baseline estimate is available, the card displays a **vs AMM Baseline** row showing the percentage difference between the quote's `amountOut` and the best AMM output. A green `+X.XX%` means the quote beats the AMM; a grey value means it underperforms.
+
+When a universal mid-price benchmark is available (derived from the HyperCore L2 orderbook), a **vs Mid-Price** row shows slippage relative to the theoretical zero-impact price.
+
+### Expiry Countdown
+
+A live countdown timer shows how many seconds remain before the quote expires. The timer uses a colour escalation system:
+
+| State | Visual | Meaning |
+|-------|--------|---------|
+| Normal | Grey text | More than 30 seconds remaining |
+| Expiring soon | Amber text | Less than ~30 seconds remaining |
+| Urgent | Red text, pulsing border | Less than ~10 seconds remaining |
+| Expired | Red text, dimmed card | Quote can no longer be filled |
+
+## Validation States
+
+Every incoming quote is validated asynchronously. The validation badge on each card reflects the current state:
+
+| Status | Badge | Fillable? |
+|--------|-------|-----------|
+| `validating` | Spinner, "Validating..." | No (wait) |
+| `valid` | Green shield, "Valid" | Yes |
+| `expiring_soon` | Amber triangle, "Expiring Soon" | Yes (act fast) |
+| `expired` | Red X, "Expired" | No |
+| `invalid_signature` | Red shield, "Invalid Signature" | No |
+| `needs_approval` | Amber lock, "Needs Approval" | Yes (after approval) |
+| `structural_mismatch` | Red X, "Mismatch" | No |
+| `error` | Red circle, "Error" | No |
+
+Only quotes in the `valid`, `expiring_soon`, or `needs_approval` states can be selected for execution. Invalid or expired cards are dimmed and non-interactive.
+
+<Callout type="warning">
+  A quote with `invalid_signature` means the recovered signer does not match `quote.maker`. This could indicate a transmission error or a tampered quote. These quotes are visually greyed out and cannot be filled.
+</Callout>
+
+## Sorting and Best Price
+
+Quotes are sorted by **best price** -- the highest `amountOut` for Exact In, or the lowest `amountIn` for Exact Out. The top quote receives a green **Best Price** badge in the upper-right corner of its card.
+
+Only fillable quotes (valid, expiring soon, needs approval) are eligible for the Best Price badge. Expired or invalid quotes are excluded from the ranking.
+
+## Fee Deduction Display
+
+The protocol fee (`feePips`) is always shown on each quote card as a line item. The default fee is 250 pips, which equals 2.5 basis points (0.025%) of the input amount. This fee is deducted at settlement time -- the amounts shown on the card already account for it:
+
+```
+feeAmount = amountIn * feePips / 1_000_000
+netAmountIn = amountIn - feeAmount  (what the maker receives)
+```
+
+## Venue Benchmarks
+
+Below the quote cards, the **Venue Comparison** panel shows how the best maker quote stacks up against alternative execution venues. See [Venue Comparison Engine](/trading/venue-comparison-engine) for details on how these benchmarks are computed.
+
+When the best RFQ quote delivers more output than all venues, a savings callout appears:
+
+> **+X.XX TOKEN saved with RFQ vs [Best Venue] (Y.YY% better execution)**
+
+This makes it easy to see whether the RFQ is genuinely offering price improvement over what you could achieve elsewhere.

@@ -1,0 +1,74 @@
+# Contract Addresses
+
+import { Callout } from 'nextra/components'
+
+All deployed HyperQuote smart contract addresses on HyperEVM. Always verify contract addresses against this page before interacting with them. Do not trust addresses shared in unofficial channels.
+
+<Callout type="warning">
+  Before approving any contract to transfer your tokens, verify the address against this page. Interacting with an incorrect contract address can result in permanent loss of funds.
+</Callout>
+
+## Mainnet (HyperEVM)
+
+### Core Protocol Contracts
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **RFQSettlement** | Refer to official deployment | Spot RFQ atomic settlement |
+| **OptionsEngine** | Refer to official deployment | Options fill, collateral, and settlement |
+
+### Token Contracts
+
+| Token | Address | Description |
+|-------|---------|-------------|
+| **WHYPE** | Refer to official deployment | Wrapped HYPE (ERC-20) |
+| **USDC** | Refer to official deployment | USD Coin on HyperEVM |
+| **USDH** | Refer to official deployment | Hyperliquid native stablecoin |
+| **USDT0** | Refer to official deployment | Bridged Tether on HyperEVM |
+
+### NFT Contracts
+
+| Collection | Address | Description |
+|-----------|---------|-------------|
+| **Lucky Hypio Winners** | Refer to official deployment | Points boost NFT (1.25x) |
+| **Hypurr** | Refer to official deployment | Points boost NFT (1.50x) |
+
+## Testnet
+
+### Core Protocol Contracts
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **RFQSettlement** | Refer to testnet deployment | Testnet spot settlement |
+| **OptionsEngine** | Refer to testnet deployment | Testnet options engine |
+
+### Test Tokens
+
+| Token | Address | Description |
+|-------|---------|-------------|
+| **WHYPE (testnet)** | Refer to testnet deployment | Testnet wrapped HYPE |
+| **USDC (testnet)** | Refer to testnet deployment | Testnet USDC |
+
+<Callout type="info">
+  For local development, the default RFQ contract address is `0x5FbDB2315678afecb367f032d93F642f64180aa3`. This is a Foundry default deployment address used when running a local HyperEVM node with `anvil`.
+</Callout>
+
+## Verifying Contracts
+
+To verify that you are interacting with the correct contracts:
+
+1. **Check the block explorer** -- Navigate to the contract address on the HyperEVM block explorer and verify that the contract code matches the expected deployment.
+2. **Read contract state** -- Call read-only functions like `feePips()` or `keeperBps()` to verify the contract parameters match the documented values.
+3. **Check the domain separator** -- For EIP-712 signing, verify that the domain separator matches the expected contract name, version, chain ID, and address.
+
+## Contract Immutability
+
+All core HyperQuote contracts are deployed as non-upgradeable contracts. The bytecode at these addresses cannot be changed after deployment. If the protocol migrates to new contracts, the old addresses remain functional but may no longer be actively used.
+
+See [Smart Contract Risk](/risk/smart-contract-risk) for implications of the immutable deployment model.
+
+## Related Pages
+
+- [Official Links](/links/official-links) -- All official resources
+- [Smart Contract Risk](/risk/smart-contract-risk) -- Contract risk considerations
+- [Contract Architecture](/smart-contracts/contract-architecture) -- How the contracts work

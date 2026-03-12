@@ -1,0 +1,125 @@
+# Security Model
+
+import { Callout } from 'nextra/components'
+
+This page describes the security assumptions, threat model, and protective mechanisms built into the HyperQuote smart contract system.
+
+<Callout type="error">
+  **Verify you are using official HyperQuote resources.** Before interacting with any contract, confirm the address against the [Contract Addresses](/smart-contracts/contract-addresses) page and the [Official Links](/links/official-links) page. Do not trust addresses from unofficial sources.
+</Callout>
+
+## Who This Is For
+
+- **Traders** who want to understand the security properties of the contracts they are approving.
+- **Makers** building bots that sign EIP-712 quotes and need to understand replay protection.
+- **Developers** integrating with the SpotRFQ contract or auditing the codebase.
+- **Security researchers** reviewing the on-chain code.
+
+## Immutable Deployment
+
+All HyperQuote contracts are deployed without a proxy pattern. There is no upgrade mechanism and no way to alter the contract logic after deployment. This eliminates an entire class of governance and upgrade-related attacks.
+
+The trade-off is that bug fixes require deploying a new contract and migrating users to the new address. The [Contract Addresses](/smart-contracts/contract-addresses) page always reflects the current canonical deployment.
+
+## EIP-712 Replay Protection
+
+Every maker quote is bound to a specific set of parameters through EIP-712 typed data signing. This is the primary security mechanism that ensures quotes cannot be tampered with or replayed:
+
+1. **Domain binding** — The signature includes the chain ID (`999`) and the `verifyingContract` address, preventing cross-chain and cross-contract replay.
+2. **Quote hash uniqueness** — Each executed quote's hash is stored in the `usedQuotes` mapping. Attempting to execute the same quote twice reverts with `QuoteAlreadyUsed()`.
+3. **Nonce ordering** — The maker's nonce must be >= their current on-chain nonce. Incrementing the nonce bulk-cancels all quotes signed with lower nonces.
+4. **Deadline enforcement** — Each quote has a `deadline` timestamp. Expired quotes cannot be executed even if they have not been individually cancelled.
+5. **Taker binding** — Quotes can optionally specify a `taker` address. If set, only that address can execute the quote.
+
+## On-Chain Quote Validation
+
+The SpotRFQ contract performs a multi-step verification sequence before any quote can be executed. Every step must pass or the transaction reverts:
+
+1. **Non-zero amounts** — Both input and output token amounts must be greater than zero.
+2. **Valid token addresses** — Token addresses must be non-zero and distinct.
+3. **Deadline check** — The quote deadline must not have passed (`block.timestamp <= deadline`).
+4. **Nonce check** — The quote nonce must be >= the maker's current on-chain nonce.
+5. **Taker check** — `msg.sender` must match `quote.taker` (or taker is `address(0)` for open quotes).
+6. **Signature recovery** — The EIP-712 digest is computed, the quote hash is checked for prior use, and `ECDSA.recover()` must return the `maker` address.
+
+These checks run before any state changes or token transfers, ensuring that invalid or replayed quotes never modify contract state.
+
+## Atomic Settlement
+
+The SpotRFQ contract executes both legs of a swap in a single transaction. Either both token transfers succeed, or the entire transaction reverts. There is no state where one party has sent tokens but the other has not.
+
+This eliminates settlement risk entirely — there is no escrow period, no multi-step settlement, and no window for partial execution.
+
+## Nonce Management
+
+Each maker has a sequential nonce stored in `mapping(address => uint256) public nonces`. Nonces provide two levels of cancellation:
+
+- **Individual cancellation** — `cancelQuote(quote)` marks a specific quote hash as used in `usedQuotes`.
+- **Bulk cancellation** — `incrementNonce()` advances the maker's nonce, invalidating all outstanding quotes signed with lower nonces.
+
+Quotes are rejected if `quote.nonce < nonces[quote.maker]`. This is a sequential (not bitmap) nonce model, chosen for simplicity and gas efficiency in the single-use quote pattern.
+
+## Access Control
+
+The SpotRFQ contract uses minimal access control:
+
+| Role | Scope | Capabilities |
+|------|-------|-------------|
+| **Owner** | Contract admin | Pause/unpause the contract in emergencies |
+
+The owner cannot modify trade parameters, redirect token transfers, or alter settlement logic. The only privileged action is emergency pausing, which prevents new fills from executing while allowing users to manage their existing token approvals independently.
+
+## Reentrancy Protection
+
+All state-modifying functions use OpenZeppelin's `ReentrancyGuard`. Since the fill function performs external ERC-20 transfers to both the taker and the maker, reentrancy protection prevents callback-based attacks from malicious token contracts.
+
+## Additional Safeguards
+
+| Mechanism | Protection |
+|-----------|------------|
+| `Pausable` | Owner can pause fills in emergencies |
+| `SafeERC20` | Handles tokens with non-standard return values |
+| Checked arithmetic (Solidity 0.8.24) | Reverts on overflow/underflow |
+| Zero-address checks | Constructor and fill function validate non-zero addresses |
+
+## Threat Model
+
+The following table summarizes the threats the contract system is designed to resist, and any residual risks:
+
+| Threat | Mitigation | Residual Risk |
+|--------|-----------|---------------|
+| Quote tampering | EIP-712 signatures bind all parameters | None — tampered quotes fail signature recovery |
+| Quote replay | `usedQuotes` mapping + nonce ordering | None — replayed quotes revert |
+| Cross-chain replay | Domain separator includes chain ID | None — wrong-chain signatures fail recovery |
+| Front-running a fill | Taker binding (`quote.taker`) | Open quotes (taker = 0x0) can be filled by anyone who obtains the signed quote |
+| Maker insolvency at fill time | On-chain balance check during transfer | Fill reverts; taker loses gas only |
+| Malicious token contract | `SafeERC20` + `ReentrancyGuard` | Exotic token behaviors (rebasing, fee-on-transfer) may produce unexpected amounts |
+| Admin key compromise | Owner can only pause, not drain funds | Attacker could pause fills, but cannot access user tokens |
+| Smart contract bug | Immutable deployment; no upgrade path | Requires new deployment and migration |
+
+## Verifying Contract Security
+
+Before interacting with HyperQuote contracts:
+
+1. **Verify the address** — Cross-reference the contract address against the [Contract Addresses](/smart-contracts/contract-addresses) page character-by-character.
+2. **Check the explorer** — View the verified source code on [hyperscan.xyz](https://hyperscan.xyz) and confirm it matches the official deployment.
+3. **Review your approvals** — Only approve the official SpotRFQ contract to transfer your tokens. Periodically review and revoke unused approvals using a tool like [revoke.cash](https://revoke.cash).
+4. **Use official links** — Always access HyperQuote through the [Official Links](/links/official-links) page. Bookmark the official URLs and use your bookmarks.
+
+<Callout type="warning">
+  The HyperQuote team will **never** ask for your private keys, seed phrase, or wallet password. If someone contacts you claiming to be from HyperQuote and asks for sensitive information, it is a scam. See [Official Links — Scam Prevention](/links/official-links#scam-prevention) for more details.
+</Callout>
+
+## Audit Status
+
+<Callout type="info">
+Check the [HyperQuote GitHub](https://github.com/hyperquote) for the latest audit reports and security disclosures.
+</Callout>
+
+## Related Pages
+
+- [Contract Addresses](/smart-contracts/contract-addresses) — Official deployed contract addresses
+- [SpotRFQ Contract](/smart-contracts/spot-rfq-contract) — Function signatures, events, and settlement flow
+- [Official Links](/links/official-links) — All official URLs, socials, and scam prevention guidance
+- [Risk Overview](/risk/risk-overview) — Protocol risk categories and mitigations
+- [Contract Architecture](/smart-contracts/contract-architecture) — System-level contract dependencies

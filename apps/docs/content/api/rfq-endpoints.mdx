@@ -1,0 +1,249 @@
+# RFQ Endpoints
+
+import { Callout, Tabs } from 'nextra/components'
+
+These endpoints manage Request for Quote (RFQ) lifecycle operations including creation, listing, detail retrieval, and cancellation.
+
+## List RFQs (Public)
+
+### `GET /api/v1/rfqs`
+
+Returns a cursor-paginated list of public RFQs. No authentication required.
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `status` | `string` | `"all"` | Filter: `"open"` (OPEN + QUOTED only) or `"all"` |
+| `limit` | `number` | `50` | Results per page (max 100) |
+| `cursor` | `string` | -- | Cursor from previous response's `nextCursor` |
+
+#### Response
+
+```json
+{
+  "items": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "taker": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "tokenIn": {
+        "address": "0xb88339cb...",
+        "symbol": "USDC",
+        "decimals": 6
+      },
+      "tokenOut": {
+        "address": "0x55555555...",
+        "symbol": "WHYPE",
+        "decimals": 18
+      },
+      "kind": 0,
+      "amountIn": "1000000000",
+      "amountOut": null,
+      "expiry": 1710086430,
+      "status": "OPEN",
+      "visibility": "public",
+      "quoteCount": 3,
+      "createdAt": "2026-03-10T16:00:00.000Z"
+    }
+  ],
+  "nextCursor": "abc123-def456"
+}
+```
+
+When `nextCursor` is `null`, there are no more results.
+
+## Get RFQ Detail (Public)
+
+### `GET /api/v1/rfqs/:id`
+
+Returns full details for a specific RFQ. Tries the in-memory registry first (which includes live quotes), then falls back to the persistent database for expired or filled RFQs.
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | RFQ ID |
+
+#### Response (Live RFQ)
+
+```json
+{
+  "rfq": {
+    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "taker": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "tokenIn": { "address": "0xb88339cb...", "symbol": "USDC", "decimals": 6 },
+    "tokenOut": { "address": "0x55555555...", "symbol": "WHYPE", "decimals": 18 },
+    "kind": 0,
+    "amountIn": "1000000000",
+    "expiry": 1710086430,
+    "visibility": "public"
+  },
+  "quotes": [
+    {
+      "maker": "0xAbCd...",
+      "amountOut": "50000000000000000000",
+      "signature": "0x..."
+    }
+  ],
+  "status": "OPEN",
+  "quoteCount": 1
+}
+```
+
+#### Response (Persisted RFQ)
+
+```json
+{
+  "rfq": {
+    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "taker": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "tokenIn": { "address": "0xb88339cb...", "symbol": "USDC", "decimals": 6 },
+    "tokenOut": { "address": "0x55555555...", "symbol": "WHYPE", "decimals": 18 },
+    "kind": 0,
+    "amountIn": "1000000000",
+    "expiry": 1710086430,
+    "visibility": "public",
+    "createdAt": "2026-03-10T16:00:00.000Z"
+  },
+  "status": "FILLED",
+  "quoteCount": 3,
+  "fillTxHash": "0xabc123..."
+}
+```
+
+| Status | Error |
+|--------|-------|
+| `404` | RFQ not found |
+
+## Cancel RFQ (Public)
+
+### `POST /api/v1/rfqs/:id/cancel`
+
+Cancels an open RFQ. Only the original taker can cancel.
+
+#### Response (200 OK)
+
+```json
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "status": "CANCELLED",
+  "cancelledAt": "2026-03-10T16:00:15.000Z"
+}
+```
+
+| Status | Error |
+|--------|-------|
+| `404` | RFQ not found |
+| `409` | RFQ is not in OPEN status |
+
+---
+
+## Create RFQ (Agent)
+
+### `POST /api/v1/agent/rfqs`
+
+Creates a new RFQ via the Agent API. Requires the `taker` role.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tokenIn` | `string` | Yes | Input token address or symbol (e.g. `"USDC"` or `"0xb88..."`) |
+| `tokenOut` | `string` | Yes | Output token address or symbol |
+| `amountIn` | `string` | Conditional | Input amount as BigInt string (required for `kind=0` / EXACT_IN) |
+| `amountOut` | `string` | Conditional | Output amount as BigInt string (required for `kind=1` / EXACT_OUT) |
+| `kind` | `number` | No | `0` = EXACT_IN (default), `1` = EXACT_OUT |
+| `ttlSeconds` | `number` | No | Time-to-live in seconds (default: 30, min: 10, max: 300) |
+| `visibility` | `string` | No | `"public"` (default) or `"private"` |
+| `allowedMakers` | `string[]` | No | Maker addresses for private RFQs |
+
+<Callout type="info">
+  Tokens can be specified by address (`0x...`) or by symbol (`"USDC"`, `"WHYPE"`). The API resolves symbols using the internal token registry.
+</Callout>
+
+#### Example Request
+
+```ts
+const res = await fetch("https://hyperquote.xyz/api/v1/agent/rfqs", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer hq_live_abc123...",
+  },
+  body: JSON.stringify({
+    tokenIn: "USDC",
+    tokenOut: "WHYPE",
+    amountIn: "1000000000",   // 1000 USDC (6 decimals)
+    kind: 0,                  // EXACT_IN
+    ttlSeconds: 30,
+    visibility: "public",
+  }),
+});
+```
+
+#### Response (201 Created)
+
+```json
+{
+  "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "shareToken": "abc123def456",
+  "expiry": 1710086430,
+  "ttlSeconds": 30,
+  "activeCount": 1
+}
+```
+
+The `shareToken` is used for private RFQs -- share it with allowed makers to let them submit quotes.
+
+| Status | Error |
+|--------|-------|
+| `400` | Invalid JSON body, unknown token, or missing required amount |
+| `401` | Missing or invalid API key |
+| `403` | Agent does not have the `taker` role |
+| `429` | Too many active RFQs for this wallet |
+
+## List RFQs (Agent)
+
+### `GET /api/v1/agent/rfqs`
+
+Lists RFQs with additional source control. Requires the `monitor` role.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `source` | `string` | `"live"` | `"live"` (in-memory), `"db"` (persisted), or `"both"` |
+| `status` | `string` | `"all"` | `"open"` or `"all"` (only applies to `source=db`) |
+| `limit` | `number` | `50` | Results per page (max 100, only for `source=db`) |
+| `cursor` | `string` | -- | Pagination cursor (only for `source=db`) |
+
+## Get Agent RFQ Detail
+
+### `GET /api/v1/agent/rfqs/:id`
+
+Returns full details for a specific RFQ. Same response format as the [public endpoint](#get-rfq-detail-public) but requires authentication.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | RFQ ID |
+
+| Status | Error |
+|--------|-------|
+| `401` | Missing or invalid API key |
+| `404` | RFQ not found |
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [Quote Endpoints](/api/quote-endpoints) — Submit and retrieve quotes
+- [Fill Endpoints](/api/fill-endpoints) — Record completed fills
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — Real-time RFQ broadcasts via WebSocket
+- [Error Codes](/api/error-codes) — Full error reference

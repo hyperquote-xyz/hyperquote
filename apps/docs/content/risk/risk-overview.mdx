@@ -1,0 +1,95 @@
+# Risk Overview
+
+import { Callout } from 'nextra/components'
+
+Using HyperQuote involves multiple categories of risk that participants should understand before trading. This page provides a comprehensive overview of all identified risks, the mitigation strategies the protocol employs, and responsibilities that fall on users.
+
+<Callout type="warning">
+  HyperQuote is a permissionless protocol on HyperEVM. There is no insurance fund, no centralized backstop, and no mechanism to reverse settled trades. Users are responsible for understanding these risks before participating.
+</Callout>
+
+## Who This Is For
+
+- **All users** of HyperQuote — takers, makers, and integrators.
+- **Risk managers** evaluating HyperQuote for institutional use.
+- **Developers** building on the protocol who need to understand failure modes.
+
+## Risk Categories
+
+| Category | Severity | Description |
+|----------|----------|-------------|
+| [Smart Contract Risk](/risk/smart-contract-risk) | High | Bugs or vulnerabilities in deployed contracts |
+| [Liquidity Risk](/risk/liquidity-risk) | Medium | No guaranteed quotes from makers |
+| [Quote Expiry Risk](/risk/quote-expiry-risk) | Medium | Quotes becoming stale or expiring before fill |
+| [Relay Dependency](/risk/relay-dependency) | Medium | Off-chain relay availability |
+| [Volatility Risk](/risk/volatility-risk) | Medium | Market price movements during trading |
+| [Routing Limitations](/risk/routing-limitations) | Low | Venue comparison accuracy constraints |
+| [Counterparty Risk](/risk/counterparty-risk) | Low | Maker balance or approval insufficient at fill time |
+
+## Mitigation Strategies
+
+The protocol employs several architectural decisions to reduce risk exposure:
+
+### Atomic Settlement
+
+All spot RFQ trades settle in a single transaction. Either both legs of the swap execute, or neither does. There is no state where one party has sent tokens but the other has not. This eliminates settlement risk entirely.
+
+### Immutable Contracts
+
+The settlement contracts are non-upgradeable. Once deployed, the contract logic cannot be changed. This prevents post-deployment manipulation but also means bugs cannot be patched in place.
+
+### EIP-712 Signatures
+
+Every quote is cryptographically signed with EIP-712 typed data, binding the exact trade parameters (pair, amounts, deadline, nonce) to the maker's address. Quotes cannot be altered after signing.
+
+### Nonce Management
+
+On-chain nonce tracking prevents replay attacks. Each quote uses a unique nonce, and makers can bulk-invalidate outstanding quotes by calling `incrementNonce()`.
+
+### Venue Comparison
+
+The built-in venue comparison engine lets takers verify that an RFQ quote is competitive against HyperCore and HyperEVM DEX prices before executing. This reduces the risk of accepting an unfavorable price.
+
+## User Responsibilities
+
+Participants are responsible for:
+
+1. **Understanding the protocol** — Reading this documentation and understanding how RFQ and settlement work before trading.
+2. **Managing private keys** — The protocol uses EIP-712 signatures tied to wallet addresses. Loss of private keys means loss of access to funds.
+3. **Verifying quotes** — Takers should use the venue comparison to verify that RFQ quotes are competitive before executing.
+4. **Gas management** — Users need sufficient HYPE for gas on HyperEVM to submit transactions.
+5. **Token approvals** — Users must approve the settlement contract to transfer tokens. Approvals should be reviewed and revoked when no longer needed.
+6. **Checking contract addresses** — Always verify you are interacting with the official SpotRFQ contract. See [Contract Addresses](/smart-contracts/contract-addresses).
+7. **Using official links** — Only access HyperQuote through verified URLs. See [Official Links](/links/official-links) for the complete list and scam prevention guidance.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | Impact | Mitigation |
+|----------|--------|------------|
+| Smart contract bug discovered post-deployment | Potential loss of funds in affected transactions | Contracts are immutable; a new contract must be deployed and users must migrate |
+| All makers disconnect from the relay | No quotes are available; RFQs expire unfilled | No gas is spent. Retry when makers reconnect, or use alternative venues directly. |
+| Maker submits a quote they cannot cover | Fill transaction reverts on-chain | Taker loses gas for the failed transaction. Try the next best quote. |
+| Token contract has a transfer fee or rebasing mechanism | Settlement may fail or produce unexpected amounts | Only use verified tokens. Review token contract behavior before trading exotic tokens. |
+| RPC node is unavailable | Cannot submit fill transactions | Use an alternative RPC endpoint. The quote remains valid on-chain until its deadline. |
+
+## Risk Is Not Eliminated
+
+No protocol can eliminate all risk. HyperQuote's design choices trade off certain risks for others:
+
+- Atomic settlement eliminates settlement risk but does not protect against smart contract bugs.
+- Immutable contracts prevent admin manipulation but cannot be patched if a vulnerability is found.
+- Off-chain relay provides low latency but introduces a dependency on relay availability.
+- EIP-712 signatures ensure quote integrity but require users to manage their private keys securely.
+
+Users should size their trades and manage their exposure with these trade-offs in mind.
+
+## Related Pages
+
+- [Smart Contract Risk](/risk/smart-contract-risk) — Contract-level vulnerabilities and audit status
+- [Liquidity Risk](/risk/liquidity-risk) — Quote availability and maker participation
+- [Relay Dependency](/risk/relay-dependency) — Infrastructure risks and fallback mechanisms
+- [Counterparty Risk](/risk/counterparty-risk) — What happens when a maker cannot cover a fill
+- [Volatility Risk](/risk/volatility-risk) — Price movement during the RFQ lifecycle
+- [Contract Addresses](/smart-contracts/contract-addresses) — Verify official contract deployments
+- [Security Model](/smart-contracts/security-model) — Smart contract security architecture
+- [Official Links](/links/official-links) — All official URLs, socials, and scam prevention guidance

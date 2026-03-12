@@ -1,0 +1,97 @@
+# Ranking Periods
+
+import { Callout } from 'nextra/components'
+
+The Liquidity League maintains three concurrent ranking periods, each providing a different perspective on participant performance. Rankings are computed independently for each period, so a participant's relative position can differ across time windows.
+
+## Time Windows
+
+### 7-Day Rolling
+
+The 7-day rolling period includes all fills from the last 7 calendar days (168 hours). This window captures short-term competitive dynamics and is the most responsive to changes in trading activity.
+
+- **Use case**: Identifying the most active participants this week.
+- **Volatility**: Rankings can shift significantly day-to-day as old fills age out and new fills come in.
+- **Sensitivity**: A single large fill can meaningfully move a participant's rank in this window.
+
+### 30-Day Rolling
+
+The 30-day rolling period includes all fills from the last 30 calendar days (720 hours). This window smooths out short-term fluctuations and rewards sustained activity.
+
+- **Use case**: Evaluating consistent participation over the past month.
+- **Stability**: Rankings are more stable than the 7-day window, requiring sustained changes in behavior to shift position.
+- **Balance**: Captures enough history to be meaningful, but is recent enough to reflect current activity levels.
+
+### All-Time
+
+The all-time period includes every fill since the protocol launched. This is the lifetime leaderboard.
+
+- **Use case**: Recognizing the most significant cumulative contributors to the protocol.
+- **Inertia**: Established participants with large historical volume are difficult to displace.
+- **Newcomer challenge**: New participants must accumulate significant volume to break into the top ranks.
+
+<Callout type="info">
+  All three ranking periods are computed in parallel. The UI allows toggling between periods to see how rankings differ across time horizons.
+</Callout>
+
+## Aggregation
+
+Within each ranking period, the league score is computed by aggregating all fills that fall within the time window:
+
+```
+score = sum(fillNotional_i) * (1 + volumeWeightedAvgImprovement / divisor) * reliabilityFactor * privacyFactor
+```
+
+The aggregation is performed as follows:
+
+1. **Collect fills** -- Gather all confirmed settlement transactions for the address within the time window.
+2. **Sum notional** -- Add up the USD notional value of each fill.
+3. **Compute volume-weighted average improvement** -- Weight each fill's improvement by its notional to compute the period average.
+4. **Compute reliability factor** (makers only) -- Calculate the cancel rate over the period and apply the reliability formula.
+5. **Compute privacy factor** -- Determine the share of private fill volume and apply the privacy bonus.
+6. **Combine** -- Multiply all components to produce the final league score.
+
+Fills that span a period boundary (e.g., a fill from 8 days ago in the 7-day window) are excluded from that period's calculation. The settlement timestamp determines which period a fill belongs to.
+
+## Refresh Timing
+
+Rankings are refreshed on a near-real-time basis:
+
+| Event | Refresh Behavior |
+|-------|-----------------|
+| New fill confirmed | Scores for both maker and taker are recalculated within seconds |
+| Period boundary crossed | Fills that age out of the 7-day or 30-day window are excluded on the next refresh cycle |
+| Quote cancellation | Maker reliability factor is recalculated on the next refresh |
+
+The refresh cycle runs continuously. There is no fixed "snapshot time" or daily reset. Rankings are always based on the latest available data.
+
+<Callout type="warning">
+  Because rolling windows are continuous, a fill from exactly 7 days ago will age out of the 7-day ranking during the current day. Your 7-day score can decrease even without any new activity, simply because older fills are rolling off the window.
+</Callout>
+
+## Minimum Volume Thresholds
+
+Each ranking period enforces a minimum filled notional threshold to appear on the leaderboard:
+
+| Period | Minimum Notional |
+|--------|-----------------|
+| 7-day | Minimum threshold applies |
+| 30-day | Minimum threshold applies |
+| All-time | Minimum threshold applies |
+
+Participants below the threshold for a given period are excluded from that period's ranking but may still appear in other periods where they meet the threshold.
+
+## Period Overlap
+
+Since all three periods are computed simultaneously, interesting patterns can emerge:
+
+- A maker who was very active last month but has been quiet this week may rank highly on the 30-day leaderboard but not appear on the 7-day leaderboard.
+- A new participant who just started trading this week may rank highly on the 7-day leaderboard but be far down the all-time rankings.
+- A consistently active participant will tend to rank similarly across all three periods.
+
+## Related Pages
+
+- [League Overview](/league/league-overview) -- Introduction to the Liquidity League
+- [Maker Scoring](/league/maker-scoring) -- Maker league score formula
+- [Taker Scoring](/league/taker-scoring) -- Taker league score formula
+- [Activity Feed](/league/league-activity-feed) -- Per-address fill history

@@ -1,0 +1,70 @@
+# Routing Limitations
+
+import { Callout } from 'nextra/components'
+
+The HyperQuote venue comparison engine fetches quotes from multiple venues (AMM DEXes, HyperCore order book) to help takers evaluate whether the RFQ quote is competitive. While this comparison is valuable, it has inherent limitations that users should understand.
+
+## DEX Aggregator Dependency
+
+The venue comparison relies on DEX aggregator routing to determine the best available AMM execution price. This introduces several constraints:
+
+- **Aggregator coverage** -- The comparison only includes venues and pools that the aggregator indexes. Newly deployed pools or obscure venues may not be included.
+- **Aggregator accuracy** -- The quoted price from the aggregator is an estimate. Actual execution may differ due to block-to-block price changes, gas costs, and slippage.
+- **Aggregator availability** -- If the aggregator API is unavailable or slow, the venue comparison may be incomplete or delayed.
+
+<Callout type="info">
+  The venue comparison is informational. It shows the best estimate of alternative execution at query time, but it does not guarantee that the displayed AMM or CLOB price will be achievable at execution time.
+</Callout>
+
+## Multi-Hop Coverage
+
+For token pairs without direct AMM pools, the aggregator computes multi-hop routes (e.g., Token A -> USDC -> Token B). Multi-hop routing adds complexity:
+
+- **Gas costs** -- Multi-hop swaps consume more gas than single-hop swaps. The venue comparison may not fully account for the gas cost difference.
+- **Slippage stacking** -- Each hop introduces independent slippage. The total slippage of a multi-hop route is greater than any single hop.
+- **Route stability** -- Multi-hop routes depend on intermediate pool liquidity. If an intermediate pool is drained or becomes imbalanced, the route may not be executable.
+
+The RFQ venue comparison shows the estimated output after routing but may not display the full route path or intermediate pools.
+
+## Partial Fill Approximation
+
+The venue comparison shows the quote for the full requested trade size. However, AMM and CLOB execution at that size may differ from the quoted estimate:
+
+- **AMM price impact** -- The comparison computes the expected output accounting for price impact at the requested size, but this is an approximation based on current pool state. By the time the trade is submitted, the pool state may have changed.
+- **CLOB book depth** -- The HyperCore comparison is based on the visible order book at query time. Resting orders may be cancelled or new orders may appear between the query and execution.
+- **Partial fills** -- The RFQ comparison assumes a single complete fill. AMMs always provide complete fills (with price impact), but CLOB execution may result in partial fills if the book is thin.
+
+<Callout type="warning">
+  For large trades, the gap between the quoted venue comparison price and the achievable execution price can be significant, especially for AMM routes with substantial price impact. The comparison is most accurate for small to moderate sizes on liquid pairs.
+</Callout>
+
+## Cross-Venue Timing
+
+The venue comparison fetches data from multiple sources at approximately the same time, but the data is not perfectly synchronized:
+
+- RFQ quotes are generated in response to the specific request and reflect maker pricing at that moment.
+- AMM quotes are computed from the current on-chain pool state, which may be several seconds old depending on block time.
+- HyperCore quotes are based on the order book snapshot, which updates rapidly but may lag during high activity.
+
+During fast-moving markets, these timing differences can make the comparison misleading. A venue that appears cheaper at query time may be more expensive by the time the taker attempts to execute.
+
+## Limitations for Exotic Pairs
+
+For token pairs with limited on-chain presence:
+
+- No AMM route may exist, leaving only the RFQ quote and potentially HyperCore.
+- If no HyperCore market exists either, the venue comparison may show only the RFQ quote with no benchmark.
+- The lack of a benchmark affects the points improvement multiplier (defaulting to 0.90x) and makes it harder for the taker to evaluate quote quality.
+
+## Mitigation Strategies
+
+1. **Treat the comparison as a guide, not a guarantee** -- Use it to identify whether the RFQ quote is in the right ballpark, but do not assume the displayed AMM price is achievable.
+2. **Execute promptly** -- The longer you wait after the comparison is generated, the more likely prices have moved.
+3. **Verify independently for large trades** -- For significant positions, check prices directly on AMM interfaces or block explorers to confirm the venue comparison's accuracy.
+4. **Understand routing costs** -- Multi-hop routes have higher gas costs and slippage that may not be fully reflected in the comparison.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Venue Comparison Engine](/trading/venue-comparison-engine) -- How the comparison works
+- [Taker Fees](/fees/taker-fees) -- Fee comparison across venues

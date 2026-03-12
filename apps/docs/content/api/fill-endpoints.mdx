@@ -1,0 +1,176 @@
+# Fill Endpoints
+
+import { Callout, Tabs } from 'nextra/components'
+
+Fill endpoints handle the recording of completed on-chain trades and retrieval of fill history. When a trade is settled on-chain, the fill is recorded with points computation and venue benchmark comparison.
+
+## Record Fill (Public)
+
+### `POST /api/v1/fills`
+
+Records a completed RFQ fill after on-chain settlement. Computes price improvement against the AMM baseline and awards points to both taker and maker.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `txHash` | `string` | Yes | On-chain transaction hash |
+| `rfqId` | `string` | No | RFQ ID (used to look up baseline for price improvement) |
+| `taker` | `string` | Yes | Taker wallet address (`0x` + 40 hex) |
+| `maker` | `string` | Yes | Maker wallet address (`0x` + 40 hex) |
+| `tokenIn` | `string` | Yes | Input token address |
+| `tokenOut` | `string` | Yes | Output token address |
+| `amountIn` | `string` | Yes | Input amount (BigInt string) |
+| `amountOut` | `string` | Yes | Output amount (BigInt string) |
+| `amountInUsd` | `number` | Yes | USD value of input amount (float) |
+| `visibility` | `string` | No | `"public"` (default) or `"private"` |
+
+#### Example Request
+
+```ts
+const res = await fetch("https://hyperquote.xyz/api/v1/fills", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    txHash: "0xabc123def456789...",
+    rfqId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    taker: "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    maker: "0xAbCd1234567890abcdef1234567890abcdef1234",
+    tokenIn: "0xb88339cb...",
+    tokenOut: "0x55555555...",
+    amountIn: "1000000000",
+    amountOut: "50000000000000000000",
+    amountInUsd: 1000.0,
+    visibility: "public",
+  }),
+});
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "fill": {
+    "id": "clx9fill123...",
+    "txHash": "0xabc123def456789...",
+    "improvementBps": 150,
+    "takerPoints": 125.5,
+    "makerPoints": 87.3,
+    "version": "v2"
+  }
+}
+```
+
+The `improvementBps` field indicates how much better the RFQ fill was compared to the AMM baseline in basis points. A value of `150` means the RFQ price was 1.5% better than the best available DEX route.
+
+<Callout type="info">
+  Points are computed using the v2 hardened points engine. The `version` field indicates which engine version was used. See [Points Overview](/points/points-overview) for the formula details.
+</Callout>
+
+#### Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Missing required fields |
+| `400` | Invalid address format |
+| `400` | Invalid BigInt strings for amounts |
+| `409` | Fill already recorded for this transaction hash |
+| `500` | Internal error |
+
+## Agent Fill
+
+### `POST /api/v1/agent/rfqs/:id/fill`
+
+Agent-authenticated version of the fill endpoint. Requires the `taker` role. Only the agent that created the RFQ (matching wallet) can fill it.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | RFQ ID to mark as filled |
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `txHash` | `string` | Yes | On-chain transaction hash (`0x` + 64 hex chars) |
+| `maker` | `string` | Yes | Maker wallet address |
+| `amountIn` | `string` | Yes | Input amount (BigInt string) |
+| `amountOut` | `string` | Yes | Output amount (BigInt string) |
+| `amountInUsd` | `number` | Yes | USD value of input amount |
+
+#### Example
+
+```ts
+const res = await fetch(
+  "https://hyperquote.xyz/api/v1/agent/rfqs/f47ac10b.../fill",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer hq_live_abc123...",
+    },
+    body: JSON.stringify({
+      txHash: "0xabc123def456789...",
+      maker: "0xAbCd1234...",
+      amountIn: "1000000000",
+      amountOut: "50000000000000000000",
+      amountInUsd: 1000.0,
+    }),
+  }
+);
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "txHash": "0xabc123def456789...",
+  "fill": {
+    "id": "clx9fill123...",
+    "improvementBps": 150,
+    "takerPoints": 125.5,
+    "makerPoints": 87.3
+  }
+}
+```
+
+This endpoint performs three operations:
+
+1. Marks the RFQ as `FILLED` in the registry and database (triggers SSE events)
+2. Records the `Fill` and `FeedFill` records with points computation
+3. Logs agent activity
+
+#### Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Missing or invalid fields (txHash, maker, amounts) |
+| `401` | Missing or invalid API key |
+| `403` | Agent does not have the `taker` role |
+| `403` | Only the taker that created the RFQ can fill it |
+| `404` | RFQ not found |
+| `409` | Fill already recorded for this transaction hash |
+
+## Price Improvement Calculation
+
+When an `rfqId` is provided, the API looks up the stored AMM baseline (captured at RFQ submission time) and computes improvement:
+
+```
+improvementBps = ((rfqAmountOut / baselineAmountOut) - 1) * 10000
+```
+
+A positive value means the RFQ fill gave the taker more output tokens than the best DEX route would have. If no baseline exists, `improvementBps` defaults to `0`.
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [RFQ Endpoints](/api/rfq-endpoints) — Create and query RFQs
+- [Quote Endpoints](/api/quote-endpoints) — Submit and retrieve quotes
+- [Benchmark Endpoints](/api/benchmark-endpoints) — Baseline data and price improvement
+- [Error Codes](/api/error-codes) — Full error reference

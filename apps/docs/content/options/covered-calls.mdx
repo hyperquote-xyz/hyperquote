@@ -1,0 +1,115 @@
+# Covered Calls
+
+import { Callout } from 'nextra/components'
+
+A covered call is an options strategy where the seller locks underlying tokens and grants the buyer the right to purchase them at a predetermined strike price on the expiry date. The buyer pays a premium upfront for this right.
+
+## How It Works
+
+In HyperQuote, the **taker is always the seller** and the **maker is always the buyer** (V1 constraint). When a covered call is executed:
+
+1. The **seller** (taker) locks their underlying tokens (wHYPE) in the OptionsEngine contract as collateral.
+2. The **buyer** (maker) pays a premium in the collateral stablecoin (USDC, USDH, or USDT0) to the seller.
+3. An ERC-721 position NFT is minted to the buyer representing their right to buy the underlying at the strike price.
+
+<Callout type="info">
+The seller receives the premium immediately at execution time. The locked underlying tokens are held by the contract until expiry.
+</Callout>
+
+## Collateral for Covered Calls
+
+For a covered call, the collateral locked is simply the **quantity of underlying tokens** specified in the quote. The seller must have approved and hold at least this amount of wHYPE.
+
+```
+collateralLocked = quantity
+```
+
+For example, selling a covered call on 10 wHYPE means the seller locks exactly 10 wHYPE in the contract, regardless of the strike price.
+
+## Settlement: In-the-Money (ITM)
+
+A covered call is ITM when the settlement price exceeds the strike price (`S > K`). When settled:
+
+1. The **buyer** delivers stablecoin equal to `strike * quantity` (scaled to collateral decimals) to the contract.
+2. The **contract** sends the locked underlying tokens (wHYPE) to the buyer.
+3. The **contract** sends the stablecoin payment to the seller, minus the keeper fee.
+
+In effect, the seller sells their wHYPE at the strike price, and the buyer acquires the underlying at a discount to the current market price.
+
+### Example
+
+| Parameter | Value |
+|---|---|
+| Underlying | wHYPE |
+| Collateral | USDC |
+| Strike | $25.00 |
+| Quantity | 100 wHYPE |
+| Premium | 50 USDC |
+| Settlement Price | $30.00 |
+
+The call is ITM ($30 > $25). At settlement:
+
+- Buyer delivers **2,500 USDC** (25 * 100) to the contract
+- Buyer receives **100 wHYPE** from the contract
+- Seller receives **2,500 USDC** minus keeper fee
+- Seller already collected **50 USDC** premium at execution
+
+The seller's effective sale price is $25.50 per wHYPE (strike + premium per unit). The buyer's effective purchase price is $25.50, compared to a market price of $30.
+
+## Expiry: Out-of-the-Money (OTM)
+
+A covered call is OTM when the settlement price is at or below the strike (`S <= K`). The option expires worthless:
+
+1. The **seller's** locked underlying (wHYPE) is returned in full.
+2. The **seller** keeps the premium collected at execution.
+3. The position NFT is burned.
+
+### Example
+
+Using the same parameters above but with a settlement price of $20:
+
+- Seller gets back **100 wHYPE**
+- Seller keeps **50 USDC** premium
+- Buyer's option expires worthless (no rational reason to buy at $25 when market is $20)
+
+## When to Sell Covered Calls
+
+Covered calls are typically attractive when:
+
+- You hold the underlying token and want to generate yield from premiums
+- You have a neutral-to-slightly-bullish outlook and are willing to sell at the strike price
+- You want to reduce the effective cost basis of your holdings
+
+<Callout type="warning">
+If the underlying price rises significantly above the strike, you will have sold your tokens at below market value. Your upside is capped at the strike price plus the premium received.
+</Callout>
+
+## On-Chain Mechanics
+
+The OptionsEngine handles covered call creation in `_createPosition`:
+
+```solidity
+if (quote.isCall) {
+    collateralAmount = quote.quantity;
+}
+// ...
+// Lock collateral from seller (underlying for calls)
+if (quote.isCall) {
+    IERC20(quote.underlying).safeTransferFrom(
+        seller, address(this), collateralAmount
+    );
+}
+```
+
+At settlement, the `_executeSettlement` function handles the physical delivery:
+
+```solidity
+if (pos.isCall) {
+    // Buyer delivers strike * qty in collateral (stablecoin)
+    uint256 grossCollateral = CollateralMath.callSettlementCost(
+        pos.strike, pos.quantity, uDec, cDec
+    );
+    // Buyer pays → contract → seller (net of keeper fee)
+    // Contract sends underlying → buyer
+}
+```

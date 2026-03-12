@@ -1,0 +1,144 @@
+# CollateralMath
+
+import { Callout } from 'nextra/components'
+
+`CollateralMath` is a Solidity library that provides arithmetic helpers for computing collateral requirements and settlement costs with cross-decimal precision. It is used by the OptionsEngine to handle token pairs with different decimal precisions (e.g. wHYPE with 18 decimals and USDC with 6 decimals).
+
+## Core Formula
+
+All calculations share the same underlying formula:
+
+```
+result = ceilDiv(strike * quantity, 10^(18 + uDec - cDec))
+```
+
+Where:
+- `strike` is the strike price in 1e18 precision (1e18 = $1.00)
+- `quantity` is the underlying amount in underlying token decimals (`uDec`)
+- `result` is in collateral token decimals (`cDec`)
+
+### Derivation
+
+```
+strike/1e18 * quantity/10^uDec = value in USD
+value_in_collateral = value * 10^cDec
+= strike * quantity * 10^cDec / (1e18 * 10^uDec)
+= strike * quantity / 10^(18 + uDec - cDec)
+```
+
+### Example: wHYPE/USDC
+
+- wHYPE: 18 decimals (`uDec = 18`)
+- USDC: 6 decimals (`cDec = 6`)
+- Exponent: `18 + 18 - 6 = 30`
+
+For a $25 strike on 10 wHYPE:
+```
+strike = 25e18
+quantity = 10e18
+result = ceilDiv(25e18 * 10e18, 10^30) = ceilDiv(250e36, 1e30) = 250e6
+```
+
+Result: 250 USDC (250e6 in USDC units).
+
+### Example: wHYPE/USDH (18-decimal stablecoin)
+
+- USDH: 18 decimals (`cDec = 18`)
+- Exponent: `18 + 18 - 18 = 18`
+
+```
+result = ceilDiv(25e18 * 10e18, 10^18) = ceilDiv(250e36, 1e18) = 250e18
+```
+
+Result: 250 USDH (250e18 in USDH units).
+
+## Functions
+
+### `putCollateralRequired(strike, quantity, uDec, cDec)`
+
+Computes the collateral a seller must lock for a Cash-Secured Put. The seller locks `strike * quantity` worth of stablecoin.
+
+```solidity
+function putCollateralRequired(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256);
+```
+
+### `callSettlementCost(strike, quantity, uDec, cDec)`
+
+Computes the stablecoin amount a call buyer must deliver at settlement. When a Covered Call is ITM, the buyer pays `strike * quantity` in collateral to receive the underlying.
+
+```solidity
+function callSettlementCost(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256);
+```
+
+### `notional(strike, quantity, uDec, cDec)`
+
+Computes the notional value of a position. Used for keeper fee calculation. Same formula as `putCollateralRequired` and `callSettlementCost`.
+
+```solidity
+function notional(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256);
+```
+
+### `ceilDiv(a, b)`
+
+Ceiling division. Returns `ceil(a / b)`. Reverts if `b == 0`.
+
+```solidity
+function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) return 0;
+    return ((a - 1) / b) + 1;
+}
+```
+
+<Callout type="warning">
+All functions use ceiling division (round up) to ensure the seller always locks enough collateral. Rounding down could leave a fractional deficit that prevents full settlement.
+</Callout>
+
+## Overflow Protection
+
+The `strike * quantity` multiplication uses Solidity 0.8.24's built-in checked arithmetic. If the product overflows a `uint256`, the transaction reverts. This provides implicit protection against unreasonable strike or quantity values.
+
+## Usage in OptionsEngine
+
+### At Position Creation
+
+For a Cash-Secured Put:
+```solidity
+collateralAmount = CollateralMath.putCollateralRequired(
+    quote.strike, quote.quantity, uDec, cDec
+);
+```
+
+For a Covered Call, the seller locks `quantity` of the underlying directly (no multiplication needed).
+
+### At Settlement
+
+For Covered Call ITM settlement:
+```solidity
+uint256 grossCollateral = CollateralMath.callSettlementCost(
+    pos.strike, pos.quantity, uDec, cDec
+);
+```
+
+### For Keeper Fee Calculation
+
+```solidity
+uint256 notionalValue = CollateralMath.notional(
+    pos.strike, pos.quantity, uDec, cDec
+);
+uint256 fee = CollateralMath.ceilDiv(notionalValue * uint256(bps), 10_000);
+```

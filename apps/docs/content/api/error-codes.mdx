@@ -1,0 +1,207 @@
+# Error Codes
+
+import { Callout } from 'nextra/components'
+
+This page documents all error codes returned by HyperQuote APIs, the WebSocket relay, and smart contract reverts.
+
+## HTTP Status Codes
+
+### 4xx Client Errors
+
+| Status | Meaning | Common Causes |
+|--------|---------|---------------|
+| `400` | Bad Request | Invalid JSON, missing required fields, invalid parameters, BigInt parse errors |
+| `401` | Unauthorized | Missing or invalid API key, invalid key format |
+| `403` | Forbidden | Insufficient role permissions, signature mismatch, wrong wallet |
+| `404` | Not Found | RFQ, token, or resource does not exist |
+| `405` | Method Not Allowed | Using POST on a GET-only endpoint or vice versa |
+| `409` | Conflict | Duplicate transaction hash, duplicate RFQ, max agents reached |
+| `429` | Too Many Requests | Rate limit exceeded. Check `Retry-After` header. |
+
+### 5xx Server Errors
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `500` | Internal Server Error | Unexpected error. Retry with backoff. Report if persistent. |
+| `503` | Service Unavailable | Database or external service is down. Retry after delay. |
+
+## REST API Error Format
+
+All REST errors return a JSON object with an `error` field:
+
+```json
+{
+  "error": "Human-readable error description"
+}
+```
+
+Some endpoints include additional fields for debugging:
+
+```json
+{
+  "error": "Signature does not match ownerWallet. Sign with the owner wallet.",
+  "expected": "0xabc123...",
+  "recovered": "0xdef456..."
+}
+```
+
+## Application Error Codes by Endpoint
+
+### Agent Registration (`POST /api/v1/agent/register`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Invalid JSON body"` | 400 | Request body is not valid JSON |
+| `"name is required (max 64 chars)"` | 400 | Name missing or exceeds 64 characters |
+| `"ownerWallet must be a valid 0x address"` | 400 | Invalid Ethereum address format |
+| `"agentWallet must be a valid 0x address"` | 400 | Invalid Ethereum address format |
+| `"roles must be a non-empty array of: taker, maker, monitor"` | 400 | Invalid or empty roles array |
+| `"signature is required"` | 400 | Missing EIP-191 signature |
+| `"timestamp is required (unix seconds)"` | 400 | Missing or non-numeric timestamp |
+| `"Signature expired. Timestamp must be within 300s of current time."` | 400 | Signature older than 5 minutes |
+| `"Signature verification failed: ..."` | 400 | Cryptographic verification error |
+| `"Signature does not match ownerWallet."` | 403 | Recovered address differs from ownerWallet |
+| `"Maximum 10 agents per owner wallet"` | 409 | Owner already has 10 agents |
+| `"Registration rate limit exceeded. Try again in Ns."` | 429 | Too many registrations from this IP |
+
+### RFQ Endpoints
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Invalid JSON body"` | 400 | Request body is not valid JSON |
+| `"Unknown tokenIn: X. Use address or symbol."` | 400 | Token not in registry |
+| `"amountIn is required for EXACT_IN"` | 400 | Missing amount for the selected mode |
+| `"amountIn/amountOut must be valid BigInt strings"` | 400 | Cannot parse amount as BigInt |
+| `"Not found"` | 404 | RFQ with this ID does not exist |
+| `"Too many active RFQs"` | 429 | Wallet has too many concurrent RFQs |
+
+### Quote Endpoints (`POST /api/v1/quotes`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Invalid JSON body"` | 400 | Request body is not valid JSON |
+| `"Missing rfqId or quote"` | 400 | Required fields not provided |
+| `"RFQ not found or expired"` | 400 | Referenced RFQ is no longer active |
+| `"Duplicate quote from this maker"` | 400 | Same maker already quoted this RFQ |
+| `"Invalid signature"` | 400 | Quote signature verification failed |
+
+### Fill Endpoints (`POST /api/v1/fills`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Missing required fields: txHash, taker, maker, ..."` | 400 | One or more required fields missing |
+| `"Invalid taker or maker address format"` | 400 | Address is not `0x` + 40 hex chars |
+| `"amountIn and amountOut must be valid BigInt strings"` | 400 | Cannot parse amounts as BigInt |
+| `"Fill already recorded for this transaction"` | 409 | Duplicate `txHash` |
+
+### Agent Fill (`POST /api/v1/agent/rfqs/:id/fill`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Missing or invalid txHash (expected 0x + 64 hex chars)"` | 400 | Transaction hash format wrong |
+| `"Missing or invalid maker address"` | 400 | Maker address format wrong |
+| `"Missing amountIn or amountOut (BigInt strings)"` | 400 | Amounts not provided |
+| `"Missing or invalid amountInUsd (number)"` | 400 | USD value missing or not a number |
+| `"Forbidden: only the taker that created this RFQ can fill it"` | 403 | Agent wallet does not match RFQ taker |
+| `"RFQ not found"` | 404 | RFQ not in memory or database |
+| `"Fill already recorded for this transaction"` | 409 | Duplicate `txHash` |
+
+### Badge Endpoints (`GET /api/v1/badges/:address`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Invalid address"` | 400 | Address is not `0x` + 40 hex chars |
+
+### Profile Endpoints (`GET /api/v1/profile/:address`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Invalid address format"` | 400 | Address is not `0x` + 40 hex chars |
+
+### SOR Endpoints (`GET /api/v1/sor/quote`)
+
+| Error | Status | Cause |
+|-------|--------|-------|
+| `"Missing required params: tokenIn, tokenOut, amountIn"` | 400 | Query parameters missing |
+| `"Invalid token address format"` | 400 | Address is not a valid hex address |
+| `"tokenIn and tokenOut must be different"` | 400 | Same token for both sides |
+| `"amountIn must be a positive integer (raw units)"` | 400 | Zero, negative, or non-integer amount |
+| `"Token X not found in registry"` | 404 | Token address not in SOR database |
+
+## Relay WebSocket Error Messages
+
+The relay sends `ERROR` messages for validation and processing failures:
+
+### Quote Submission Errors
+
+| Error Message | Cause |
+|--------------|-------|
+| `"Missing rfqId, quote, or signature"` | Incomplete QUOTE_SUBMIT payload |
+| `"RFQ not found or expired"` | Referenced RFQ is no longer active |
+| `"Invalid maker address"` | Malformed Ethereum address |
+| `"Quote rejected: tokenIn does not match RFQ"` | Token address mismatch |
+| `"Quote rejected: tokenOut does not match RFQ"` | Token address mismatch |
+| `"Quote rejected: Deadline is in the past"` | Deadline already passed |
+| `"Quote rejected: amountIn must be > 0"` | Zero input amount |
+| `"Quote rejected: amountOut must be > 0"` | Zero output amount |
+| `"Invalid EIP-712 signature -- signer does not match maker"` | Signature verification failed |
+| `"Duplicate quote from this maker for this RFQ"` | One quote per maker per RFQ |
+
+### Cancellation Errors
+
+| Error Message | Cause |
+|--------------|-------|
+| `"Missing rfqId"` | Incomplete CANCEL_REQUEST payload |
+| `"RFQ not found or already expired"` | RFQ is not in the active store |
+
+### General Errors
+
+| Error Message | Cause |
+|--------------|-------|
+| `"Rate limit exceeded (max N msg/min)"` | Too many messages in window |
+| `"Unknown message type: X"` | Unrecognized message type |
+| `"Parse error: ..."` | Invalid JSON in message |
+
+## Smart Contract Revert Reasons
+
+### SpotRFQ
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `InvalidSignature()` | EIP-712 signature does not recover to maker | Verify domain, types, and signing key match the deployed contract |
+| `QuoteAlreadyUsed()` | Quote hash already executed or cancelled | Use a new quote with a different nonce |
+| `QuoteExpired()` | Quote deadline has passed (`block.timestamp > deadline`) | Submit quote with a future deadline |
+| `NonceTooLow()` | Nonce below maker's current on-chain nonce | Query the maker's current nonce and use that value or higher |
+| `TakerMismatch()` | `msg.sender` does not match `quote.taker` | Execute from the correct taker address, or use `address(0)` for open quotes |
+| `ZeroAmount()` | `amountIn` or `amountOut` is zero | Set both amounts to non-zero values |
+| `InvalidTokenPair()` | Token addresses are zero or identical | Use valid, distinct ERC-20 token addresses |
+| `Paused()` | Contract is paused by the owner | Wait for the owner to unpause. No funds are at risk. |
+
+### ERC-20 Transfer Failures
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `SafeERC20: low-level call failed` | Token transfer reverted (insufficient balance or allowance) | Ensure the maker has sufficient balance and the contract has sufficient allowance |
+| `ERC20: transfer amount exceeds balance` | Maker does not hold enough tokens | Maker must fund their wallet before the quote can be filled |
+| `ERC20: insufficient allowance` | Maker has not approved the SpotRFQ contract | Call `approve(SpotRFQ_address, amount)` on the token contract |
+
+## Troubleshooting
+
+<Callout type="info">
+When debugging signature errors, verify that:
+
+1. The EIP-712 domain matches exactly (`name: "HyperQuote"`, `version: "1"`, `chainId: 999`, `verifyingContract: <SpotRFQ address>`)
+2. The Quote type fields are in the correct order (must match the Solidity `QUOTE_TYPEHASH`)
+3. All `uint256` values are properly formatted as BigInt strings
+4. The correct private key is being used for signing
+5. The `chainId` matches the target network (`31337` for local Anvil, `999` for HyperEVM mainnet)
+</Callout>
+
+For persistent issues, check the [relay health endpoint](/api/relay-websocket-protocol#rest-endpoints) to verify the relay is using the expected chain ID and contract address.
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [Authentication](/api/authentication) — Auth methods and error handling
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — WebSocket message types and validation
+- [Contract Addresses](/smart-contracts/contract-addresses) — Official contract addresses for EIP-712 domain

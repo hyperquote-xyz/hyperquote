@@ -1,0 +1,164 @@
+# Architecture Overview
+
+HyperQuote is composed of four primary layers: a web-based trading UI, an off-chain WebSocket relay, on-chain settlement contracts, and external venue integrations for price comparison. This page describes how these components interact and how data flows from RFQ creation to on-chain fill.
+
+import { Callout } from 'nextra/components'
+
+## System Components
+
+### Trading UI
+
+The HyperQuote frontend is a Next.js application that serves as the primary interface for takers. It provides:
+
+- **Spot RFQ interface** (`/swap`) — Token selection, size input, quote display, and one-click execution
+- **Options RFQ interface** (`/options`) — Strike/expiry selection, covered call and cash-secured put trading
+- **Venue comparison engine** — Real-time price quotes from HyperCore and HyperEVM DEXes displayed alongside RFQ quotes
+- **Market data terminal** (`/terminal`) — Live market data and trade feeds
+- **Position tracking** (`/positions`) — Active positions, settlement status, and trade history
+- **Maker dashboard** (`/maker`) — Quote management and performance analytics for makers
+
+The UI connects to the relay via WebSocket for real-time RFQ and quote streaming, and connects directly to HyperEVM via the user's wallet (e.g., MetaMask) for on-chain transaction submission.
+
+### WebSocket Relay
+
+The relay is a stateless WebSocket + REST server that coordinates communication between takers and makers. It operates on a simple message protocol:
+
+| Message Type | Direction | Description |
+|-------------|-----------|-------------|
+| `RFQ_SUBMIT` | Taker -> Relay | Taker submits a new RFQ |
+| `RFQ_BROADCAST` | Relay -> All Makers | Relay broadcasts the validated RFQ |
+| `QUOTE_SUBMIT` | Maker -> Relay | Maker submits a signed quote for an RFQ |
+| `QUOTE_BROADCAST` | Relay -> Taker | Relay forwards the quote to the requesting taker |
+| `PING` / `PONG` | Bidirectional | Heartbeat for connection health |
+| `ERROR` | Relay -> Client | Validation failure or rate limit |
+
+The relay maintains an in-memory store of active RFQs with a configurable TTL (default: 60 seconds). Once an RFQ expires from the relay, no new quotes can be submitted against it.
+
+<Callout type="warning">
+The relay is a coordination layer, not a custody or execution layer. It cannot execute trades, hold funds, or modify signed quotes. If the relay goes offline, no funds are at risk — only new RFQ matching is paused.
+</Callout>
+
+#### Relay Validation
+
+Before forwarding messages, the relay performs several checks:
+
+- **RFQ validation** — Verifies that the requested tokens are in the allowed set, the expiry is within bounds (24 hours to 90 days), and parameters are well-formed
+- **Quote signature verification** — Recovers the signer from the EIP-712 signature and confirms it matches the `maker` field in the quote
+- **Rate limiting** — Enforces per-address message limits (default: 30 per minute) to prevent spam
+- **CORS enforcement** — Restricts WebSocket and REST access to allowed origins in production
+
+### Smart Contracts
+
+Settlement contracts are deployed on HyperEVM and are non-upgradeable. There are two contract families:
+
+#### Spot Settlement Contract
+
+The spot RFQ contract handles ERC-20 token swaps. It:
+
+- Verifies the maker's EIP-712 signature against the trade parameters
+- Checks and increments the nonce for replay protection
+- Transfers tokens atomically between taker and maker using `safeTransferFrom`
+
+#### OptionsEngine Contract
+
+The `OptionsEngine` is an ERC-721-enabled contract that manages the full options lifecycle:
+
+- **Quote execution** — Verifies the EIP-712 signed quote, mints a position NFT to the buyer, transfers premium from buyer to seller, and locks the seller's collateral
+- **Collateral management** — For covered calls, the seller locks the underlying token; for cash-secured puts, the seller locks stablecoin collateral
+- **Physical settlement** — After expiry, a keeper (any address) can trigger settlement for in-the-money positions. The contract checks the oracle price, executes the physical delivery of tokens, and pays a keeper fee
+- **Expiry** — Out-of-the-money positions can be expired after the 24-hour settlement window, releasing locked collateral back to the seller
+
+The OptionsEngine uses OpenZeppelin's `ERC721`, `EIP712`, `Ownable`, `Pausable`, and `ReentrancyGuard` base contracts.
+
+### External Venues
+
+The HyperQuote UI integrates with external liquidity venues for price comparison:
+
+- **HyperCore** — Hyperliquid's native central limit order book. The UI fetches the current best bid/ask and computes the expected fill price for the taker's size.
+- **HyperEVM DEXes** — AMM protocols deployed on HyperEVM. The UI simulates swap output for the taker's exact size via on-chain `quoter` contracts or router simulations.
+
+These venue quotes are displayed alongside RFQ quotes so the taker can verify they are getting the best available price before executing.
+
+## Data Flow: RFQ Creation to On-Chain Fill
+
+The complete lifecycle of a trade flows through the system as follows:
+
+```
+Taker (UI)                Relay                   Makers              HyperEVM
+    |                       |                       |                    |
+    |-- RFQ_SUBMIT -------->|                       |                    |
+    |                       |-- RFQ_BROADCAST ----->|                    |
+    |                       |                       |                    |
+    |                       |<-- QUOTE_SUBMIT ------|                    |
+    |<-- QUOTE_BROADCAST ---|                       |                    |
+    |                       |<-- QUOTE_SUBMIT ------|  (multiple makers) |
+    |<-- QUOTE_BROADCAST ---|                       |                    |
+    |                       |                       |                    |
+    |  (taker selects best quote)                   |                    |
+    |                       |                       |                    |
+    |-- execute(quote, sig) ------------------------------------------>|
+    |                       |                       |         verify sig |
+    |                       |                       |         check nonce|
+    |                       |                       |    transfer tokens |
+    |<-- tx receipt --------------------------------------------------------|
+```
+
+### Step-by-step
+
+1. **Taker submits RFQ** — The UI sends the RFQ parameters (token pair, size, direction) to the relay via WebSocket.
+2. **Relay validates and broadcasts** — The relay checks the RFQ parameters, assigns an `rfqId` (keccak256 hash of the parameters), and broadcasts to all connected makers.
+3. **Makers evaluate and quote** — Each maker receives the broadcast, prices the trade, signs an EIP-712 quote with their private key, and submits it back to the relay.
+4. **Relay verifies and forwards quotes** — The relay recovers the signer from each quote's signature to confirm authenticity, then forwards valid quotes to the taker.
+5. **Taker compares and selects** — The UI displays all received quotes alongside venue comparison prices. The taker selects the best quote.
+6. **On-chain execution** — The taker's wallet submits a transaction calling the settlement contract's `execute` function with the maker's signed quote and signature.
+7. **Contract settles atomically** — The contract verifies the signature, checks the nonce, and transfers tokens between taker and maker in a single transaction. For options, it also mints a position NFT and locks collateral.
+
+## Off-Chain vs On-Chain Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| RFQ creation and broadcasting | Off-chain (relay) | Coordinate taker requests and maker responses |
+| Quote signing | Off-chain (maker wallet) | Makers commit to prices via EIP-712 signatures |
+| Quote selection | Off-chain (UI) | Takers choose the best available price |
+| Venue price fetching | Off-chain (UI) + on-chain (read calls) | Comparison quotes from HyperCore and DEXes |
+| Signature verification | On-chain (settlement contract) | Cryptographic proof that the maker authorized the trade |
+| Nonce management | On-chain (settlement contract) | Replay protection and bulk quote cancellation |
+| Token transfers | On-chain (settlement contract) | Atomic swap execution via `safeTransferFrom` |
+| Collateral locking | On-chain (OptionsEngine) | Seller collateral held until settlement or expiry |
+| Settlement oracle | On-chain (SettlementOracle) | Publish settlement prices for options expiry |
+| Position NFTs | On-chain (OptionsEngine / ERC-721) | Represent active options positions |
+
+## Chain Configuration
+
+HyperQuote is deployed on HyperEVM, the EVM-compatible execution environment of Hyperliquid L1.
+
+| Parameter | Value |
+|-----------|-------|
+| Network | HyperEVM Mainnet |
+| Chain ID | `999` |
+| RPC URL | `https://rpc.hyperliquid.xyz/evm` |
+| Block Explorer | [HyperEVMScan](https://hyperevm.cloud) |
+| Local Development Chain ID | `31337` (Foundry/Anvil) |
+
+<Callout type="info">
+For local development, the relay and contracts default to chain ID `31337` (Foundry's Anvil). Set the `CHAIN_ID` environment variable to override for testnet or mainnet deployments.
+</Callout>
+
+## EIP-712 Domain
+
+All quote signatures use the following EIP-712 domain, which must match across the relay, SDK, and on-chain contracts:
+
+| Field | Value |
+|-------|-------|
+| `name` | `"HyperQuote Options"` |
+| `version` | `"1"` |
+| `chainId` | Network chain ID |
+| `verifyingContract` | Settlement contract address |
+
+The domain separator is computed on-chain by the settlement contract's constructor and must be reproduced identically by any off-chain signer (the Maker SDK handles this automatically).
+
+## Next Steps
+
+- [Smart Contract Architecture](/smart-contracts/contract-architecture) — Deep dive into contract design and security properties
+- [Maker SDK Quickstart](/makers/maker-sdk-quickstart) — Connect to the relay and start quoting
+- [API Reference](/api/api-overview) — Full relay WebSocket and REST API documentation

@@ -1,0 +1,148 @@
+import { Cards, Callout } from 'nextra/components'
+
+<div style={{ marginBottom: '2rem' }}>
+
+# HyperQuote Docs
+
+<p style={{ fontSize: '1.15rem', color: 'var(--nextra-content-color)', opacity: 0.85, marginTop: '-0.5rem', lineHeight: 1.6 }}>
+HyperQuote is an RFQ liquidity coordination protocol on HyperEVM for size-aware spot execution.
+</p>
+
+<p style={{ fontSize: '0.95rem', color: 'var(--nextra-content-color)', opacity: 0.65, lineHeight: 1.6 }}>
+Takers request competitive quotes directly from makers, compare execution against on-chain venues, and settle atomically on HyperEVM.
+</p>
+
+</div>
+
+<Callout type="info">
+  HyperQuote is live on HyperEVM mainnet. <a href="https://hyperquote.xyz/swap" target="_blank" rel="noopener">Start trading &rarr;</a>
+</Callout>
+
+## Quick Access
+
+<Cards num={3}>
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x1F680;</span>}
+    title="Get Started"
+    href="/getting-started/your-first-trade"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x1F4CB;</span>}
+    title="Create an RFQ"
+    href="/trading/requesting-a-quote"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x26A1;</span>}
+    title="Become a Maker"
+    href="/makers/maker-overview"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x1F4CA;</span>}
+    title="Venue Comparison"
+    href="/venue-comparison/how-venue-comparison-works"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x1F512;</span>}
+    title="Smart Contracts"
+    href="/smart-contracts/contract-architecture"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x1F50C;</span>}
+    title="API Reference"
+    href="/api/api-overview"
+    arrow
+  />
+  <Cards.Card
+    icon={<span style={{ fontSize: '1.4rem' }}>&#x26A0;</span>}
+    title="Risks"
+    href="/risk/risk-overview"
+    arrow
+  />
+</Cards>
+
+---
+
+## Get Started
+
+Learn the fundamentals: what HyperQuote is, how to connect, and how to execute your first trade.
+
+- [**What is HyperQuote?**](/introduction/what-is-hyperquote) — Protocol overview and design rationale
+- [**Connect Wallet**](/getting-started/connect-wallet) — Set up MetaMask or Rabby for HyperEVM
+- [**Your First Trade**](/getting-started/your-first-trade) — Submit an RFQ and execute a fill
+
+## Create an RFQ
+
+Understand the RFQ lifecycle from request to atomic on-chain settlement.
+
+- [Requesting a Quote](/trading/requesting-a-quote) — Submit an RFQ to competing makers
+- [Quote Comparison](/trading/quote-comparison) — Evaluate and rank incoming maker quotes
+- [Executing a Fill](/trading/executing-a-fill) — Approve tokens and settle on-chain
+- [RFQ Lifecycle](/trading/rfq-lifecycle) — State machine from creation to fill
+
+## Venue Comparison
+
+Compare RFQ execution against AMM and orderbook venues in real time.
+
+- [How Venue Comparison Works](/venue-comparison/how-venue-comparison-works) — Three-venue parallel benchmark
+- [Price Improvement](/trading/price-improvement) — Measuring RFQ execution vs on-chain venues
+- [HyperCore Spot](/venue-comparison/hypercore-spot) — L1 orderbook benchmark
+- [HyperEVM DEX](/venue-comparison/hyperevm-dex) — DEX aggregator benchmark
+
+## Become a Maker
+
+Run a quoting operation: connect to the relay, receive RFQs, and provide liquidity.
+
+- [Maker Overview](/makers/maker-overview) — End-to-end maker guide
+- [Relay Connection](/makers/relay-connection) — Connect to the WebSocket relay
+- [Receiving RFQs](/makers/receiving-rfqs) — Handle inbound RFQ broadcasts
+- [Private RFQ Routing](/makers/private-rfq-routing) — Exclusive maker addressing
+- [Reliability Score](/makers/maker-reliability-score) — How scoring affects routing priority
+
+## Smart Contracts
+
+On-chain settlement architecture, deployed addresses, and security properties.
+
+- [Contract Architecture](/smart-contracts/contract-architecture) — System design and dependencies
+- [Spot RFQ Contract](/smart-contracts/spot-rfq-contract) — Settlement logic and entry points
+- [Contract Addresses](/smart-contracts/contract-addresses) — Deployed addresses on HyperEVM
+- [Security Model](/smart-contracts/security-model) — EIP-712 signing, nonces, access control
+
+## API Reference
+
+REST endpoints, WebSocket protocol, and authentication for programmatic access.
+
+- [API Overview](/api/api-overview) — REST, WebSocket, and SSE surfaces
+- [Authentication](/api/authentication) — EIP-191 signing and agent tokens
+- [RFQ Endpoints](/api/rfq-endpoints) — Create and query RFQs
+- [Quote Endpoints](/api/quote-endpoints) — Submit and query quotes
+- [WebSocket Protocol](/api/relay-websocket-protocol) — Real-time relay communication
+
+## Risks
+
+Understand the risk categories before using the protocol.
+
+- [Risk Overview](/risk/risk-overview) — Summary of protocol risk categories
+- [Smart Contract Risk](/risk/smart-contract-risk) — Immutability tradeoffs and audit status
+- [Liquidity Risk](/risk/liquidity-risk) — Maker availability and quote depth
+- [Routing Limitations](/risk/routing-limitations) — Off-chain relay dependency
+
+---
+
+<div style={{ marginTop: '1rem' }}>
+
+### Quick Links
+
+| Resource | Link |
+|----------|------|
+| App | [hyperquote.xyz](https://hyperquote.xyz) |
+| RFQ Swap | [hyperquote.xyz/swap](https://hyperquote.xyz/swap) |
+| Maker Dashboard | [hyperquote.xyz/maker](https://hyperquote.xyz/maker) |
+| Liquidity League | [hyperquote.xyz/league](https://hyperquote.xyz/league) |
+| GitHub | [github.com/hyperquote](https://github.com/hyperquote) |
+
+</div>

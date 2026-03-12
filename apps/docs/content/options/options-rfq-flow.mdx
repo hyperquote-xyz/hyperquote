@@ -1,0 +1,144 @@
+# Options RFQ Flow
+
+import { Callout } from 'nextra/components'
+
+The Options RFQ flow follows the same request-for-quote pattern as HyperQuote spot swaps, extended with options-specific parameters (strike, expiry, option type) and EIP-712 typed data signing for maker quotes. This page walks through the full lifecycle from RFQ submission to on-chain execution.
+
+## Flow Overview
+
+```
+1. Taker submits RFQ     (EIP-191 signed, via WebSocket relay)
+2. Relay broadcasts       (to connected makers)
+3. Makers respond          (EIP-712 signed quotes, via relay)
+4. Taker selects quote    (UI comparison, best premium)
+5. Taker calls execute()  (on-chain, OptionsEngine)
+6. Contract verifies      (signature, nonce, expiry, allowlists)
+7. Position created       (NFT minted, premium transferred, collateral locked)
+```
+
+## Step 1: Taker Submits an RFQ
+
+The taker (option seller in V1) constructs an RFQ containing:
+
+| Field | Description |
+|---|---|
+| `requester` | Taker's wallet address |
+| `underlying` | Underlying token address (wHYPE) |
+| `collateral` | Collateral token address (USDC, USDH, or USDT0) |
+| `isCall` | `true` for covered call, `false` for cash-secured put |
+| `strike` | Strike price in 1e18 fixed-point |
+| `quantity` | Amount of underlying in underlying decimals |
+| `expiry` | Unix timestamp at 08:00 UTC |
+| `minPremium` | Minimum acceptable premium (optional) |
+| `timestamp` | RFQ creation time |
+
+A deterministic `rfqId` is computed by hashing all fields. The taker signs this hash using **EIP-191 personal_sign** (`signMessage` with the raw 32-byte hash), which proves they authored the request.
+
+The signed RFQ is sent to the relay via a WebSocket `RFQ_SUBMIT` message.
+
+## Step 2: Relay Broadcasts to Makers
+
+The relay server receives the RFQ, verifies the EIP-191 signature matches the `requester` address, and broadcasts the RFQ to all connected makers. Makers receive the full RFQ parameters and can decide whether to respond.
+
+## Step 3: Makers Respond with EIP-712 Quotes
+
+A maker who wants to fill the RFQ constructs a `Quote` struct and signs it using **EIP-712 typed structured data**:
+
+```solidity
+struct Quote {
+    address maker;       // maker's address (quote signer)
+    address taker;       // address(0) for open, or specific taker
+    address underlying;  // must match RFQ
+    address collateral;  // must match RFQ
+    bool isCall;         // must match RFQ
+    bool isMakerSeller;  // V1: always false (taker is seller)
+    uint256 strike;      // must match RFQ
+    uint256 quantity;    // must match RFQ
+    uint256 premium;     // maker's offered premium (collateral units)
+    uint256 expiry;      // must match RFQ
+    uint256 deadline;    // quote validity deadline (unix seconds)
+    uint256 nonce;       // maker's current nonce (replay protection)
+}
+```
+
+The EIP-712 domain is:
+
+```
+name:              "HyperQuote Options"
+version:           "1"
+chainId:           <chain ID>
+verifyingContract:  <OptionsEngine address>
+```
+
+The maker signs the typed data hash and sends the quote plus signature back through the relay as a `QUOTE_BROADCAST` message.
+
+<Callout type="info">
+The taker's UI verifies each incoming EIP-712 signature client-side before displaying the quote. Invalid signatures are silently discarded.
+</Callout>
+
+## Step 4: Taker Selects a Quote
+
+The UI displays all valid quotes sorted by premium (highest first, since the taker is the seller and wants the most premium). Each quote card shows:
+
+- Maker address (truncated)
+- Premium offered (in collateral token)
+- Collateral required from the taker
+- Quote expiry countdown
+
+The taker selects their preferred quote and proceeds to execution.
+
+## Step 5: On-Chain Execution
+
+The taker calls `OptionsEngine.execute(quote, signature)` where `quote` is the full `Quote` struct and `signature` is the maker's EIP-712 signature.
+
+Before executing, the taker must have approved the OptionsEngine to transfer:
+- **Covered Call:** `quantity` of the underlying token (wHYPE)
+- **Cash-Secured Put:** `putCollateralRequired(strike, quantity, uDec, cDec)` of the collateral token
+
+The maker must have approved the OptionsEngine to transfer the premium amount in the collateral token.
+
+## Step 6: Contract Verification
+
+The `execute` function runs a comprehensive validation sequence:
+
+1. **Parameter validation** -- Quantity, premium, and strike must be non-zero.
+2. **Role check** -- `isMakerSeller` must be `false` (V1 constraint).
+3. **Token allowlists** -- Both underlying and collateral must be in the allowed sets.
+4. **Expiry validation** -- Must be at 08:00 UTC, between 24 hours and 90 days from now.
+5. **Quote deadline** -- `block.timestamp` must not exceed `quote.deadline`.
+6. **Nonce check** -- `quote.nonce` must be greater than or equal to the maker's current nonce.
+7. **Taker check** -- If `quote.taker` is not `address(0)`, it must match `msg.sender`.
+8. **Duplicate check** -- The quote digest must not have been used before.
+9. **Signature recovery** -- ECDSA recovery of the EIP-712 digest must return `quote.maker`.
+
+If any check fails, the transaction reverts with a specific error (e.g., `InvalidSignature()`, `QuoteExpired()`, `NonceTooLow()`).
+
+## Step 7: Position Creation
+
+After validation, the contract:
+
+1. **Marks the quote as used** -- Prevents replay by storing the digest.
+2. **Creates the Position struct** -- Stores all deal terms on-chain.
+3. **Mints an ERC-721 NFT** -- Minted to the buyer (maker), representing their option right.
+4. **Transfers premium** -- Buyer (maker) pays premium to seller (taker) in the collateral token.
+5. **Locks collateral** -- Seller (taker) locks collateral in the contract:
+   - Covered Call: underlying tokens (wHYPE)
+   - Cash-Secured Put: stablecoin (computed via `CollateralMath.putCollateralRequired`)
+
+A `QuoteExecuted` event is emitted with the quote hash, position ID, maker, and taker addresses.
+
+## Quote Cancellation and Nonces
+
+Makers have two mechanisms to invalidate outstanding quotes:
+
+### Cancel a Specific Quote
+
+Call `cancelQuote(quote)` to mark a specific quote digest as used, preventing it from being executed.
+
+### Increment Nonce
+
+Call `incrementNonce()` to advance the maker's nonce. All quotes signed with a nonce below the new value become invalid. This is useful for bulk-cancelling all outstanding quotes.
+
+<Callout type="warning">
+Once a quote is executed on-chain, it cannot be reversed. The premium transfer and collateral lock happen atomically in the same transaction. Make sure your approvals and balances are correct before calling `execute`.
+</Callout>

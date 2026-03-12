@@ -1,0 +1,103 @@
+# Executing a Fill
+
+import { Callout, Steps } from 'nextra/components'
+
+Once you have received quotes and selected the best one, fill execution is a two-step on-chain process: approve the token spend, then submit the fill transaction. Settlement is atomic -- either the full trade completes or it reverts with no partial execution.
+
+## Fill Flow
+
+<Steps>
+
+### Select a quote
+
+Click on the quote card you want to fill. Only quotes with a valid signature and a non-expired countdown can be selected. The selected card receives a blue highlight and a "Selected" indicator.
+
+After selection, the **Execute Trade** panel appears showing:
+
+- **You Pay** -- the `amountIn` in Token In.
+- **You Receive** -- the `amountOut` in Token Out.
+- **Constraint** -- for Exact In, the minimum output (`minOut`); for Exact Out, the maximum input (`maxIn`). These are enforced on-chain and protect you from unfavourable execution.
+
+### Verify the signature
+
+Before the fill buttons activate, the UI runs an asynchronous signature verification:
+
+1. Calls `getQuoteHash(quote)` on the RFQ settlement contract to compute the expected hash.
+2. Recovers the signer from the quote's signature using EIP-191 recovery.
+3. Confirms the recovered signer matches `quote.maker`.
+
+While verification is in progress, a spinner and "Verifying quote signature..." message are shown. Once verified, a green "Signature verified -- maker 0xAbCd confirmed" banner appears and the action buttons become active.
+
+<Callout type="error">
+  If signature verification fails, the fill buttons are permanently disabled for that quote. You will see "Filling is disabled -- this quote has an invalid signature." Select a different quote to proceed.
+</Callout>
+
+### Approve the token (Step 1)
+
+If the RFQ settlement contract does not already have an ERC-20 allowance for your Token In, you must approve it first. Click **Approve** to submit an `approve()` transaction granting the contract permission to spend your tokens.
+
+The approval step displays:
+
+- A numbered circle (Step 1) that animates while the transaction is pending.
+- A green checkmark once the approval transaction is confirmed on-chain.
+- The approval transaction hash, linked to the HyperEVM block explorer.
+
+If the contract already has sufficient allowance (e.g. from a previous trade with the same token), this step is automatically marked as complete and you can proceed directly to the fill.
+
+### Fill the quote (Step 2)
+
+Click **Fill Quote** to submit the settlement transaction. This calls the contract's `fillQuote()` function, which:
+
+1. Verifies the maker's EIP-712/EIP-191 signature on-chain.
+2. Checks that the quote has not expired (`block.timestamp <= quote.expiry`).
+3. Checks the nonce to prevent replay.
+4. Transfers `amountIn` (minus the protocol fee) from taker to maker.
+5. Transfers `amountOut` from maker to taker.
+6. All transfers happen atomically in a single transaction.
+
+<Callout>
+  Gas is paid by the taker. There is no gas cost for the maker at settlement time -- the maker only signed a message off-chain.
+</Callout>
+
+</Steps>
+
+## Execution Panel States
+
+The execution panel moves through a series of states:
+
+| State | UI | Description |
+|-------|-----|-------------|
+| `idle` | "Select a quote to execute" | No quote selected yet |
+| `approving` | Step 1 spinner, "Waiting for approval..." | Approval transaction pending |
+| `approved` | Step 1 green check, "Token approved" | Allowance confirmed, ready to fill |
+| `filling` | Step 2 spinner, "Confirming transaction..." | Fill transaction pending |
+| `success` | Green banner, "Trade Executed Successfully" | Fill confirmed on-chain |
+| `error` | Red error box with message | Transaction reverted or failed |
+
+## Success State
+
+When the fill confirms, the panel displays:
+
+- A success banner with the final You Paid / You Received summary.
+- A **Price Improvement** callout if the RFQ beat the best venue (e.g. "+12.5 bps better than best venue").
+- A prominent "View Transaction" link to the HyperEVM block explorer.
+- A "New Trade" button to reset the interface and start another RFQ.
+
+## Error Handling
+
+If the fill transaction reverts, the error message from the contract is displayed in a red alert box. Common reasons for revert:
+
+- **Quote expired** -- `block.timestamp` exceeded `quote.expiry`. The UI also blocks fill attempts client-side when the countdown expires, but network delays can cause on-chain expiry even if the UI shows time remaining.
+- **Nonce already used** -- the maker's nonce was consumed by a different fill. This typically means another taker filled the same quote first.
+- **Insufficient balance** -- the maker does not hold enough of the output token to fulfil the quote.
+- **Allowance too low** -- the taker's approval was insufficient. Re-approve with a higher amount.
+
+## Expiry Protection
+
+The execution panel includes a live countdown that mirrors the quote card timer. If the quote expires while you are on the execution panel:
+
+- The fill button changes to "Expired" with a destructive (red) style and becomes disabled.
+- A red banner reads "Quote has expired -- select a new quote to continue."
+- The panel border turns red to draw attention to the expiry.
+
+This prevents wasted gas from submitting a transaction that would inevitably revert.

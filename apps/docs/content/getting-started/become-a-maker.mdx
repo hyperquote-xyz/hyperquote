@@ -1,0 +1,287 @@
+# Become a Maker
+
+import { Callout, Steps } from 'nextra/components'
+
+Makers are the liquidity providers in HyperQuote. Instead of depositing into passive AMM pools, you actively respond to individual RFQ requests with signed quotes. When a taker fills your quote, you earn the spread between your quoted price and your hedge cost.
+
+This guide covers both the **UI-based maker flow** (using the Maker Dashboard in the browser) and the **programmatic maker flow** (using the `@hyperquote/sdk-maker` package and the relay WebSocket).
+
+## Overview
+
+The maker pipeline follows these stages:
+
+1. **Receive an RFQ** -- either via the Maker Dashboard UI or a WebSocket relay connection.
+2. **Evaluate the request** -- filter by token pair, check risk limits, compute a price.
+3. **Build a Quote struct** -- set the premium, deadline, and nonce.
+4. **Sign with EIP-712** -- produce a typed data signature that the on-chain contract can verify.
+5. **Submit the signed quote** -- send it back through the relay (or share via JSON).
+6. **Monitor for fills** -- watch for the taker's on-chain `Fill` event to confirm execution.
+
+## Using the Maker Dashboard (UI)
+
+<Steps>
+
+### Connect your wallet
+
+Navigate to [hyperquote.xyz/maker](https://hyperquote.xyz/maker) and connect a wallet that holds the tokens you intend to quote. The dashboard requires a connected wallet to read your on-chain nonce and sign quotes.
+
+### Review incoming RFQs
+
+The dashboard shows a live feed of incoming RFQ requests from takers. Each request card displays:
+
+- Token pair and direction (Exact In or Exact Out)
+- The taker's requested amount
+- Time remaining before the RFQ expires
+
+Requests arrive in real-time via the relay WebSocket. You can also import an RFQ manually by pasting its JSON into the **Import RFQ** panel.
+
+### Build your quote
+
+Click an RFQ to open the quoting panel. Enter your quoted amount:
+
+- For **Exact In** requests: enter the `amountOut` you are willing to deliver.
+- For **Exact Out** requests: enter the `amountIn` you are willing to accept.
+
+The UI automatically fills in the remaining fields (your wallet address as `maker`, the taker's address, token addresses, expiry, and your current on-chain nonce).
+
+### Sign the quote
+
+Click **Sign & Submit**. Your wallet will prompt you to sign. The spot RFQ contract uses a raw hash signing approach -- the UI calls `getQuoteHash` on the contract to compute the bytes32 digest, then signs those raw bytes with your wallet. This signature is what the contract verifies at fill time.
+
+<Callout type="info">
+The signing method differs between spot RFQ and options RFQ. Spot uses raw hash signing via `getQuoteHash`. Options uses full EIP-712 typed data signing with the domain `HyperQuote Options / v1`.
+</Callout>
+
+### Submit your quote
+
+After signing, the quote and its signature are automatically sent back through the relay to the taker. You can also export the signed quote as JSON and share it directly (useful for private or off-relay flows).
+
+### Monitor fill status
+
+Once submitted, the quote card updates to show its status:
+
+- **Pending** -- the taker has not yet acted on your quote.
+- **Filled** -- the taker executed the fill on-chain. Your tokens have been swapped.
+- **Expired** -- the quote deadline passed without a fill.
+- **Cancelled** -- you called `cancelAllQuotes` on-chain, invalidating all outstanding nonces.
+
+</Steps>
+
+## Programmatic Maker (SDK + Relay)
+
+For automated quoting, use the `@hyperquote/sdk-maker` package. This connects directly to the relay via WebSocket, receives RFQ broadcasts, and submits signed quotes programmatically.
+
+<Steps>
+
+### Install and configure
+
+The SDK lives at `packages/sdk-maker` in the monorepo. If you are building a standalone bot, install the dependencies:
+
+```bash
+npm install ethers ws
+```
+
+Create a configuration object with your private key, chain ID, and the OptionsEngine contract address:
+
+```typescript
+import { MakerConfig } from "@hyperquote/sdk-maker";
+
+const config: MakerConfig = {
+  privateKey: process.env.MAKER_PRIVATE_KEY!,
+  chainId: 999999,
+  engineAddress: "0x...",          // OptionsEngine contract address
+  relayWsUrl: "ws://127.0.0.1:8080",
+  allowedUnderlying: ["0x..."],    // WHYPE address
+  collateralTokens: {
+    "0x...": { decimals: 6, symbol: "USDC" },
+  },
+  risk: {
+    maxNotionalPerCollateral: { "0x...": 1_000_000n * 10n ** 6n },
+    maxTenorSecs: 90 * 24 * 3600,
+    maxStrikeDeviationPct: 0.5,
+    maxDeltaPerExpiry: 100,
+    minPremium: { "0x...": 1000n },
+  },
+  quoteDeadlineSecs: 120,
+};
+```
+
+### Connect to the relay WebSocket
+
+Open a WebSocket connection to the relay. The relay runs on port 8080 by default and uses a simple JSON message protocol:
+
+```typescript
+import WebSocket from "ws";
+
+const ws = new WebSocket(config.relayWsUrl);
+
+ws.on("open", () => {
+  console.log("Connected to relay");
+});
+
+// Respond to PING keepalives
+ws.on("message", (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.type === "PING") {
+    ws.send(JSON.stringify({ type: "PONG", data: {} }));
+  }
+});
+```
+
+### Listen for RFQ broadcasts
+
+When a taker submits an RFQ, the relay broadcasts an `RFQ_BROADCAST` message to all connected clients:
+
+```typescript
+ws.on("message", (data) => {
+  const msg = JSON.parse(data.toString());
+
+  if (msg.type === "RFQ_BROADCAST") {
+    const { rfqId, rfq } = msg.data;
+    // rfq contains: requester, underlying, collateral,
+    // isCall, strike, quantity, expiry, minPremium, timestamp
+    handleRfq(rfqId, rfq);
+  }
+});
+```
+
+### Filter and price the RFQ
+
+Apply your risk filters (allowed tokens, max tenor, strike bounds) and compute a premium. The SDK includes a stub pricing engine you can replace with your own model:
+
+```typescript
+import { rfqFromJson } from "@hyperquote/sdk-maker";
+
+function handleRfq(rfqId: string, rfqJson: RFQJson) {
+  const rfq = rfqFromJson(rfqJson);
+
+  // Check token allowlist
+  if (!config.allowedUnderlying.includes(rfq.underlying)) return;
+
+  // Check expiry is within bounds
+  const tenor = Number(rfq.expiry) - Math.floor(Date.now() / 1000);
+  if (tenor > config.risk.maxTenorSecs) return;
+
+  // Compute your premium (replace with your pricing model)
+  const premium = computePremium(rfq);
+
+  // Check minimum premium
+  if (rfq.minPremium > 0n && premium < rfq.minPremium) return;
+
+  submitQuote(rfqId, rfq, premium);
+}
+```
+
+### Build and sign the Quote with EIP-712
+
+Construct the `Quote` struct and sign it using EIP-712 typed data. The domain and type definitions must match the on-chain `OptionsEngine` contract exactly:
+
+```typescript
+import { Wallet } from "ethers";
+import { signQuote } from "@hyperquote/sdk-maker";
+import { Quote, quoteToJson } from "@hyperquote/sdk-maker";
+
+const wallet = new Wallet(config.privateKey);
+let nonce = 0n;
+
+async function submitQuote(rfqId: string, rfq: RFQ, premium: bigint) {
+  const now = BigInt(Math.floor(Date.now() / 1000));
+
+  const quote: Quote = {
+    maker: wallet.address,
+    taker: "0x0000000000000000000000000000000000000000", // open quote
+    underlying: rfq.underlying,
+    collateral: rfq.collateral,
+    isCall: rfq.isCall,
+    isMakerSeller: false,
+    strike: rfq.strike,
+    quantity: rfq.quantity,
+    premium,
+    expiry: rfq.expiry,
+    deadline: now + BigInt(config.quoteDeadlineSecs),
+    nonce,
+  };
+
+  // EIP-712 sign
+  const signature = await signQuote(
+    wallet, quote, config.chainId, config.engineAddress
+  );
+
+  nonce += 1n;
+
+  // Send to relay
+  ws.send(JSON.stringify({
+    type: "QUOTE_SUBMIT",
+    data: {
+      rfqId,
+      quote: quoteToJson(quote),
+      makerSig: signature,
+    },
+  }));
+}
+```
+
+The EIP-712 domain used for signing is:
+
+| Field | Value |
+|-------|-------|
+| name | `HyperQuote Options` |
+| version | `1` |
+| chainId | Your chain ID (e.g., `999999`) |
+| verifyingContract | OptionsEngine contract address |
+
+The `Quote` type hash is:
+```
+Quote(address maker,address taker,address underlying,address collateral,
+      bool isCall,bool isMakerSeller,uint256 strike,uint256 quantity,
+      uint256 premium,uint256 expiry,uint256 deadline,uint256 nonce)
+```
+
+### Submit via relay
+
+The `QUOTE_SUBMIT` message is validated by the relay before being broadcast to the taker:
+
+1. The relay checks the RFQ still exists and has not expired.
+2. It verifies your EIP-712 signature matches the `maker` address in the quote.
+3. It enforces V1 rails (matching underlying, collateral, strike, expiry).
+4. If valid, it broadcasts a `QUOTE_BROADCAST` to all connected clients (including the taker).
+
+### Monitor for fills
+
+After submitting, watch for on-chain `Fill` events on the RFQ or OptionsEngine contract. You can poll the contract or use an event listener via your RPC provider:
+
+```typescript
+import { ethers } from "ethers";
+
+const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+const contract = new ethers.Contract(config.engineAddress, ABI, provider);
+
+contract.on("Fill", (rfqId, maker, taker, amount) => {
+  if (maker.toLowerCase() === wallet.address.toLowerCase()) {
+    console.log(`Quote filled! TX: ${rfqId}`);
+  }
+});
+```
+
+</Steps>
+
+## Relay Message Protocol
+
+| Message Type | Direction | Description |
+|-------------|-----------|-------------|
+| `RFQ_BROADCAST` | Relay to Maker | New RFQ from a taker |
+| `QUOTE_SUBMIT` | Maker to Relay | Your signed quote response |
+| `QUOTE_BROADCAST` | Relay to All | Validated quote forwarded to all clients |
+| `PING` / `PONG` | Bidirectional | Keepalive (relay sends PING every 30s) |
+| `ERROR` | Relay to Client | Validation failure or rate limit hit |
+
+<Callout type="warning">
+The relay enforces a rate limit of 30 messages per minute per IP address. If you exceed this, your messages will be rejected with an `ERROR` response until the window resets.
+</Callout>
+
+## Risk Considerations
+
+- **Quote commitment**: Once you sign a quote, the taker can fill it any time before the `deadline`. You cannot revoke individual quotes.
+- **Nonce management**: Each quote uses an incrementing nonce. Calling `cancelAllQuotes` on-chain increments your nonce, invalidating all outstanding quotes.
+- **Capital requirements**: Ensure you have sufficient token balances to cover all outstanding quotes. The contract will revert the fill if your balance is insufficient at execution time.
+- **Signature security**: Never expose your private key. For production bots, use a hardware wallet or a secure key management service. The SDK accepts any ethers `Wallet` or `Signer` instance.

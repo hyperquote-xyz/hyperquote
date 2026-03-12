@@ -1,0 +1,376 @@
+# Relay WebSocket Protocol
+
+import { Callout, Tabs } from 'nextra/components'
+
+The HyperQuote relay is a WebSocket server that handles real-time RFQ broadcasting and quote collection. It validates message structure, verifies EIP-712 signatures on quotes, enforces rate limits, and broadcasts messages to all connected clients.
+
+## Connection
+
+### WebSocket URL
+
+```
+Production: wss://relay.hyperquote.xyz
+Local:      ws://127.0.0.1:8080
+```
+
+Connect using any WebSocket client. No authentication handshake is required — all connected clients immediately receive RFQ broadcasts and can submit quotes.
+
+<Tabs items={['Node.js (ws)', 'Browser']}>
+<Tabs.Tab>
+```ts
+import WebSocket from "ws";
+
+const ws = new WebSocket("wss://relay.hyperquote.xyz");
+
+ws.on("open", () => {
+  console.log("Connected to relay");
+});
+
+ws.on("message", (raw) => {
+  const msg = JSON.parse(raw.toString());
+  handleMessage(msg);
+});
+
+ws.on("close", () => {
+  console.log("Disconnected from relay");
+});
+```
+</Tabs.Tab>
+<Tabs.Tab>
+```ts
+const ws = new WebSocket("wss://relay.hyperquote.xyz");
+
+ws.onopen = () => console.log("Connected to relay");
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  handleMessage(msg);
+};
+```
+</Tabs.Tab>
+</Tabs>
+
+## Message Format
+
+All messages follow the same JSON envelope:
+
+```ts
+interface RelayMessage {
+  type: "RFQ_BROADCAST" | "QUOTE_SUBMIT" | "QUOTE_BROADCAST"
+      | "CANCEL_REQUEST" | "PING" | "PONG" | "ERROR";
+  data: unknown;
+}
+```
+
+## Message Types
+
+### Client → Relay
+
+| Type | Description |
+|------|-------------|
+| `QUOTE_SUBMIT` | Submit a maker's signed EIP-712 quote for an active RFQ |
+| `CANCEL_REQUEST` | Cancel an active RFQ (taker only) |
+| `PING` | Keepalive ping |
+| `PONG` | Response to relay's PING |
+
+### Relay → Client
+
+| Type | Description |
+|------|-------------|
+| `RFQ_BROADCAST` | A new RFQ has been created and is available for quoting |
+| `QUOTE_BROADCAST` | A validated quote has been submitted for an active RFQ |
+| `PONG` | Response to client's PING |
+| `PING` | Keepalive check from relay |
+| `ERROR` | Validation or processing error |
+
+## RFQ_BROADCAST
+
+Sent to **all** connected clients when a new RFQ is created and validated. Makers use this to decide whether to submit a quote.
+
+```json
+{
+  "type": "RFQ_BROADCAST",
+  "data": {
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "rfq": {
+      "taker": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "tokenIn": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+      "tokenOut": "0x5555555555555555555555555555555555555555",
+      "amountIn": "1000000000",
+      "amountOut": null,
+      "kind": 0,
+      "expiry": 1710086430,
+      "visibility": "public"
+    }
+  }
+}
+```
+
+### RFQ Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `taker` | `address` | Wallet that created the RFQ |
+| `tokenIn` | `address` | Token the taker is selling |
+| `tokenOut` | `address` | Token the taker wants to receive |
+| `amountIn` | `string` | Input amount in raw token units (for EXACT_IN) |
+| `amountOut` | `string \| null` | Output amount in raw token units (for EXACT_OUT), or `null` |
+| `kind` | `number` | `0` = EXACT_IN, `1` = EXACT_OUT |
+| `expiry` | `number` | Unix timestamp when the RFQ expires |
+| `visibility` | `string` | `"public"` or `"private"` |
+
+## QUOTE_SUBMIT
+
+Submit a signed EIP-712 quote in response to an active RFQ. The relay verifies the signature, validates the quote parameters against the RFQ, and broadcasts the quote to all clients.
+
+```json
+{
+  "type": "QUOTE_SUBMIT",
+  "data": {
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "quote": {
+      "maker": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "taker": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "tokenIn": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+      "tokenOut": "0x5555555555555555555555555555555555555555",
+      "amountIn": "1000000000",
+      "amountOut": "50000000000000000000",
+      "expiry": 1710086460,
+      "nonce": "42",
+      "deadline": 1710086460
+    },
+    "signature": "0x..."
+  }
+}
+```
+
+### Quote Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `maker` | `address` | Maker wallet address (signer) |
+| `taker` | `address` | Taker wallet address (from the RFQ), or `0x0` for open quotes |
+| `tokenIn` | `address` | Input token address (must match RFQ) |
+| `tokenOut` | `address` | Output token address (must match RFQ) |
+| `amountIn` | `string` | Input amount (BigInt string) |
+| `amountOut` | `string` | Output amount offered by the maker (BigInt string) |
+| `expiry` | `number` | Quote expiry timestamp (Unix seconds) |
+| `nonce` | `string` | Maker nonce for replay protection |
+| `deadline` | `number` | Latest time this quote can be filled on-chain |
+
+### Quote Validation
+
+The relay validates every quote before broadcasting:
+
+| Rule | Constraint |
+|------|-----------|
+| RFQ active | Referenced `rfqId` must be active and unexpired |
+| Token matching | `tokenIn` and `tokenOut` must match the RFQ |
+| Deadline in future | `deadline > now` |
+| Non-zero amounts | `amountIn > 0` and `amountOut > 0` |
+| EIP-712 signature | Recovered address must match `quote.maker` |
+| Uniqueness | One quote per maker per RFQ |
+
+### EIP-712 Signing
+
+Quote signatures must use the SpotRFQ contract's EIP-712 domain:
+
+```ts
+const domain = {
+  name: "HyperQuote",
+  version: "1",
+  chainId: 999,                   // HyperEVM
+  verifyingContract: SPOT_RFQ_ADDRESS,
+};
+
+const QUOTE_TYPES = {
+  Quote: [
+    { name: "maker",    type: "address" },
+    { name: "taker",    type: "address" },
+    { name: "tokenIn",  type: "address" },
+    { name: "tokenOut", type: "address" },
+    { name: "amountIn", type: "uint256" },
+    { name: "amountOut",type: "uint256" },
+    { name: "expiry",   type: "uint256" },
+    { name: "nonce",    type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+};
+
+// Sign the quote
+const signature = await signer.signTypedData(domain, QUOTE_TYPES, quoteValues);
+```
+
+<Callout type="error">
+  Field order matters. The fields must appear in exactly the order shown above, matching the Solidity `QUOTE_TYPEHASH`. Reordering fields produces a different typehash and all signatures will fail verification.
+</Callout>
+
+## QUOTE_BROADCAST
+
+Sent to **all** connected clients when a quote passes validation:
+
+```json
+{
+  "type": "QUOTE_BROADCAST",
+  "data": {
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "quote": {
+      "maker": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "taker": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "tokenIn": "0xb88339cb...",
+      "tokenOut": "0x55555555...",
+      "amountIn": "1000000000",
+      "amountOut": "50000000000000000000",
+      "expiry": 1710086460,
+      "nonce": "42",
+      "deadline": 1710086460
+    },
+    "signature": "0x..."
+  }
+}
+```
+
+## CANCEL_REQUEST
+
+Sent by the taker to cancel an active RFQ. The relay removes the RFQ from the active store and stops broadcasting quotes for it.
+
+```json
+{
+  "type": "CANCEL_REQUEST",
+  "data": {
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+  }
+}
+```
+
+If the cancellation succeeds, no response is sent. The RFQ simply stops appearing in `/rfqs` listings and new quotes for it are rejected. If the RFQ is not found or already expired, the relay sends an `ERROR` message.
+
+## ERROR
+
+Sent to the submitting client when validation fails:
+
+```json
+{
+  "type": "ERROR",
+  "data": {
+    "message": "RFQ not found or expired"
+  }
+}
+```
+
+See [Error Codes](/api/error-codes) for the full list of relay error messages.
+
+## Heartbeat / Ping-Pong
+
+Send a `PING` message every **30 seconds** to keep the connection alive. The relay responds with `PONG`:
+
+```ts
+// Send keepalive PING every 30 seconds
+const pingInterval = setInterval(() => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "PING", data: {} }));
+  }
+}, 30_000);
+
+// Respond to relay PING with PONG
+ws.on("message", (raw) => {
+  const msg = JSON.parse(raw.toString());
+  if (msg.type === "PING") {
+    ws.send(JSON.stringify({ type: "PONG", data: {} }));
+  }
+});
+
+// Clean up on disconnect
+ws.on("close", () => clearInterval(pingInterval));
+```
+
+## Reconnection Strategy
+
+Implement auto-reconnect with exponential backoff to handle network drops and relay restarts:
+
+```ts
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_DELAY_MS = 1000;
+
+let attempt = 0;
+
+function connect() {
+  const ws = new WebSocket("wss://relay.hyperquote.xyz");
+
+  ws.on("open", () => {
+    console.log("Connected to relay");
+    attempt = 0; // Reset on success
+  });
+
+  ws.on("close", () => {
+    if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+      console.error("Max reconnect attempts reached.");
+      process.exit(1);
+    }
+    const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+    attempt++;
+    console.log(`Reconnecting in ${delay}ms (attempt ${attempt})...`);
+    setTimeout(connect, delay);
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
+  });
+
+  // ... message handlers
+}
+
+connect();
+```
+
+## REST Endpoints
+
+The relay also exposes REST endpoints on the same port for polling:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/rfqs` | List active, unexpired RFQs with quote counts |
+| `GET` | `/quotes?rfqId=<id>` | List quotes for a specific RFQ |
+| `GET` | `/health` | Relay health status |
+
+### Health Check
+
+```bash
+curl https://relay.hyperquote.xyz/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "chainId": 999,
+  "contractAddress": "0x...",
+  "activeRfqs": 3,
+  "totalQuotes": 12,
+  "connectedClients": 5,
+  "uptime": 3600
+}
+```
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `RELAY_PORT` | `8080` | WebSocket and REST port |
+| `RFQ_TTL_SECS` | `60` | RFQ time-to-live before automatic cleanup |
+| `RATE_LIMIT_PER_MIN` | `30` | Maximum messages per minute per IP |
+| `CHAIN_ID` | `31337` | EIP-712 chain ID for signature verification |
+| `SPOT_RFQ_ADDRESS` | -- | SpotRFQ contract address for EIP-712 domain |
+
+<Callout type="warning">
+  Rate limiting applies to all WebSocket message types including PING. Exceeding the limit (default 30 msg/min per IP) results in an ERROR response and dropped messages until the window resets.
+</Callout>
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — REST API surface and endpoint index
+- [Quote Endpoints](/api/quote-endpoints) — REST-based quote submission (alternative to WebSocket)
+- [Error Codes](/api/error-codes) — Full error reference including relay errors
+- [EIP-712 Signing](/makers/eip712-signing) — Detailed signing guide for makers
+- [Submitting Quotes](/makers/submitting-quotes) — End-to-end quoting workflow

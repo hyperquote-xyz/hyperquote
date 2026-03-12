@@ -1,0 +1,144 @@
+# Receiving RFQs
+
+import { Callout } from 'nextra/components'
+
+When a taker submits an RFQ to the relay, the relay validates it, computes a deterministic `rfqId`, and broadcasts it to all connected makers as an `RFQ_BROADCAST` message.
+
+## RFQ_BROADCAST Message Format
+
+```ts
+interface RFQBroadcastMessage {
+  type: "RFQ_BROADCAST";
+  data: {
+    rfqId: string;      // keccak256 hash of the RFQ fields
+    rfq: RFQJson;
+  };
+}
+```
+
+The `rfqId` is a deterministic identifier computed from the RFQ fields. Both the relay and SDK compute it identically using `keccak256(abi.encode(...))` of all RFQ fields.
+
+## RFQ Fields
+
+The `RFQJson` object contains all the parameters of the options contract being requested:
+
+```ts
+interface RFQJson {
+  requester: string;    // address -- the taker requesting quotes
+  underlying: string;   // address -- asset for the option (V1: WHYPE only)
+  collateral: string;   // address -- collateral token (USDC, USDH, or USDT0)
+  isCall: boolean;      // true = Covered Call, false = Cash-Secured Put
+  strike: string;       // hex -- 1e18 fixed-point USD per underlying
+  quantity: string;     // hex -- underlying base units (10^18 for WHYPE)
+  expiry: string;       // hex -- option expiry timestamp (must be 08:00 UTC)
+  minPremium: string;   // hex -- minimum acceptable premium in collateral units
+  timestamp: string;    // hex -- when the RFQ was created (unix timestamp)
+}
+```
+
+<Callout type="info">
+  All numeric fields in `RFQJson` are transmitted as hex strings (e.g., `"0x15af1d78b58c40000"` for 25e18). Use `BigInt(value)` to convert them to native bigint values for computation.
+</Callout>
+
+### Field Details
+
+| Field | Description |
+|---|---|
+| `requester` | The taker's Ethereum address. In V1, the taker is always the option seller. |
+| `underlying` | The underlying asset address. V1 supports only WHYPE. |
+| `collateral` | The collateral/premium token. V1 supports USDC, USDH, and USDT0. |
+| `isCall` | `true` for a Covered Call (CC), `false` for a Cash-Secured Put (CSP). |
+| `strike` | Strike price in 1e18 fixed-point. For example, `25000000000000000000n` represents $25.00. |
+| `quantity` | Amount of underlying in base units. `1000000000000000000n` = 1 WHYPE. |
+| `expiry` | Unix timestamp of option expiry. Must be at 08:00 UTC (i.e., `expiry % 86400 === 28800`). |
+| `minPremium` | Minimum premium the taker will accept, in collateral base units. Quotes below this are rejected. |
+| `timestamp` | When the RFQ was created. Must be within 60 seconds of current time (anti-replay). |
+
+## Deserializing an RFQ
+
+The SDK provides `rfqFromJson()` to convert the JSON transport format into native types:
+
+```ts
+import { rfqFromJson, RFQBroadcastMessage } from "@hyperquote/sdk-maker";
+
+ws.on("message", (raw) => {
+  const msg = JSON.parse(raw.toString());
+
+  if (msg.type === "RFQ_BROADCAST") {
+    const broadcast = msg as RFQBroadcastMessage;
+    const rfq = rfqFromJson(broadcast.data.rfq);
+    const rfqId = broadcast.data.rfqId;
+
+    // rfq.strike is now a bigint: 25000000000000000000n
+    // rfq.quantity is now a bigint: 1000000000000000000n
+    console.log(`RFQ ${rfqId.slice(0, 14)}... ${rfq.isCall ? "CC" : "CSP"}`);
+  }
+});
+```
+
+## Filtering by Chain ID
+
+In V1, the relay serves a single chain (configured via `CHAIN_ID`). The maker's `MakerConfig.chainId` should match the relay's chain ID. If you are operating across multiple chains, run separate relay connections for each.
+
+## Filtering by Token Pair
+
+Not every RFQ will be relevant to your maker bot. Filter by underlying and collateral before pricing:
+
+```ts
+function isRfqAcceptable(rfq: RFQ, config: MakerConfig): boolean {
+  // Check underlying is in allowlist
+  if (!config.allowedUnderlying.some(
+    (u) => u.toLowerCase() === rfq.underlying.toLowerCase()
+  )) {
+    return false;
+  }
+
+  // Check collateral is in allowlist
+  const collateralKey = rfq.collateral.toLowerCase();
+  if (!config.collateralTokens[collateralKey] === undefined) {
+    return false;
+  }
+
+  // Check expiry is at 08:00 UTC
+  if (Number(rfq.expiry) % 86400 !== 28800) {
+    return false;
+  }
+
+  // Check expiry is in the future
+  if (Number(rfq.expiry) <= Math.floor(Date.now() / 1000)) {
+    return false;
+  }
+
+  return true;
+}
+```
+
+<Callout type="warning">
+  Always validate that the expiry timestamp is snapped to 08:00 UTC (`expiry % 86400 === 28800`). The on-chain `OptionsEngine` rejects any position with a non-standard expiry time.
+</Callout>
+
+## Private RFQ Handling
+
+Some RFQs are marked as **private**, meaning the taker has specified an `allowedMakers` list. The relay only broadcasts private RFQs to makers whose addresses appear in that list.
+
+From the maker's perspective, private RFQs arrive via the same `RFQ_BROADCAST` message type. There is no special flag -- if you receive a broadcast, you are eligible to quote. See [Private RFQ Routing](/makers/private-rfq-routing) for details.
+
+## RFQ Lifecycle
+
+Each RFQ has a relay-side TTL (default: 60 seconds, configurable via `RFQ_TTL_SECS`). After the TTL expires, the relay discards the RFQ and will reject any further quote submissions against it. The on-chain option expiry is independent of the relay TTL and is typically days or weeks in the future.
+
+```
+Taker submits RFQ
+       |
+  [Relay validates: signature, allowlists, expiry, timestamp]
+       |
+  RFQ_BROADCAST to all connected makers
+       |
+  Makers filter, price, risk-check, sign, submit quotes
+       |
+  [Relay validates: EIP-712 sig, field matching, deadline]
+       |
+  QUOTE_BROADCAST to all clients
+       |
+  Taker selects best quote, executes on-chain
+```

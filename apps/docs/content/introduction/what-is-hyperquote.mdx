@@ -1,0 +1,79 @@
+# What is HyperQuote?
+
+import { Callout } from 'nextra/components'
+
+HyperQuote is a permissionless Request-for-Quote (RFQ) protocol built on [HyperEVM](https://hyperliquid.xyz), the EVM execution environment of Hyperliquid L1. It connects traders (takers) directly with competing liquidity providers (makers) for size-aware spot execution with atomic on-chain settlement.
+
+<Callout type="info">
+HyperQuote is live on HyperEVM mainnet. Start trading at [hyperquote.xyz/swap](https://hyperquote.xyz/swap).
+</Callout>
+
+## Who This Is For
+
+- **Traders** executing spot swaps above a few hundred dollars who want better pricing than AMMs.
+- **Institutions and desks** that need predictable execution on size without moving the market.
+- **Market makers** looking for a selective, per-trade quoting model instead of passive LP exposure.
+- **Developers** building on HyperEVM who want programmatic access to competitive liquidity via the API and SDK.
+
+## Protocol Summary
+
+HyperQuote operates an off-chain relay that broadcasts trade requests to a network of makers who compete to offer the best price. The winning quote is signed with EIP-712, submitted on-chain, and settled atomically through immutable smart contracts. No intermediary holds funds at any point.
+
+The core product is **Spot RFQ** — swap any supported ERC-20 token pair on HyperEVM with competitive quotes from multiple makers, settled atomically in a single transaction.
+
+## RFQ vs AMM vs CLOB
+
+Traditional DeFi liquidity comes from two models, each with fundamental trade-offs:
+
+| Model | How it works | Weakness for large trades |
+|-------|-------------|--------------------------|
+| **AMM** (Automated Market Maker) | Liquidity sits in pools governed by a bonding curve. Anyone can swap against the curve. | Price impact scales with trade size. Large orders move the price significantly, and MEV bots can sandwich the trade. |
+| **CLOB** (Central Limit Order Book) | Makers post bids and offers at specific prices. Takers lift or hit those orders. | Visible order flow attracts adverse selection. Resting liquidity may be thin for large sizes. |
+| **RFQ** (Request-for-Quote) | Takers broadcast an intent to trade. Makers respond with firm, binding quotes tailored to the specific size. | Requires active makers. Quote latency depends on maker responsiveness. |
+
+HyperQuote uses the RFQ model because it is purpose-built for **size-aware execution**. Makers see the full trade parameters before quoting, so they can price in the exact size without exposing resting liquidity to adverse selection or MEV.
+
+## Value Proposition
+
+### For Takers
+
+- **Price improvement on size** — Makers compete to fill your exact order size. For trades above a few thousand dollars, RFQ quotes routinely beat AMM execution by avoiding price impact and slippage.
+- **Venue comparison** — The UI automatically fetches parallel quotes from HyperCore (Hyperliquid's native order book) and HyperEVM DEXes, so you can verify the RFQ price is competitive before executing.
+- **No MEV exposure** — Quotes are signed off-chain and settled atomically. There is no mempool observation window for sandwich attacks.
+- **Atomic settlement** — Trades settle in a single transaction. Either both sides of the swap complete, or neither does.
+
+### For Makers
+
+- **Selective quoting** — You only provide liquidity when you choose to. Unlike AMM LPs, you are never passively exposed to toxic flow or impermanent loss.
+- **Full context before commitment** — Every RFQ broadcast includes the token pair, direction, and size. You can price accordingly.
+- **EIP-712 signed quotes** — Your quote is a cryptographically signed message bound to a specific taker and deadline. It cannot be altered, replayed, or filled after expiry.
+- **Nonce-based replay protection** — On-chain nonce management ensures each quote can only be used once, and bulk cancellation is possible by incrementing your nonce.
+
+## On-Chain Settlement
+
+All HyperQuote trades settle through non-upgradeable smart contracts deployed on HyperEVM. The contracts:
+
+- Verify EIP-712 signatures to ensure the maker authorized the exact trade parameters.
+- Enforce nonce ordering to prevent replay attacks.
+- Execute token transfers atomically — both legs in a single transaction.
+- Emit events for every trade, enabling transparent on-chain analytics.
+
+The protocol does not custody user funds. Makers and takers approve the settlement contract to transfer tokens only at the moment of execution.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| No makers respond to your RFQ | The request expires after the TTL. No transaction is submitted, no gas is spent. |
+| A quote expires before you fill it | The contract reverts the transaction. Your tokens remain in your wallet. |
+| Maker has insufficient balance at fill time | The on-chain transfer fails and the transaction reverts. You keep your tokens. |
+| Relay goes offline | Public RFQ broadcasting is unavailable. Private RFQs (shared out-of-band) still work. Past quotes remain fillable on-chain until their deadline. |
+| Transaction reverts after signing | The settlement contract is atomic — either both transfers succeed or neither does. Partial fills cannot occur on a single quote. |
+
+## Next Steps
+
+- [How RFQ Works](/introduction/how-rfq-works) — The request-compete-fill lifecycle in detail
+- [Architecture Overview](/introduction/architecture-overview) — How the UI, relay, and smart contracts fit together
+- [Your First Trade](/getting-started/your-first-trade) — Step-by-step walkthrough of your first RFQ
+- [Become a Maker](/getting-started/become-a-maker) — Set up your quoting infrastructure
+- [Supported Tokens](/introduction/supported-tokens) — Token tiers and the core token registry

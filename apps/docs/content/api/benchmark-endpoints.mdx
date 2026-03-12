@@ -1,0 +1,218 @@
+# Benchmark Endpoints
+
+import { Callout } from 'nextra/components'
+
+The benchmark API provides venue pricing data for comparing RFQ execution against alternative DEX routes. These endpoints proxy external aggregator APIs and persist baseline data for price improvement calculations.
+
+## HT.xyz DEX Price
+
+### `GET /api/v1/bench/ht/price`
+
+Server-side proxy to the HT.xyz DEX aggregator. Returns the best available output amount for a given swap on HyperEVM DEXes. This endpoint is informational only -- no transaction data is returned.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `sellToken` | `string` | Yes | Input token ERC-20 address (`0x` + 40 hex) |
+| `buyToken` | `string` | Yes | Output token ERC-20 address (`0x` + 40 hex) |
+| `sellAmount` | `string` | Yes | Input amount in raw token units (BigInt string) |
+
+#### Example Request
+
+```bash
+curl "https://hyperquote.xyz/api/v1/bench/ht/price?\
+sellToken=0xb88339cb...&\
+buyToken=0x55555555...&\
+sellAmount=1000000000"
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "source": "ht.xyz",
+  "outputAmount": "49523000000000000000",
+  "route": [
+    {
+      "dex": "kittenswap",
+      "portion": 100,
+      "poolAddress": "0xPoolAddr...",
+      "fee": 3000
+    }
+  ],
+  "computeTimeMs": 450,
+  "error": null
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | Always `"ht.xyz"` |
+| `outputAmount` | `string or null` | Best output amount in raw token units, or `null` on error |
+| `route` | `array` | Route breakdown with DEX name, portion, pool address, and fee |
+| `computeTimeMs` | `number` | Total time including upstream API call |
+| `error` | `string or null` | Error message if the upstream call failed, or `null` on success |
+
+<Callout type="info">
+  This endpoint returns HTTP 200 even when the upstream HT.xyz API fails. Check the `error` field to determine if the quote is valid. Only input validation failures (missing params, invalid addresses) return 400.
+</Callout>
+
+#### Error Responses
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Missing required query params |
+| `400` | Invalid address format |
+| `400` | Invalid `sellAmount` (not a valid BigInt) |
+
+## RFQ Baseline
+
+### `POST /api/v1/rfq/baseline`
+
+Persists the AMM baseline captured at RFQ submission time. The frontend sends the SOR quote data that was displayed to the user when they submitted the RFQ. This avoids re-fetching and ensures the baseline reflects what the user actually saw.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `rfqId` | `string` | Yes | Client-generated RFQ ID |
+| `tokenIn` | `string` | Yes | Input token address |
+| `tokenOut` | `string` | Yes | Output token address |
+| `amountIn` | `string` | Yes | Input amount (BigInt string) |
+| `baselineAmountOut` | `string` | Yes | SOR output amount (BigInt string) |
+| `baselineEffectivePrice` | `number` | Yes | Effective price from SOR summary |
+| `baselinePriceImpactBps` | `number` | Yes | Price impact in basis points |
+| `baselineBlockNumber` | `string` | Yes | Block number from SOR `meta.asOfBlock` |
+| `baselineTimestamp` | `string` | Yes | ISO timestamp from SOR `meta.timestamp` |
+| `baselineRouteSummary` | `array` | No | Array of `{ protocol, poolType, fractionPct }` |
+
+#### Example Request
+
+```ts
+await fetch("https://hyperquote.xyz/api/v1/rfq/baseline", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    rfqId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    tokenIn: "0xb88339cb...",
+    tokenOut: "0x55555555...",
+    amountIn: "1000000000",
+    baselineAmountOut: "49523000000000000000",
+    baselineEffectivePrice: 49.523,
+    baselinePriceImpactBps: 12,
+    baselineBlockNumber: "1234567",
+    baselineTimestamp: "2026-03-10T16:00:00.000Z",
+    baselineRouteSummary: [
+      { protocol: "kittenswap", poolType: "v2", fractionPct: "100" }
+    ],
+  }),
+});
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "success": true,
+  "id": "clx9base123..."
+}
+```
+
+This endpoint is idempotent -- calling it multiple times for the same `rfqId` will upsert (update the existing record).
+
+## RFQ Performance
+
+### `GET /api/v1/rfq/performance`
+
+Computes the performance of a specific RFQ fill relative to the AMM baseline.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `rfqId` | `string` | Yes | The RFQ to analyze |
+
+#### Example Request
+
+```bash
+curl "https://hyperquote.xyz/api/v1/rfq/performance?rfqId=f47ac10b-58cc-4372-a567-0e02b2c3d479"
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "improvementBps": 150,
+  "rfqAmountOut": "50000000000000000000",
+  "baselineAmountOut": "49523000000000000000",
+  "baselineSource": "ht.xyz",
+  "computedAt": "2026-03-10T16:01:00.000Z"
+}
+```
+
+| Status | Error |
+|--------|-------|
+| `400` | Missing `rfqId` parameter |
+| `404` | No baseline or fill found for this RFQ |
+
+## RFQ Performance Summary
+
+### `GET /api/v1/rfq/performance-summary`
+
+Returns aggregate RFQ performance metrics over a time window.
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `window` | `string` | `"7d"` | Time window: `"24h"`, `"7d"`, `"30d"` |
+| `tokenIn` | `string` | -- | Filter by input token address |
+| `tokenOut` | `string` | -- | Filter by output token address |
+
+#### Example Request
+
+```bash
+curl "https://hyperquote.xyz/api/v1/rfq/performance-summary?window=7d"
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "window": "7d",
+  "totalFills": 142,
+  "avgImprovementBps": 85,
+  "medianImprovementBps": 72,
+  "totalVolumeUsd": 2450000.0,
+  "pctBetterThanBaseline": 89.4
+}
+```
+
+| Status | Error |
+|--------|-------|
+| `400` | Invalid `window` value (must be `24h`, `7d`, or `30d`) |
+
+## How Benchmarking Works
+
+The benchmark pipeline operates in three stages:
+
+1. **At RFQ creation** -- The UI runs a SOR quote and calls `POST /api/v1/rfq/baseline` to persist the AMM output amount
+2. **At fill recording** -- The fill endpoint (`POST /api/v1/fills`) looks up the stored baseline and computes improvement in basis points
+3. **At query time** -- The performance endpoints return the computed improvement for display in the venue comparison UI
+
+```
+improvementBps = ((rfqAmountOut / baselineAmountOut) - 1) * 10000
+```
+
+A positive `improvementBps` means the RFQ execution gave the taker more output tokens than the best available DEX route.
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [Fill Endpoints](/api/fill-endpoints) — How fills are recorded with improvement data
+- [Venue Comparison Engine](/venue-comparison/venue-comparison-engine) — How venue benchmarks work in the UI
+- [Error Codes](/api/error-codes) — Full error reference

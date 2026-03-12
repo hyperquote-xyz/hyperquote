@@ -1,0 +1,741 @@
+# SDK Reference
+
+import { Callout, Tabs } from 'nextra/components'
+
+Full API reference for the `@hyperquote/sdk-maker` package. The SDK is organized into eight modules, each re-exported from the package root: `types`, `eip712`, `signQuote`, `verifyQuote`, `nonce`, `pricing`, `risk`, and `rfqHash`.
+
+```ts
+// All public exports are available from the package root
+import {
+  // types
+  Quote, RFQ, MakerConfig, RiskConfig,
+  RFQJson, QuoteJson, PositionPreview,
+  RelayMessage, RFQBroadcastMessage, QuoteSubmitMessage, QuoteBroadcastMessage,
+  quoteToJson, quoteFromJson, rfqToJson, rfqFromJson,
+  // eip712
+  buildDomain, QUOTE_TYPES, quoteToTypedDataValue, hashQuoteStruct, hashQuoteTypedData,
+  // signing
+  signQuote, signQuoteWithKey,
+  // verification
+  verifyQuoteSignature, recoverQuoteSigner,
+  // nonce
+  NonceManager,
+  // pricing
+  StubPricingEngine, MarketData, PricingResult, PricingEngine, VolSurfaceParams,
+  // risk
+  RiskState, checkRisk, computeNotional, RiskCheckResult, ExpiryBucket,
+  // rfqHash
+  computeRfqId, computeRfqIdFromJson,
+} from "@hyperquote/sdk-maker";
+```
+
+---
+
+## Module: types
+
+Core type definitions, relay message interfaces, and serialization helpers. This module defines the data structures shared between the SDK, the relay, and the on-chain contract.
+
+### Quote
+
+The EIP-712 Quote struct. Field order and types must match the Solidity `QuoteLib.Quote` exactly for signature compatibility.
+
+```ts
+interface Quote {
+  maker: string;          // address -- the maker (quote signer, buyer in V1)
+  taker: string;          // address -- target taker, or address(0) for open
+  underlying: string;     // address -- WHYPE in V1
+  collateral: string;     // address -- USDC/USDH/USDT0
+  isCall: boolean;        // true = Covered Call, false = Cash-Secured Put
+  isMakerSeller: boolean; // V1: must be false
+  strike: bigint;         // 1e18 fixed-point USD per underlying
+  quantity: bigint;       // underlying base units (10^18 for WHYPE)
+  premium: bigint;        // collateral base units (10^cDec)
+  expiry: bigint;         // option expiry timestamp (must be 08:00 UTC)
+  deadline: bigint;       // quote validity deadline (unix timestamp)
+  nonce: bigint;          // maker nonce for replay protection
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `maker` | `string` | Ethereum address of the maker. Must match the EIP-712 signer. |
+| `taker` | `string` | Target taker address. Use `address(0)` for an open quote any taker can fill. |
+| `underlying` | `string` | Underlying asset address. V1 supports only WHYPE. |
+| `collateral` | `string` | Collateral token address. V1 supports USDC, USDH, USDT0. |
+| `isCall` | `boolean` | `true` for Covered Call, `false` for Cash-Secured Put. |
+| `isMakerSeller` | `boolean` | Must be `false` in V1. The maker is always the option buyer. |
+| `strike` | `bigint` | Strike price in 1e18 fixed-point (e.g., `25000000000000000000n` = $25). |
+| `quantity` | `bigint` | Amount in underlying base units (e.g., `1000000000000000000n` = 1 WHYPE). |
+| `premium` | `bigint` | Premium in collateral base units (e.g., `1500000n` = $1.50 USDC). |
+| `expiry` | `bigint` | Option expiry as Unix timestamp. Must be at 08:00 UTC. |
+| `deadline` | `bigint` | Quote validity deadline as Unix timestamp. Quotes become unfillable after this. |
+| `nonce` | `bigint` | Monotonically increasing nonce for replay protection. |
+
+### RFQ
+
+Represents an RFQ submitted by a taker (option seller in V1) requesting quotes from makers.
+
+```ts
+interface RFQ {
+  requester: string;    // address -- the taker requesting quotes
+  underlying: string;   // address -- asset for the option
+  collateral: string;   // address -- collateral token
+  isCall: boolean;      // true = CC, false = CSP
+  strike: bigint;       // 1e18 fixed-point
+  quantity: bigint;     // underlying base units
+  expiry: bigint;       // must be 08:00 UTC
+  minPremium: bigint;   // minimum acceptable premium in collateral units
+  timestamp: bigint;    // when the RFQ was created (unix)
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `requester` | `string` | Taker's Ethereum address. |
+| `underlying` | `string` | Underlying asset address. |
+| `collateral` | `string` | Collateral/premium token address. |
+| `isCall` | `boolean` | `true` for Covered Call, `false` for Cash-Secured Put. |
+| `strike` | `bigint` | Strike price in 1e18 fixed-point. |
+| `quantity` | `bigint` | Quantity in underlying base units. |
+| `expiry` | `bigint` | Expiry timestamp. Must satisfy `expiry % 86400 === 28800` (08:00 UTC). |
+| `minPremium` | `bigint` | Minimum premium the taker will accept. Quotes below this are rejected. |
+| `timestamp` | `bigint` | RFQ creation time. Must be within 60 seconds of current time (anti-replay). |
+
+### MakerConfig
+
+Top-level configuration for the maker bot. All fields are loaded from environment variables by the bundled bot, but can be constructed programmatically.
+
+```ts
+interface MakerConfig {
+  privateKey: string;
+  chainId: number;
+  engineAddress: string;
+  rpcUrl?: string;
+  relayWsUrl?: string;
+  allowedUnderlying: string[];
+  collateralTokens: Record<string, { decimals: number; symbol: string }>;
+  risk: RiskConfig;
+  quoteDeadlineSecs: number;
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `privateKey` | `string` | Yes | Hex-encoded private key (with or without `0x` prefix). |
+| `chainId` | `number` | Yes | EIP-712 domain chain ID. |
+| `engineAddress` | `string` | Yes | Deployed `OptionsEngine` contract address. |
+| `rpcUrl` | `string` | No | JSON-RPC endpoint for chain state reads (nonce sync, etc.). |
+| `relayWsUrl` | `string` | No | Relay WebSocket URL. Not needed for offline/mock mode. |
+| `allowedUnderlying` | `string[]` | Yes | Allowlist of underlying token addresses the maker will quote. |
+| `collateralTokens` | `Record<string, { decimals: number; symbol: string }>` | Yes | Map of collateral addresses to their metadata. |
+| `risk` | `RiskConfig` | Yes | Risk limit configuration. |
+| `quoteDeadlineSecs` | `number` | Yes | How many seconds from now each quote's deadline is set. |
+
+### RiskConfig
+
+Risk limits enforced before any quote is submitted. See [Risk Management](/makers/risk-management) for detailed explanations of each limit.
+
+```ts
+interface RiskConfig {
+  maxNotionalPerCollateral: Record<string, bigint>;
+  maxTenorSecs: number;
+  maxStrikeDeviationPct: number;
+  maxDeltaPerExpiry: number;
+  minPremium: Record<string, bigint>;
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `maxNotionalPerCollateral` | `Record<string, bigint>` | Maximum total notional per collateral token (in base units). |
+| `maxTenorSecs` | `number` | Maximum time-to-expiry in seconds (default: 90 days). |
+| `maxStrikeDeviationPct` | `number` | Maximum strike deviation from spot as a fraction (0.5 = 50%). |
+| `maxDeltaPerExpiry` | `number` | Maximum absolute delta per expiry bucket. |
+| `minPremium` | `Record<string, bigint>` | Minimum premium per collateral token (in base units). |
+
+### PositionPreview
+
+Preview of a position that would be created if a quote is executed on-chain.
+
+```ts
+interface PositionPreview {
+  isCall: boolean;
+  strike: bigint;
+  quantity: bigint;
+  premium: bigint;
+  expiry: bigint;
+  collateralRequired: bigint;  // what the seller must lock
+  maxLoss: bigint;             // worst-case for seller
+  breakeven: bigint;           // strike +/- premium adjusted
+  notional: bigint;            // strike * quantity in collateral units
+}
+```
+
+### Relay Message Types
+
+All WebSocket messages between the relay and clients follow the same envelope format.
+
+```ts
+type RelayMessageType =
+  | "RFQ_SUBMIT" | "RFQ_BROADCAST" | "QUOTE_SUBMIT"
+  | "QUOTE_BROADCAST" | "PING" | "PONG" | "ERROR";
+
+interface RelayMessage {
+  type: RelayMessageType;
+  data: unknown;
+}
+
+interface RFQBroadcastMessage {
+  type: "RFQ_BROADCAST";
+  data: { rfqId: string; rfq: RFQJson };
+}
+
+interface QuoteSubmitMessage {
+  type: "QUOTE_SUBMIT";
+  data: { rfqId: string; quote: QuoteJson; makerSig: string };
+}
+
+interface QuoteBroadcastMessage {
+  type: "QUOTE_BROADCAST";
+  data: { rfqId: string; quote: QuoteJson; makerSig: string };
+}
+```
+
+| Message Type | Direction | Purpose |
+|---|---|---|
+| `RFQ_BROADCAST` | Relay -> Maker | New RFQ available for quoting |
+| `QUOTE_SUBMIT` | Maker -> Relay | Submit a signed quote for an RFQ |
+| `QUOTE_BROADCAST` | Relay -> Maker | A quote was submitted (by any maker) |
+| `PING` | Bidirectional | Keepalive check (respond with `PONG`) |
+| `PONG` | Bidirectional | Keepalive response |
+| `ERROR` | Relay -> Maker | Validation or rate limit error |
+
+### Serialization Helpers
+
+JSON transport uses hex strings for all `bigint` fields (e.g., `"0x15af1d78b58c40000"`). These helpers convert between native types and JSON format.
+
+```ts
+function quoteToJson(q: Quote): QuoteJson
+function quoteFromJson(j: QuoteJson): Quote
+function rfqToJson(r: RFQ): RFQJson
+function rfqFromJson(j: RFQJson): RFQ
+```
+
+| Function | Input | Output | Description |
+|---|---|---|---|
+| `quoteToJson` | `Quote` | `QuoteJson` | Converts bigint fields to hex strings for transport. |
+| `quoteFromJson` | `QuoteJson` | `Quote` | Parses hex strings back to native bigints. |
+| `rfqToJson` | `RFQ` | `RFQJson` | Converts RFQ bigint fields to hex strings. |
+| `rfqFromJson` | `RFQJson` | `RFQ` | Parses RFQ hex strings back to native bigints. |
+
+---
+
+## Module: eip712
+
+EIP-712 domain construction, type definitions, and hashing utilities. The domain and types must exactly match the on-chain `OptionsEngine` contract for signatures to verify.
+
+### buildDomain
+
+```ts
+function buildDomain(chainId: number, verifyingContract: string): TypedDataDomain
+```
+
+Constructs the EIP-712 domain matching the on-chain `EIP712("HyperQuote Options", "1")` constructor.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `chainId` | `number` | The chain ID for the EIP-712 domain separator. |
+| `verifyingContract` | `string` | The deployed `OptionsEngine` contract address. |
+
+**Returns:** `{ name: "HyperQuote Options", version: "1", chainId, verifyingContract }`
+
+<Callout type="warning">
+  The `chainId` and `verifyingContract` must exactly match the deployed `OptionsEngine`. A mismatch produces a different domain separator and causes all signatures to fail with `InvalidSignature()` on-chain.
+</Callout>
+
+### QUOTE_TYPES
+
+```ts
+const QUOTE_TYPES: Record<string, TypedDataField[]>
+```
+
+The EIP-712 type definition for the `Quote` struct. Contains 12 fields in the exact order matching the Solidity `QUOTE_TYPEHASH`. Field order is critical -- reordering produces a different typehash.
+
+### quoteToTypedDataValue
+
+```ts
+function quoteToTypedDataValue(q: Quote): Record<string, unknown>
+```
+
+Converts a `Quote` into the value object expected by `TypedDataEncoder`. Bigint fields are passed as-is (ethers v6 handles them natively).
+
+### hashQuoteStruct
+
+```ts
+function hashQuoteStruct(q: Quote): string
+```
+
+Computes the EIP-712 struct hash of a Quote (without the domain separator). Returns a `bytes32` hex string. Useful for debugging and cross-verifying against Solidity output.
+
+### hashQuoteTypedData
+
+```ts
+function hashQuoteTypedData(domain: TypedDataDomain, q: Quote): string
+```
+
+Computes the full EIP-712 hash including the domain separator. This is the digest that gets signed. Use this for debugging to compare against the on-chain `_hashTypedDataV4(QuoteLib.hash(quote))`.
+
+---
+
+## Module: signQuote
+
+EIP-712 signing functions using ethers v6.
+
+### signQuote
+
+```ts
+async function signQuote(
+  wallet: Wallet,
+  quote: Quote,
+  chainId: number,
+  engineAddress: string,
+): Promise<string>
+```
+
+Signs a Quote using EIP-712 typed data signing.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `wallet` | `Wallet` | An ethers `Wallet` instance with the maker's private key. |
+| `quote` | `Quote` | The Quote struct to sign. |
+| `chainId` | `number` | Chain ID for the EIP-712 domain. |
+| `engineAddress` | `string` | The `OptionsEngine` contract address. |
+
+**Returns:** A 65-byte hex signature string (`0x` + 130 hex chars), formatted as `r + s + v`.
+
+**Example:**
+
+```ts
+import { Wallet } from "ethers";
+import { signQuote } from "@hyperquote/sdk-maker";
+
+const wallet = new Wallet("0x59c6995e998f97a5a...");
+const signature = await signQuote(wallet, quote, 31337, "0x5FbDB...");
+// signature: "0x1a2b3c..." (132 chars total)
+```
+
+### signQuoteWithKey
+
+```ts
+async function signQuoteWithKey(
+  privateKey: string,
+  quote: Quote,
+  chainId: number,
+  engineAddress: string,
+): Promise<string>
+```
+
+Convenience wrapper that creates a `Wallet` from a raw private key hex string and signs. Identical behavior to `signQuote` but saves you from constructing the `Wallet` yourself.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `privateKey` | `string` | Hex-encoded private key (with or without `0x` prefix). |
+| `quote` | `Quote` | The Quote struct to sign. |
+| `chainId` | `number` | Chain ID for the EIP-712 domain. |
+| `engineAddress` | `string` | The `OptionsEngine` contract address. |
+
+**Returns:** A 65-byte hex signature string.
+
+---
+
+## Module: verifyQuote
+
+Signature verification and signer recovery functions.
+
+### verifyQuoteSignature
+
+```ts
+function verifyQuoteSignature(
+  quote: Quote,
+  signature: string,
+  chainId: number,
+  engineAddress: string,
+): boolean
+```
+
+Verifies that a quote signature was produced by the claimed maker. Internally uses `verifyTypedData` from ethers and compares the recovered signer against `quote.maker`.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `quote` | `Quote` | The Quote struct. |
+| `signature` | `string` | The 65-byte hex signature. |
+| `chainId` | `number` | Chain ID for the EIP-712 domain. |
+| `engineAddress` | `string` | The `OptionsEngine` contract address. |
+
+**Returns:** `true` if the recovered signer matches `quote.maker` (case-insensitive). Returns `false` on any error (invalid signature, malformed input).
+
+### recoverQuoteSigner
+
+```ts
+function recoverQuoteSigner(
+  quote: Quote,
+  signature: string,
+  chainId: number,
+  engineAddress: string,
+): string
+```
+
+Recovers the signer address from a quote signature. Throws if the signature is invalid or malformed.
+
+**Returns:** The checksummed Ethereum address of the signer.
+
+---
+
+## Module: nonce
+
+On-chain nonce management for replay protection. The `NonceManager` reads the maker's current nonce from the `OptionsEngine` contract and provides monotonically increasing nonces for quote signing.
+
+### NonceManager
+
+```ts
+class NonceManager {
+  constructor(
+    makerAddress: string,
+    engineAddress: string,
+    provider: JsonRpcProvider,
+  )
+
+  async init(): Promise<void>
+  nextNonce(): bigint
+  currentNonce(): bigint
+  async resync(): Promise<void>
+}
+```
+
+**Constructor Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `makerAddress` | `string` | The maker's Ethereum address. |
+| `engineAddress` | `string` | The `OptionsEngine` contract address. |
+| `provider` | `JsonRpcProvider` | An ethers JSON-RPC provider for reading chain state. |
+
+**Methods:**
+
+| Method | Returns | Description |
+|---|---|---|
+| `init()` | `Promise<void>` | Reads the current on-chain nonce via `engine.nonces(maker)` and initializes local state. Must be called before `nextNonce()`. |
+| `nextNonce()` | `bigint` | Returns the current local nonce and increments the counter by 1. Throws `Error` if not initialized. |
+| `currentNonce()` | `bigint` | Peeks at the current local nonce without advancing it. |
+| `resync()` | `Promise<void>` | Re-reads the on-chain nonce and resets local state. Call this after an `incrementNonce()` transaction to sync. |
+
+**Example:**
+
+```ts
+import { JsonRpcProvider } from "ethers";
+import { NonceManager } from "@hyperquote/sdk-maker";
+
+const provider = new JsonRpcProvider("http://127.0.0.1:8545");
+const nonceManager = new NonceManager(makerAddress, engineAddress, provider);
+
+await nonceManager.init();
+const nonce = nonceManager.nextNonce(); // 0n
+const nonce2 = nonceManager.nextNonce(); // 1n
+
+// After calling incrementNonce() on-chain:
+await nonceManager.resync();
+```
+
+<Callout type="info">
+  The bundled relay bot (`makerRelay.ts`) uses a simple local counter starting at `0n` instead of `NonceManager`. This works when the maker has never called `incrementNonce()` on-chain. For production, use `NonceManager` to sync with on-chain state. See [Nonce Management](/makers/nonce-management) for details.
+</Callout>
+
+---
+
+## Module: pricing
+
+Pricing engine interface and Black-Scholes implementation.
+
+### MarketData
+
+Market data snapshot provided to the pricing engine.
+
+```ts
+interface MarketData {
+  spotPrice: bigint;        // current spot price (1e18 = $1)
+  ivBps: number;            // implied volatility in basis points (8000 = 80%)
+  riskFreeRateBps: number;  // risk-free rate in basis points (500 = 5%)
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `spotPrice` | `bigint` | Current underlying spot price in 1e18 fixed-point. `25_000000000000000000n` = $25.00. |
+| `ivBps` | `number` | Annualized implied volatility in basis points. `8000` = 80%. |
+| `riskFreeRateBps` | `number` | Annualized risk-free rate in basis points. `500` = 5%. |
+
+### PricingResult
+
+Output of the pricing engine for a single RFQ.
+
+```ts
+interface PricingResult {
+  premium: bigint;    // collateral base units (10^cDec)
+  delta: number;      // BSM delta (e.g., -0.42 for a put)
+  fairValue: bigint;  // theoretical value before spread
+  ivUsed: number;     // implied vol actually used (after skew)
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `premium` | `bigint` | Quoted premium in collateral base units. Includes the maker's spread. |
+| `delta` | `number` | Black-Scholes delta as a signed decimal. Positive for calls, negative for puts. |
+| `fairValue` | `bigint` | Theoretical option value before spread, in collateral base units. |
+| `ivUsed` | `number` | Implied volatility used for pricing (after skew adjustment), as a decimal (0.82 = 82%). |
+
+### PricingEngine (Interface)
+
+The pluggable pricing engine interface. Implement this to use your own proprietary pricing model.
+
+```ts
+interface PricingEngine {
+  price(rfq: RFQ, market: MarketData, cDec: number): PricingResult;
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `rfq` | `RFQ` | The incoming RFQ to price. |
+| `market` | `MarketData` | Current market data snapshot. |
+| `cDec` | `number` | Collateral token decimals (e.g., 6 for USDC). |
+
+**Returns:** A `PricingResult` with the computed premium, delta, fair value, and IV used.
+
+### StubPricingEngine
+
+```ts
+class StubPricingEngine implements PricingEngine {
+  constructor(volSurface?: VolSurfaceParams)
+  price(rfq: RFQ, market: MarketData, cDec: number): PricingResult
+}
+```
+
+Black-Scholes pricing engine with a configurable vol surface. Uses the Abramowitz and Stegun approximation for the cumulative normal distribution. Suitable for development and as a starting point for production engines.
+
+**Constructor Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `volSurface` | `VolSurfaceParams` | See defaults below | Optional vol surface configuration. |
+
+The pricing pipeline:
+1. Convert spot and strike to floating-point USD values.
+2. Compute time-to-expiry in years.
+3. Apply skew adjustment based on moneyness.
+4. Run Black-Scholes formula (calls: `S*N(d1) - K*e^(-rT)*N(d2)`, puts: `K*e^(-rT)*N(-d2) - S*N(-d1)`).
+5. Add spread as a percentage of notional.
+6. Convert to collateral base units and floor at 1 unit.
+
+### VolSurfaceParams
+
+Configuration for the stub pricing engine's volatility surface.
+
+```ts
+interface VolSurfaceParams {
+  atmVolBps: number;          // default: 8000 (80%)
+  skewBpsPerPctOtm: number;  // default: 50 (0.5% per 1% OTM)
+  spreadBps: number;          // default: 200 (2% of notional)
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `atmVolBps` | `number` | `8000` | Base ATM implied volatility in basis points. 8000 = 80%. |
+| `skewBpsPerPctOtm` | `number` | `50` | Additional vol per 1% out-of-the-money, in basis points. |
+| `spreadBps` | `number` | `200` | Spread over fair value as basis points of notional. 200 = 2%. |
+
+<Callout type="info">
+  These defaults are intentionally conservative and suitable for development. Production makers should calibrate their vol surface to real market data. See [Pricing Strategies](/makers/pricing-strategies) for guidance on building a custom `PricingEngine`.
+</Callout>
+
+---
+
+## Module: risk
+
+Risk state tracking and limit enforcement. The risk module prevents the maker from accumulating unbounded positions by checking configurable limits before each quote is submitted.
+
+### RiskState
+
+```ts
+class RiskState {
+  expiryBuckets: Map<bigint, ExpiryBucket>
+  notionalByCollateral: Map<string, bigint>
+
+  recordQuote(
+    collateral: string,
+    expiry: bigint,
+    notional: bigint,
+    delta: number,
+    isCall: boolean,
+  ): void
+}
+```
+
+Tracks the maker's cumulative exposure across two dimensions: per-expiry delta buckets and per-collateral notional.
+
+**Properties:**
+
+| Property | Type | Description |
+|---|---|---|
+| `expiryBuckets` | `Map<bigint, ExpiryBucket>` | Delta exposure and notional by expiry timestamp. |
+| `notionalByCollateral` | `Map<string, bigint>` | Total notional by collateral token address. |
+
+**Methods:**
+
+| Method | Description |
+|---|---|
+| `recordQuote(collateral, expiry, notional, delta, isCall)` | Updates exposure state after a quote is submitted. Must be called after each successful quote submission. |
+
+<Callout type="warning">
+  Risk state is tracked in memory. If the maker bot restarts, state resets to zero. Production systems should persist risk state or resync from on-chain position data.
+</Callout>
+
+### ExpiryBucket
+
+```ts
+interface ExpiryBucket {
+  deltaExposure: number;  // signed delta (positive for calls, negative for puts)
+  notional: bigint;       // total notional for this expiry
+}
+```
+
+### RiskCheckResult
+
+```ts
+interface RiskCheckResult {
+  passed: boolean;
+  reason?: string;  // human-readable failure reason (only set when passed=false)
+}
+```
+
+### checkRisk
+
+```ts
+function checkRisk(
+  rfq: RFQ,
+  market: MarketData,
+  config: RiskConfig,
+  state: RiskState,
+  cDec: number,
+  delta: number,
+): RiskCheckResult
+```
+
+Runs all five risk checks in sequence. Returns immediately on the first failure.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `rfq` | `RFQ` | The incoming RFQ to evaluate. |
+| `market` | `MarketData` | Current market data. |
+| `config` | `RiskConfig` | Risk limit configuration. |
+| `state` | `RiskState` | Current exposure state. |
+| `cDec` | `number` | Collateral token decimals. |
+| `delta` | `number` | Signed delta from the pricing engine. |
+
+**Risk checks (in order):**
+
+1. **Max tenor** -- Rejects RFQs with expiry too far in the future.
+2. **Max strike deviation** -- Rejects strikes that deviate too far from spot.
+3. **Per-collateral notional limit** -- Prevents total notional from exceeding the cap.
+4. **Max delta per expiry** -- Prevents delta exposure per expiry bucket from exceeding the limit.
+5. **Min premium** -- Soft check that the RFQ's minPremium is not unreasonable.
+
+**Returns:** `{ passed: true }` if all checks pass, or `{ passed: false, reason: "..." }` with a human-readable description of the first failed check.
+
+### computeNotional
+
+```ts
+function computeNotional(
+  strike: bigint,
+  quantity: bigint,
+  uDec: number,
+  cDec: number,
+): bigint
+```
+
+Computes notional in collateral base units using `ceilDiv(strike * quantity, 10^(18 + uDec - cDec))`. Matches the on-chain `CollateralMath._strikeTimesQuantity` formula exactly.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `strike` | `bigint` | Strike price in 1e18 fixed-point. |
+| `quantity` | `bigint` | Quantity in underlying base units. |
+| `uDec` | `number` | Underlying token decimals (18 for WHYPE). |
+| `cDec` | `number` | Collateral token decimals (6 for USDC). |
+
+**Returns:** Notional in collateral base units. For example, a $25 strike on 1 WHYPE with USDC (6 decimals) yields `25_000_000n` ($25 in USDC).
+
+---
+
+## Module: rfqHash
+
+Deterministic RFQ identification. Both the relay and SDK use these functions to produce identical `rfqId` values from the same RFQ data.
+
+### computeRfqId
+
+```ts
+function computeRfqId(rfq: RFQ): string
+```
+
+Computes `keccak256(abi.encode(requester, underlying, collateral, isCall, strike, quantity, expiry, minPremium, timestamp))`. Returns a `bytes32` hex string.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `rfq` | `RFQ` | The RFQ struct with native bigint fields. |
+
+**Returns:** A `bytes32` hex string representing the deterministic RFQ identifier.
+
+### computeRfqIdFromJson
+
+```ts
+function computeRfqIdFromJson(rfqJson: RFQJson): string
+```
+
+Convenience wrapper that deserializes the JSON RFQ using `rfqFromJson()` first, then computes the `rfqId`. Useful when you have the raw JSON from the relay or a taker.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `rfqJson` | `RFQJson` | The RFQ in JSON transport format. |
+
+**Returns:** A `bytes32` hex string identical to what `computeRfqId` would produce for the same data.
+
+---
+
+## Cross-Reference
+
+For guides that demonstrate these APIs in context:
+
+- [SDK Quickstart](/makers/maker-sdk-quickstart) -- Get a bot running in 10 minutes.
+- [Auto-Quoting Bot](/makers/auto-quoting-bot) -- Full pipeline walkthrough with customization points.
+- [EIP-712 Signing](/makers/eip712-signing) -- Deep dive into signing, verification, and test vectors.
+- [Nonce Management](/makers/nonce-management) -- On-chain nonce strategies and the `NonceManager` class.
+- [Risk Management](/makers/risk-management) -- Detailed explanation of all five risk checks.
+- [Pricing Strategies](/makers/pricing-strategies) -- How to replace the stub engine with a custom model.

@@ -1,0 +1,150 @@
+# SettlementPublisher
+
+import { Callout } from 'nextra/components'
+
+`SettlementPublisher` is the V1 implementation of the `ISettlementOracle` interface. It uses a two-phase commit-reveal mechanism to publish settlement prices at option expiry, preventing front-running of the settlement price.
+
+## Contract Identity
+
+- **Interface**: `ISettlementOracle`
+- **Inherits**: Ownable
+- **Solidity**: 0.8.24 with via-IR
+
+## Commit-Reveal Flow
+
+The settlement price is published in two phases to prevent front-running:
+
+### Phase 1: Commit
+
+An authorized publisher commits a hash of the settlement price before the option expires.
+
+```solidity
+function commitPrice(bytes32 commitHash) external onlyPublisher;
+```
+
+The `commitHash` is computed as:
+
+```solidity
+commitHash = keccak256(abi.encodePacked(asset, expiry, price, salt))
+```
+
+The commitment must be made **before** the option expiry. Commitments made after expiry are rejected during the reveal phase.
+
+### Phase 2: Reveal
+
+After the `REVEAL_DELAY` (5 minutes), the publisher reveals the actual price by providing all preimage values.
+
+```solidity
+function revealPrice(
+    address asset,
+    uint256 expiry,
+    uint256 price,
+    bytes32 salt
+) external onlyPublisher;
+```
+
+**Validation checks during reveal:**
+1. The asset/expiry must not already have a settled price
+2. Current time must be \>= the option expiry
+3. The commitment hash must exist and match the provided preimage
+4. The commitment must have been made before expiry
+5. At least `REVEAL_DELAY` (5 min) must have elapsed since commitment
+6. No more than `REVEAL_WINDOW` (24 hours) since commitment
+
+<Callout type="info">
+The 5-minute reveal delay prevents same-block front-running where a publisher could commit and reveal in adjacent blocks before anyone can react.
+</Callout>
+
+## Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `REVEAL_DELAY` | 5 minutes | Minimum time between commit and reveal |
+| `REVEAL_WINDOW` | 24 hours | Maximum time after commit for a valid reveal |
+
+## Price Format
+
+Settlement prices are denominated in USD with 18 decimal places:
+
+```
+1e18 = $1.00
+25e18 = $25.00
+```
+
+This matches the strike price format used in `QuoteLib.Quote` and `CollateralMath`.
+
+## ISettlementOracle Interface
+
+```solidity
+interface ISettlementOracle {
+    function getSettlementPrice(address asset, uint256 expiry)
+        external view returns (uint256 price, bool settled);
+
+    function hasPriceFor(address asset, uint256 expiry)
+        external view returns (bool);
+
+    event SettlementPricePublished(
+        address indexed asset,
+        uint256 indexed expiry,
+        uint256 price,
+        address publisher
+    );
+}
+```
+
+### `getSettlementPrice(asset, expiry)`
+
+Returns the settlement price and a boolean indicating whether the price has been finalized. If `settled` is false, the price value is meaningless and should not be used.
+
+### `hasPriceFor(asset, expiry)`
+
+Convenience function that returns true if a settlement price has been finalized for the given asset/expiry pair.
+
+## Publisher Management
+
+The contract owner manages authorized publishers:
+
+```solidity
+function addPublisher(address publisher) external onlyOwner;
+function removePublisher(address publisher) external onlyOwner;
+```
+
+Only addresses in the `isPublisher` mapping can commit and reveal prices.
+
+## Storage
+
+```solidity
+mapping(address => bool) public isPublisher;
+mapping(address => mapping(uint256 => uint256)) internal _prices;
+mapping(address => mapping(uint256 => bool)) internal _settled;
+mapping(bytes32 => uint256) public commitTimestamps;
+```
+
+After a successful reveal, the commitment timestamp is deleted to free storage (gas refund).
+
+## Events
+
+```solidity
+event PublisherAdded(address indexed publisher);
+event PublisherRemoved(address indexed publisher);
+event PriceCommitted(bytes32 indexed commitHash, address indexed publisher);
+event SettlementPricePublished(address indexed asset, uint256 indexed expiry, uint256 price, address publisher);
+```
+
+## Error Codes
+
+| Error | Meaning |
+|-------|---------|
+| `NotPublisher()` | Caller is not an authorized publisher |
+| `AlreadySettled()` | Price already finalized for this asset/expiry |
+| `AlreadyCommitted()` | This commitment hash was already submitted |
+| `NotCommitted()` | No commitment found matching the provided preimage |
+| `RevealTooEarly()` | Reveal attempted before REVEAL_DELAY elapsed |
+| `RevealTooLate()` | Reveal attempted after REVEAL_WINDOW expired |
+| `CommitHashMismatch()` | Preimage does not match the committed hash |
+| `ExpiryNotPassed()` | Attempting to reveal before the option has expired |
+| `CommitAfterExpiry()` | Commitment was made after the option expiry |
+
+## Future Upgrades
+
+The `ISettlementOracle` interface is designed to be swappable. The OptionsEngine owner can call `setOracle(newOracle)` to replace the SettlementPublisher with a future implementation, such as a HyperCore precompile reader that derives settlement prices directly from on-chain market data.

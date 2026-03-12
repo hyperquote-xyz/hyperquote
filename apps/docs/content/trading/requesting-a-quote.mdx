@@ -1,0 +1,137 @@
+# Requesting a Quote
+
+import { Callout, Steps } from 'nextra/components'
+
+An RFQ (Request for Quote) is the starting point of every trade on HyperQuote. As a taker, you describe the trade you want to execute — the token pair, amount, direction, and constraints — and the protocol broadcasts your request to competing makers who respond with firm, signed quotes.
+
+## Who This Is For
+
+- **Takers** submitting their first or hundredth RFQ and want to understand every parameter.
+- **Developers** integrating RFQ creation via the REST API or WebSocket relay.
+- **Power users** tuning TTL, visibility, and constraints for optimal execution.
+
+## Step-by-Step Flow
+
+<Steps>
+
+### Connect your wallet
+
+Connect an EVM-compatible wallet (e.g. MetaMask, Rabby) to the HyperQuote app at [hyperquote.xyz/swap](https://hyperquote.xyz/swap). HyperQuote operates on HyperEVM, so ensure your wallet is configured for the HyperEVM network.
+
+### Select a token pair
+
+Use the token selectors to choose the token you are selling (Token In) and the token you want to receive (Token Out). Tokens are organised into tiers:
+
+- **Core** — always visible, high-liquidity routing tokens (HYPE, USDC, kHYPE, USDT0, USDH).
+- **Verified** — sourced from HyperCore spotMeta or manually allowlisted.
+- **Unverified** — hidden by default. Enable "Show unverified tokens" to access them.
+
+If a token is not listed, you can paste its ERC-20 contract address directly.
+
+<Callout type="warning">
+  Native HYPE is automatically wrapped to WHYPE (Wrapped HYPE) for on-chain settlement. You will see HYPE in the UI, but the RFQ contract operates on the ERC-20 WHYPE token at `0x5555...5555`.
+</Callout>
+
+### Choose a quoting mode
+
+Select either **Exact In** or **Exact Out**:
+
+| Mode | You specify | Maker quotes |
+|------|------------|--------------|
+| Exact In | The amount you are selling | The output amount you will receive |
+| Exact Out | The amount you want to receive | The input amount you will pay |
+
+See [Exact In vs Exact Out](/trading/exact-in-vs-exact-out) for a detailed comparison.
+
+### Enter the amount
+
+Type the trade amount in the corresponding field. For Exact In, enter the amount of Token In. For Exact Out, enter the desired amount of Token Out.
+
+Optionally set a constraint:
+- **Min Out** (Exact In) — the minimum output you are willing to accept.
+- **Max In** (Exact Out) — the maximum input you are willing to pay.
+
+These constraints are enforced on-chain by the settlement contract.
+
+### Set the TTL
+
+The Time-to-Live (TTL) controls how long your RFQ remains active. Makers can only submit quotes while the TTL has not expired.
+
+- **Minimum**: 10 seconds
+- **Maximum**: 86,400 seconds (24 hours)
+- **Default**: 60 seconds
+
+Shorter TTLs create urgency and are appropriate for volatile pairs. Longer TTLs allow more makers to respond and are useful for less liquid pairs or larger sizes.
+
+### Choose visibility
+
+Select **Public** or **Private**:
+
+- **Public** (recommended) — your RFQ is broadcast to all connected makers via the WebSocket relay and appears on the live RFQ feed.
+- **Private** — your RFQ is NOT broadcast. You share it manually with selected makers using a private share link. Only makers you invite can see and respond to it.
+
+See [Public vs Private RFQs](/trading/public-vs-private-rfqs) for details on privacy trade-offs and the points multiplier for large private fills.
+
+### Submit the RFQ
+
+Click **Request Quote**. The following happens under the hood:
+
+1. A `requestId` is generated as a UUID v4 on the client.
+2. The RFQ parameters are packaged into a `RelayRFQRequest` envelope (v1 protocol).
+3. For **public** RFQs, the request is sent to the WebSocket relay, which broadcasts it to all subscribed makers.
+4. For **private** RFQs, the `requestId` is created locally without any relay broadcast. You distribute the RFQ JSON to chosen makers out-of-band.
+5. The RFQ enters the `open` state and the TTL countdown begins.
+
+</Steps>
+
+## RFQ ID and Authentication
+
+Every RFQ is identified by its `requestId`, a client-generated UUID v4. The taker does not need to sign the RFQ request itself — only makers sign their quotes.
+
+Authentication happens at the wallet level via the connected wallet session. The relay verifies that the `taker` field matches the connected address.
+
+## Rate Limits
+
+The RFQ registry enforces per-wallet limits to prevent spam:
+
+| Limit | Value |
+|-------|-------|
+| Max active public RFQs per wallet | 3 |
+| Max active private RFQs per wallet | 5 |
+| Max requests per minute (per wallet + IP) | 10 |
+
+If you hit the active RFQ limit, you must wait for an existing RFQ to expire or cancel it before submitting a new one. Rate-limited requests return a `429` status with a `Retry-After` header indicating how long to wait.
+
+<Callout>
+  Cancelled or expired RFQs free up your active slots immediately. Use the cancel button in the UI to reclaim a slot without waiting for the TTL to elapse.
+</Callout>
+
+## Protocol Fee
+
+A protocol fee of **2.5 basis points** (0.025%) is charged on the input token amount at settlement time. The fee is deducted from `amountIn` before the maker receives the net amount. The fee rate is read from the on-chain `feePips()` function (default: 250 pips, where 1,000,000 pips = 100%).
+
+```
+fee = amountIn * feePips / 1_000_000
+netAmountIn = amountIn - fee
+```
+
+The fee is displayed on each quote card so you know the exact cost before executing.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| You submit an RFQ but no makers are online | The RFQ expires after the TTL with no quotes. No gas is spent. |
+| You exceed the active RFQ limit | The request is rejected with `429`. Cancel or wait for an existing RFQ to expire. |
+| Token address is invalid or not an ERC-20 | The UI will show an error when trying to load the token. The RFQ cannot be submitted. |
+| Relay disconnects while your RFQ is active | Public broadcast stops, but the RFQ ID remains valid. Quotes already in transit are still receivable. Reconnecting resumes the broadcast. |
+| TTL is set too short (e.g., 10 seconds) | Makers may not have time to respond. You receive zero or very few quotes. Increase the TTL. |
+| You cancel an RFQ before any quotes arrive | The RFQ is closed immediately. Your active RFQ slot is freed. |
+
+## Related Pages
+
+- [Your First Trade](/getting-started/your-first-trade) — Full walkthrough including quote comparison and fill
+- [Public vs Private RFQs](/trading/public-vs-private-rfqs) — Visibility modes and privacy trade-offs
+- [Exact In vs Exact Out](/trading/exact-in-vs-exact-out) — Choosing the right quoting mode
+- [Venue Comparison Engine](/trading/venue-comparison-engine) — How RFQ quotes are benchmarked
+- [Supported Tokens](/introduction/supported-tokens) — Available tokens and tiers

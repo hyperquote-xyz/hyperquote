@@ -1,0 +1,146 @@
+# Multipliers
+
+import { Callout } from 'nextra/components'
+
+After computing the base points for a fill, the system applies a series of multipliers that reward desirable behavior and penalize patterns associated with gaming. All multipliers are combined into a single product that scales the base points up or down.
+
+```
+finalPoints = basePoints * improvementMultiplier * privacyMultiplier * pairRepeatDecay * nftBoost
+```
+
+Each multiplier is computed independently and then clamped to a defined range before being included in the product.
+
+## Improvement Multiplier
+
+The improvement multiplier rewards (or penalizes) fills based on how the RFQ execution price compares to the best available benchmark from alternative venues (AMM routes, HyperCore order book).
+
+### Formula
+
+```
+improvementBps = (benchmarkPrice - executionPrice) / benchmarkPrice * 10000
+
+improvementMultiplier = 1 + clamp(improvementBps, -20, +50) / 100
+```
+
+### Range
+
+| improvementBps | Multiplier | Interpretation |
+|---------------|------------|----------------|
+| +50 or higher | **1.50x** | Capped at maximum bonus |
+| +50 | **1.50x** | 50 bps better than benchmark |
+| +25 | **1.25x** | 25 bps better than benchmark |
+| 0 | **1.00x** | Exactly matching benchmark |
+| -10 | **0.90x** | 10 bps worse than benchmark |
+| -20 or worse | **0.80x** | Capped at minimum penalty |
+
+The clamp range of `[-20, +50]` translates to a multiplier range of **0.80x to 1.50x**.
+
+<Callout type="info">
+  Price improvement is measured from the taker's perspective. A positive `improvementBps` means the taker got a better price through RFQ than the best alternative venue. Makers who provide better prices earn higher multipliers for both themselves and the taker.
+</Callout>
+
+### Worked Example
+
+A taker swaps 10,000 USDC for HYPE. The best AMM quote would give 490 HYPE. The RFQ maker quotes 495 HYPE (after fees).
+
+```
+improvementBps = (490 - 495) / 490 * -10000
+               = 10.2 bps improvement (taker gets more HYPE)
+
+Clamped: clamp(10.2, -20, +50) = 10.2
+Multiplier: 1 + 10.2 / 100 = 1.102x
+```
+
+Both the maker and taker receive a 1.102x improvement multiplier on this fill.
+
+## Privacy Multiplier
+
+The privacy multiplier rewards fills that use private RFQ routing, where the taker directs their RFQ to a specific set of makers rather than broadcasting it to the entire network.
+
+### Formula
+
+```
+privacyMultiplier = 1.10  (if private fill AND notionalUsd >= $50,000)
+privacyMultiplier = 1.00  (otherwise)
+```
+
+### Conditions
+
+Both conditions must be met for the 1.10x privacy bonus:
+
+1. The RFQ was routed privately (not broadcast to all makers).
+2. The fill's USD notional value is at least $50,000.
+
+The size threshold prevents gaming through many small private fills. Private routing for large trades is valuable because it reduces information leakage about large order flow.
+
+<Callout type="info">
+  Private RFQs are routed only to makers specified by the taker. This reduces the number of market participants who see the order flow, which can reduce adverse selection for large trades.
+</Callout>
+
+## Pair-Repeat Decay
+
+The pair-repeat decay multiplier reduces points for consecutive fills on the same token pair by the same address within a rolling time window. This is the primary defense against wash trading.
+
+### Mechanics
+
+Each time an address fills a trade on a specific pair, a decay counter increments. The multiplier decreases with each consecutive fill on the same pair:
+
+| Fill Number (same pair, same window) | Decay Multiplier |
+|--------------------------------------|-----------------|
+| 1st | 1.00x |
+| 2nd | 0.90x |
+| 3rd | 0.80x |
+| 4th | 0.70x |
+| 5th+ | 0.50x (floor) |
+
+The decay counter resets after the rolling window expires, restoring the full 1.00x multiplier. Trading a different pair does not trigger decay on other pairs.
+
+See [Anti-Gaming Guards](/points/anti-gaming-guards) for full details on pair-repeat decay.
+
+## Missing Benchmark Penalty
+
+If no valid benchmark price is available from alternative venues at the time of the fill (e.g., the token pair has no AMM liquidity and no HyperCore market), the improvement multiplier defaults to **0.90x** rather than 1.00x.
+
+This penalty discourages fills on pairs where price improvement cannot be independently verified. It also incentivizes makers and takers to trade pairs that have observable market prices, improving the overall quality of the protocol's price discovery.
+
+## Product Clamp Range
+
+After computing the product of all multipliers, the final product is clamped to ensure reasonable bounds:
+
+```
+multiplierProduct = clamp(
+  improvementMultiplier * privacyMultiplier * pairRepeatDecay,
+  0.50,   // minimum
+  2.00    // maximum
+)
+```
+
+This prevents extreme outlier point awards in either direction. Even with maximum boosts from every multiplier, the total scaling cannot exceed 2.00x of the base points (before NFT boosts are applied). Similarly, heavy penalties cannot reduce points below 50% of the base.
+
+<Callout type="warning">
+  NFT boosts are applied **after** the product clamp. The maximum total multiplier including NFT boosts is 2.00x * 2.00x = 4.00x for a participant holding both eligible NFT collections.
+</Callout>
+
+## Full Example
+
+A taker executes a $25,000 private fill with 15 bps price improvement, on a fresh pair (no repeat decay), holding a Hypurr NFT:
+
+```
+basePoints             = (25000 / 1000) ^ 0.9 = 18.0
+improvementMultiplier  = 1 + clamp(15, -20, 50) / 100 = 1.15
+privacyMultiplier      = 1.10 (private, notional < $50k threshold -- NOT eligible)
+pairRepeatDecay        = 1.00 (first fill on pair)
+
+Wait -- $25k < $50k, so privacyMultiplier = 1.00
+
+multiplierProduct      = clamp(1.15 * 1.00 * 1.00, 0.50, 2.00) = 1.15
+nftBoost               = 1.50 (Hypurr holder)
+
+finalPoints            = 18.0 * 1.15 * 1.50 = 31.05 points
+```
+
+## Related Pages
+
+- [Base Points Formula](/points/base-points-formula) -- How base points are calculated
+- [NFT Boosts](/points/nft-boosts) -- NFT collection boost details
+- [Anti-Gaming Guards](/points/anti-gaming-guards) -- Full anti-manipulation details

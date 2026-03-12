@@ -1,0 +1,107 @@
+# HyperCore Spot
+
+import { Callout } from 'nextra/components'
+
+HyperCore is Hyperliquid's native L2 order book. HyperQuote uses it as a benchmark venue by simulating market orders against the live orderbook snapshot.
+
+## How It Works
+
+The HyperCore integration fetches the L2 orderbook from the Hyperliquid API via a server-side proxy (to avoid CORS), then walks the book to simulate execution at the requested size.
+
+### Token-to-Coin Mapping
+
+Each HyperEVM token must map to a Hyperliquid spot market identifier (coin name). Tokens without a mapping have no HyperCore market and return a `no_hl_market` failure.
+
+```ts
+const coin = tokenToHLCoin(token); // e.g. "PURR", "@107", or null
+```
+
+Stablecoins (USDC, USDH, USDT0, etc.) are treated as USD equivalents at $1.00 and do not require an orderbook lookup.
+
+## Orderbook Walk Simulation
+
+For each trade, the system walks the relevant side of the orderbook to compute a volume-weighted average price (VWAP).
+
+### Buy Simulation (Stable to Token)
+
+Walks the **ask** side. For each price level, calculates how many tokens the remaining USD budget can purchase. Accumulates tokens received until the budget is exhausted or the book runs out.
+
+### Sell Simulation (Token to Stable)
+
+Walks the **bid** side. For each price level, sells tokens at that price until the order is fully filled or the book is exhausted.
+
+### Two-Leg Synthetic (Token to Token)
+
+When both tokens have HL markets but neither is a stablecoin, the system chains two simulations:
+
+1. Sell `tokenIn` on its bid side to get USD
+2. Buy `tokenOut` on its ask side with the USD proceeds
+
+The combined slippage is the sum of both legs.
+
+## Adaptive Depth Ladder
+
+The Hyperliquid L2 API returns a fixed number of levels (typically 20). For large orders, 20 full-precision levels may not cover the entire order. The system uses an adaptive depth ladder that progressively aggregates levels:
+
+| Level | `nSigFigs` | Effect |
+|-------|------------|--------|
+| 1 | `undefined` | Full precision (best VWAP accuracy, ~20 raw levels) |
+| 2 | `3` | Moderate aggregation (each level covers a wider price range) |
+| 3 | `2` | Maximum aggregation (20 levels span much greater depth) |
+
+The system tries each aggregation level in order. If the order is fully filled at any level, it returns immediately. If it can only be partially filled, it tracks the best partial and continues to the next aggregation level.
+
+```ts
+const DEPTH_LADDER: (NSigFigs | undefined)[] = [undefined, 3, 2];
+
+for (const nSigFigs of DEPTH_LADDER) {
+  const ob = await fetchOrderbook(coin, nSigFigs);
+  const result = simulateMarketBuy(ob.asks, ob.bids, usdAmount);
+  if (result?.isFull) return { full: true, estimate: ... };
+  // Track best partial and try next aggregation level
+}
+```
+
+## Partial Fill Detection
+
+When the orderbook cannot fully satisfy the requested size at any aggregation level, the system returns a `PartialFillInfo` object describing how much was fillable:
+
+```ts
+interface PartialFillInfo {
+  filledPct: number;      // 0.0-1.0
+  filledTokens: number;   // tokens received (buy) or USD received (sell)
+  filledUsd: number;      // USD spent (buy) or tokens sold (sell)
+  avgPrice: number;       // VWAP
+  slippagePct: number;    // vs mid-price
+  midPrice: number;       // reference mid
+}
+```
+
+<Callout type="warning">
+Partial fill results show the best achievable execution at the current market depth. The actual fill percentage may differ by the time a real order reaches the book.
+</Callout>
+
+## Slippage Calculation
+
+Slippage is computed relative to the orderbook mid-price:
+
+```
+midPrice = (bestBid + bestAsk) / 2
+```
+
+For buys: `slippage = (avgPrice - midPrice) / midPrice * 100`
+
+For sells: `slippage = (midPrice - avgPrice) / midPrice * 100`
+
+Slippage is always clamped to \>= 0%. A crossed orderbook (bestBid > bestAsk) can produce 0% slippage because the execution price genuinely beats the mid-price reference.
+
+## Failure Reasons
+
+| Reason | Meaning |
+|--------|---------|
+| `no_hl_market` | Token has no Hyperliquid spot market (no coin mapping) |
+| `transient_failure` | Network error or API timeout; retries exhausted |
+
+## Orderbook Caching
+
+Orderbook snapshots are cached for 2 seconds on the client side to prevent aggressive polling during rapid input changes. Each cache entry is keyed by `(coin, nSigFigs)` so different aggregation levels maintain independent caches.

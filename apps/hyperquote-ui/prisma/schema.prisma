@@ -1,0 +1,399 @@
+// ---------------------------------------------------------------------------
+// HyperQuote Smart Order Router — Database Schema
+// ---------------------------------------------------------------------------
+// Prisma ORM schema for protocol registry, pool discovery, state tracking,
+// and RFQ baseline/performance persistence.
+// Uses SQLite for local dev, Postgres for production.
+//
+// Tables:
+//   1. protocol_registry   — DefiLlama-sourced protocol universe
+//   2. protocol_connectors  — Per-protocol discovery configuration
+//   3. tokens               — Token metadata with routing eligibility
+//   4. pools                — Discovered AMM pools across all protocols
+//   5. pool_state_snapshots — Historical pool state at specific blocks
+//   6. rfq_baselines        — Captured AMM baseline at RFQ submission time
+//   7. rfq_performance      — Maker quote vs baseline performance records
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  // For production Postgres, change to:
+  // provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums — SQLite doesn't support native enums, so Prisma maps these to strings.
+// When migrating to Postgres, these become real enum types.
+// ---------------------------------------------------------------------------
+
+// Note: SQLite does not support Prisma enums natively.
+// We use String fields with documented allowed values instead.
+// When migrating to Postgres, convert these to proper enums.
+
+// ---------------------------------------------------------------------------
+// 1. Protocol Registry
+// ---------------------------------------------------------------------------
+// Source of truth for which DEX protocols exist on HyperEVM.
+// Populated by DefiLlama sync (Phase 2) + manual seed data.
+
+model ProtocolRegistry {
+  slug      String  @id
+  name      String
+  category  String                  // e.g. "Dexes", "Dex Aggregator"
+  // Allowed: AMM, CLOB, VAULT, AGGREGATOR, CUSTOM
+  // AMM = standard pool-based (V2/V3/Stable/CL)
+  // CLOB = central limit order book (e.g. Hyperliquid Spot Orderbook)
+  // VAULT = vault-based architecture (e.g. Balancer V3)
+  // AGGREGATOR = DEX aggregator (e.g. HyperBloom)
+  // CUSTOM = non-standard architecture requiring bespoke adapter
+  kind      String  @default("AMM")
+  chains    String  @default("[]")  // JSON array, e.g. [999]
+  tvlUsd    Float?  @map("tvl_usd")
+  vol24hUsd Float?  @map("vol_24h_usd")
+  // DefiLlama slug (may differ from our slug for merged protocols)
+  defillamaSlug String? @map("defillama_slug")
+  // Allowed: ACTIVE, INACTIVE, REMOVED
+  status    String  @default("ACTIVE")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  connector ProtocolConnector?
+  pools     Pool[]
+
+  @@index([kind])
+  @@index([status])
+  @@map("protocol_registry")
+}
+
+// ---------------------------------------------------------------------------
+// 2. Protocol Connectors
+// ---------------------------------------------------------------------------
+// Per-protocol configuration for pool discovery.
+// Each protocol has exactly one connector (1:1 with protocol_registry).
+
+model ProtocolConnector {
+  slug             String            @id
+  protocol         ProtocolRegistry  @relation(fields: [slug], references: [slug], onDelete: Cascade)
+  // Allowed: FACTORY_EVENTS, SUBGRAPH, MANUAL
+  discoveryMethod  String            @map("discovery_method")
+  factoryAddresses String @default("{}") @map("factory_addresses") // JSON, e.g. {"v2":"0x...","v3":"0x..."}
+  factoryAbiId     String            @map("factory_abi_id")       // e.g. "uniswap-v2-factory"
+  subgraphUrl      String?           @map("subgraph_url")
+  poolTypeHint     String? @map("pool_type_hint")                 // JSON, e.g. {"default":"V2"}
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("protocol_connectors")
+}
+
+// ---------------------------------------------------------------------------
+// 3. Tokens
+// ---------------------------------------------------------------------------
+// Token metadata. Seeded from CORE_TOKENS, extended by pool discovery.
+// is_intermediate_allowed controls whether this token can be used as a
+// bridge/hop in multi-hop routing.
+
+model Token {
+  address              String   @id                             // canonical LOWERCASE 0x address
+  symbol               String
+  decimals             Int
+  name                 String
+  isIntermediateAllowed Boolean  @default(false) @map("is_intermediate_allowed")
+  tags                 String   @default("[]")                  // JSON array, e.g. ["stable","core"]
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  poolsAsToken0 Pool[] @relation("PoolToken0")
+  poolsAsToken1 Pool[] @relation("PoolToken1")
+
+  @@map("tokens")
+}
+
+// ---------------------------------------------------------------------------
+// 4. Pools
+// ---------------------------------------------------------------------------
+// Discovered AMM pools across all protocols.
+// Populated by connector framework (Phase 3) via factory event scanning.
+
+model Pool {
+  poolId     String   @id @default(uuid()) @map("pool_id")
+  slug       String                                              // FK → protocol_registry.slug
+  protocol   ProtocolRegistry @relation(fields: [slug], references: [slug])
+  // Allowed: V2, V3, STABLE, CUSTOM
+  poolType   String   @map("pool_type")
+  address    String   @unique                                    // canonical LOWERCASE pool contract address
+  token0Addr String   @map("token0")
+  token0     Token    @relation("PoolToken0", fields: [token0Addr], references: [address])
+  token1Addr String   @map("token1")
+  token1     Token    @relation("PoolToken1", fields: [token1Addr], references: [address])
+  feeBps     Int?     @map("fee_bps")                            // fee in basis points
+  tickSpacing Int?    @map("tick_spacing")                       // V3/CLMM only
+  createdBlock BigInt? @map("created_block")                     // block pool was deployed
+  createdTx  String?  @map("created_tx")                         // deployment tx hash
+  // Allowed: ACTIVE, EMPTY, PAUSED, BROKEN, UNVERIFIED
+  status     String   @default("UNVERIFIED")
+  tvlUsd     Float?   @map("tvl_usd")
+  vol24hUsd  Float?   @map("vol_24h_usd")
+  lastStateBlock BigInt? @map("last_state_block")
+  lastStateAt DateTime? @map("last_state_at")
+
+  stateSnapshots PoolStateSnapshot[]
+
+  @@index([token0Addr, token1Addr])
+  @@index([slug])
+  @@map("pools")
+}
+
+// ---------------------------------------------------------------------------
+// 5. Pool State Snapshots
+// ---------------------------------------------------------------------------
+// Historical pool state at a specific block. Used for quote simulation.
+// state_json varies by pool type:
+//   V2:     { reserve0: string, reserve1: string }
+//   V3:     { sqrtPriceX96: string, liquidity: string, tick: number,
+//             tickSpacing: number, ticksWindow: [...] }
+//   STABLE: { balances: string[], amp: string, fee: string }
+
+model PoolStateSnapshot {
+  poolId      String   @map("pool_id")
+  pool        Pool     @relation(fields: [poolId], references: [poolId], onDelete: Cascade)
+  blockNumber BigInt   @map("block_number")
+  timestamp   DateTime
+  stateJson   String   @map("state_json")  // JSON string (SQLite doesn't have native JSON type)
+
+  @@id([poolId, blockNumber])
+  @@map("pool_state_snapshots")
+}
+
+// ---------------------------------------------------------------------------
+// 6. RFQ Baselines
+// ---------------------------------------------------------------------------
+// Captured AMM baseline quote at the moment of RFQ submission.
+// The baseline is the SOR quote displayed to the user, NOT re-fetched.
+// Used for tracking whether maker quotes beat the DEX baseline.
+
+model RfqBaseline {
+  id                      String   @id @default(uuid())
+  rfqId                   String   @unique @map("rfq_id")           // Client-generated RFQ ID
+  tokenIn                 String   @map("token_in")                 // Canonical lowercase address
+  tokenOut                String   @map("token_out")                // Canonical lowercase address
+  amountIn                String   @map("amount_in")                // Raw BigInt string
+  baselineAmountOut       String   @map("baseline_amount_out")      // Raw BigInt string
+  baselineEffectivePrice  Float    @map("baseline_effective_price")
+  baselinePriceImpactBps  Int      @map("baseline_price_impact_bps")
+  baselineBlockNumber     String   @map("baseline_block_number")    // Block the SOR quote was based on
+  baselineTimestamp       String   @map("baseline_timestamp")       // ISO timestamp from SOR meta
+  baselineRouteSummary    String   @map("baseline_route_summary")   // JSON: [{ protocol, poolType, fractionPct }]
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  performance RfqPerformance[]
+
+  @@index([tokenIn, tokenOut])
+  @@index([createdAt])
+  @@map("rfq_baselines")
+}
+
+// ---------------------------------------------------------------------------
+// 7. RFQ Performance
+// ---------------------------------------------------------------------------
+// Records how each maker quote compared to the AMM baseline.
+// Written when a maker quote is accepted (fill) or when the RFQ resolves.
+
+model RfqPerformance {
+  id                   String   @id @default(uuid())
+  rfqId                String   @map("rfq_id")
+  baseline             RfqBaseline @relation(fields: [rfqId], references: [rfqId], onDelete: Cascade)
+  makerId              String   @map("maker_id")                   // Maker wallet address (lowercase)
+  makerAmountOut       String   @map("maker_amount_out")           // Raw BigInt string
+  deltaVsBaselineAbs   String   @map("delta_vs_baseline_abs")      // Raw BigInt string (signed: positive = beat baseline)
+  deltaVsBaselinePct   Float    @map("delta_vs_baseline_pct")      // Percentage difference (positive = better)
+  won                  Boolean  @default(false)                     // True if this quote was filled
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@index([rfqId])
+  @@index([makerId])
+  @@index([won])
+  @@index([createdAt])
+  @@map("rfq_performance")
+}
+
+// ---------------------------------------------------------------------------
+// 8. Fills
+// ---------------------------------------------------------------------------
+// Records completed RFQ fills with computed points for maker/taker programs.
+// improvementBps measures how much better the RFQ execution was vs AMM baseline.
+
+model Fill {
+  id              String   @id @default(uuid())
+  txHash          String   @unique @map("tx_hash")
+  rfqId           String?  @map("rfq_id")
+  timestamp       DateTime @default(now())
+  taker           String                              // lowercase 0x address
+  maker           String                              // lowercase 0x address
+  tokenIn         String   @map("token_in")
+  tokenOut        String   @map("token_out")
+  amountIn        String   @map("amount_in")          // raw BigInt string
+  amountOut       String   @map("amount_out")         // raw BigInt string
+  amountInUsd     Float    @map("amount_in_usd")
+  baselineOut     String?  @map("baseline_out")       // raw BigInt string
+  improvementBps  Int      @map("improvement_bps")
+  takerPoints     Float    @map("taker_points")
+  makerPoints     Float    @map("maker_points")
+
+  @@index([taker])
+  @@index([maker])
+  @@index([timestamp])
+  @@map("fills")
+}
+
+// ---------------------------------------------------------------------------
+// 9. Feed RFQs
+// ---------------------------------------------------------------------------
+// Persistent record of public RFQs with lifecycle status tracking.
+// Bridges the volatile in-memory rfqRegistry with durable storage
+// so the /feed page survives server restarts.
+
+model FeedRfq {
+  id           String   @id                          // Client-generated RFQ UUID
+  taker        String                                // lowercase 0x address
+  tokenIn      String   @map("token_in")
+  tokenOut     String   @map("token_out")
+  tokenInJson  String   @map("token_in_json")        // Full Token object as JSON
+  tokenOutJson String   @map("token_out_json")        // Full Token object as JSON
+  kind         Int      @default(0)                   // QuoteKind: 0=EXACT_IN, 1=EXACT_OUT
+  amountIn     String?  @map("amount_in")             // raw BigInt string
+  amountOut    String?  @map("amount_out")            // raw BigInt string
+  expiry       Int                                    // unix seconds
+  // Allowed: OPEN, QUOTED, FILLED, EXPIRED, KILLED
+  status       String   @default("OPEN")
+  quoteCount   Int      @default(0) @map("quote_count")
+  visibility   String   @default("public")            // "public" | "private"
+  fillTxHash   String?  @map("fill_tx_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([taker])
+  @@index([expiry])
+  @@map("feed_rfqs")
+}
+
+// ---------------------------------------------------------------------------
+// 10. Feed Fills
+// ---------------------------------------------------------------------------
+// Append-only record of completed fills for league/points aggregation.
+// Persisted at fill time from /api/v1/fills. Separate from Fill model to
+// carry league-specific fields (visibility, benchmark info) without
+// mutating the existing fills table schema.
+
+model FeedFill {
+  id                String   @id @default(uuid())
+  rfqId             String?  @map("rfq_id")
+  txHash            String   @unique @map("tx_hash")
+  filledAt          DateTime @default(now()) @map("filled_at")
+  maker             String                                // lowercase 0x address
+  taker             String                                // lowercase 0x address
+  tokenIn           String   @map("token_in")
+  tokenOut          String   @map("token_out")
+  amountIn          String?  @map("amount_in")            // raw BigInt string
+  amountOut         String?  @map("amount_out")           // raw BigInt string
+  notionalUsd       Float?   @map("notional_usd")         // null if USD estimate unavailable
+  isPrivate         Boolean  @default(false) @map("is_private")
+  benchmarkSource   String?  @map("benchmark_source")     // e.g. "sor" or null
+  benchmarkOut      String?  @map("benchmark_out")        // raw BigInt string
+  improvementBps    Int?     @map("improvement_bps")      // null if no benchmark
+  benchmarkAvailable Boolean @default(false) @map("benchmark_available")
+
+  @@index([maker])
+  @@index([taker])
+  @@index([filledAt])
+  @@index([maker, taker])                                  // for pair-repeat queries
+  @@map("feed_fills")
+}
+
+// ---------------------------------------------------------------------------
+// 11. Agents
+// ---------------------------------------------------------------------------
+// Registered API agents (bots, scripts) that interact with HyperQuote
+// programmatically via the /api/v1/agent/* gateway.
+// API keys are stored as SHA-256 hashes; the raw key is shown once at
+// registration time (prefix `hq_live_...`).
+
+model Agent {
+  id                String   @id @default(uuid())
+  name              String                                  // Human-readable agent name
+  owner             String                                  // Owner wallet address (lowercase 0x)
+  wallet            String                                  // Agent signing wallet (lowercase 0x)
+  apiKeyHash        String   @unique @map("api_key_hash")   // SHA-256 of raw API key
+  apiKeyPrefix      String   @map("api_key_prefix")         // First 8 chars for identification
+  // Allowed: ACTIVE, SUSPENDED, REVOKED
+  status            String   @default("ACTIVE")
+  // JSON array of roles: ["taker"], ["maker"], ["monitor"], or combinations
+  roles             String   @default("[\"monitor\"]")
+  rateLimitPerMin   Int      @default(60) @map("rate_limit_per_min")
+  rateLimitPerHour  Int      @default(1000) @map("rate_limit_per_hour")
+  description       String?
+  webhookUrl        String?  @map("webhook_url")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  lastSeenAt        DateTime? @map("last_seen_at")
+
+  activityLogs    AgentActivityLog[]
+  alertPreference AlertPreference?
+
+  @@index([owner])
+  @@index([wallet])
+  @@index([status])
+  @@map("agents")
+}
+
+// ---------------------------------------------------------------------------
+// 12. Agent Activity Log
+// ---------------------------------------------------------------------------
+// Append-only audit trail of agent API actions.
+
+model AgentActivityLog {
+  id        String   @id @default(uuid())
+  agentId   String   @map("agent_id")
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  action    String                                          // e.g. "rfq.create", "quote.submit", "rfq.fill"
+  rfqId     String?  @map("rfq_id")
+  metadata  String   @default("{}") @map("metadata")       // JSON blob for extra context
+  ipAddress String?  @map("ip_address")
+  timestamp DateTime @default(now())
+
+  @@index([agentId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("agent_activity_logs")
+}
+
+// ---------------------------------------------------------------------------
+// 13. Alert Preferences
+// ---------------------------------------------------------------------------
+// Per-agent alert subscription preferences. Used by the alert-stream
+// WebSocket service to determine default filters when an agent connects.
+// JSON fields (tokens, eventTypes) stored as strings for SQLite compatibility.
+
+model AlertPreference {
+  id              String   @id @default(uuid())
+  agentId         String   @unique @map("agent_id")
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  enabled         Boolean  @default(true)
+  tokens          String   @default("[]")                              // JSON: lowercase 0x addresses; empty = all tokens
+  minNotionalUsd  Float    @default(0) @map("min_notional_usd")        // Minimum notional USD (deferred enforcement)
+  // Allowed: "all", "public", "private"
+  visibility      String   @default("all")
+  // Allowed: "all", "buy", "sell"
+  side            String   @default("all")
+  // JSON array of event types to receive; subset of ["rfq.created", "rfq.filled"]
+  eventTypes      String   @default("[\"rfq.created\",\"rfq.filled\"]") @map("event_types")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("alert_preferences")
+}

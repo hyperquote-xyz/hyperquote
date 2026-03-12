@@ -1,0 +1,214 @@
+/**
+ * HyperQuote Contract Configuration
+ * Contains ABI and contract address for the RFQ settlement contract
+ */
+
+// Spot RFQ contract address from environment
+export const RFQ_CONTRACT_ADDRESS = (process.env
+  .NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS || "0x0") as `0x${string}`;
+
+// NOTE: Signing uses raw hash from getQuoteHash() — no client-side EIP-712 domain/types needed.
+// The contract computes the EIP-712 typed data hash internally via _hashTypedDataV4.
+// Makers sign the raw bytes returned by getQuoteHash() using signMessage({ raw }).
+
+// Contract ABI (only the functions we need)
+export const RFQ_ABI = [
+  // View functions
+  {
+    inputs: [],
+    name: "DOMAIN_SEPARATOR",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "feePips",
+    outputs: [{ internalType: "uint32", name: "", type: "uint32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "feeRecipient",
+    outputs: [{ internalType: "address", name: "", type: "address" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "", type: "address" }],
+    name: "makerNonce",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    name: "quoteUsed",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "address", name: "", type: "address" }],
+    name: "tokenDenied",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          { internalType: "enum HyperEvmRfq.QuoteKind", name: "kind", type: "uint8" },
+          { internalType: "address", name: "maker", type: "address" },
+          { internalType: "address", name: "taker", type: "address" },
+          { internalType: "address", name: "tokenIn", type: "address" },
+          { internalType: "address", name: "tokenOut", type: "address" },
+          { internalType: "uint256", name: "amountIn", type: "uint256" },
+          { internalType: "uint256", name: "amountOut", type: "uint256" },
+          { internalType: "uint256", name: "expiry", type: "uint256" },
+          { internalType: "uint256", name: "nonce", type: "uint256" },
+        ],
+        internalType: "struct HyperEvmRfq.Quote",
+        name: "quote",
+        type: "tuple",
+      },
+    ],
+    name: "getQuoteHash",
+    outputs: [{ internalType: "bytes32", name: "", type: "bytes32" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  // Write functions
+  {
+    inputs: [
+      {
+        components: [
+          { internalType: "enum HyperEvmRfq.QuoteKind", name: "kind", type: "uint8" },
+          { internalType: "address", name: "maker", type: "address" },
+          { internalType: "address", name: "taker", type: "address" },
+          { internalType: "address", name: "tokenIn", type: "address" },
+          { internalType: "address", name: "tokenOut", type: "address" },
+          { internalType: "uint256", name: "amountIn", type: "uint256" },
+          { internalType: "uint256", name: "amountOut", type: "uint256" },
+          { internalType: "uint256", name: "expiry", type: "uint256" },
+          { internalType: "uint256", name: "nonce", type: "uint256" },
+        ],
+        internalType: "struct HyperEvmRfq.Quote",
+        name: "quote",
+        type: "tuple",
+      },
+      { internalType: "bytes", name: "makerSig", type: "bytes" },
+      { internalType: "uint256", name: "minOut", type: "uint256" },
+    ],
+    name: "fillExactIn",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          { internalType: "enum HyperEvmRfq.QuoteKind", name: "kind", type: "uint8" },
+          { internalType: "address", name: "maker", type: "address" },
+          { internalType: "address", name: "taker", type: "address" },
+          { internalType: "address", name: "tokenIn", type: "address" },
+          { internalType: "address", name: "tokenOut", type: "address" },
+          { internalType: "uint256", name: "amountIn", type: "uint256" },
+          { internalType: "uint256", name: "amountOut", type: "uint256" },
+          { internalType: "uint256", name: "expiry", type: "uint256" },
+          { internalType: "uint256", name: "nonce", type: "uint256" },
+        ],
+        internalType: "struct HyperEvmRfq.Quote",
+        name: "quote",
+        type: "tuple",
+      },
+      { internalType: "bytes", name: "makerSig", type: "bytes" },
+      { internalType: "uint256", name: "maxIn", type: "uint256" },
+    ],
+    name: "fillExactOut",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "cancelAllQuotes",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  // Events
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: "bytes32", name: "quoteHash", type: "bytes32" },
+      { indexed: true, internalType: "address", name: "maker", type: "address" },
+      { indexed: true, internalType: "address", name: "taker", type: "address" },
+      { indexed: false, internalType: "address", name: "tokenIn", type: "address" },
+      { indexed: false, internalType: "address", name: "tokenOut", type: "address" },
+      { indexed: false, internalType: "uint256", name: "amountIn", type: "uint256" },
+      { indexed: false, internalType: "uint256", name: "amountOut", type: "uint256" },
+      { indexed: false, internalType: "uint256", name: "feeAmountIn", type: "uint256" },
+    ],
+    name: "QuoteFilled",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: "address", name: "maker", type: "address" },
+      { indexed: false, internalType: "uint256", name: "newNonce", type: "uint256" },
+    ],
+    name: "MakerNonceIncremented",
+    type: "event",
+  },
+] as const;
+
+// ERC20 ABI (for approvals)
+export const ERC20_ABI = [
+  {
+    inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }],
+    name: "allowance",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }],
+    name: "approve",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "account", type: "address" }],
+    name: "balanceOf",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "decimals",
+    outputs: [{ name: "", type: "uint8" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "symbol",
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "name",
+    outputs: [{ name: "", type: "string" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;

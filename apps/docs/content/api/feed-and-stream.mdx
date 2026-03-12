@@ -1,0 +1,167 @@
+# Feed & Stream
+
+import { Callout, Tabs } from 'nextra/components'
+
+HyperQuote provides real-time event feeds via Server-Sent Events (SSE). These streams deliver RFQ activity, fills, and status updates as they happen.
+
+## Public Feed
+
+### `GET /api/v1/feed/stream`
+
+A public SSE endpoint that streams RFQ activity events. No authentication required.
+
+### Connection
+
+On connect, the server sends an initial **snapshot** containing the 100 most recent public RFQs from the database, then streams live events as they occur.
+
+<Tabs items={['Browser (EventSource)', 'Node.js']}>
+<Tabs.Tab>
+```ts
+const eventSource = new EventSource("https://hyperquote.xyz/api/v1/feed/stream");
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === "snapshot") {
+    // Initial state: array of recent FeedRfq records
+    console.log("Snapshot:", data.data.length, "RFQs");
+  } else {
+    // Live event
+    console.log("Event:", data.type, data);
+  }
+};
+
+eventSource.onerror = () => {
+  console.log("Connection lost, auto-reconnecting...");
+};
+```
+</Tabs.Tab>
+<Tabs.Tab>
+```ts
+import { EventSource } from "eventsource";
+
+const es = new EventSource("https://hyperquote.xyz/api/v1/feed/stream");
+
+es.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  handleFeedEvent(data);
+};
+```
+</Tabs.Tab>
+</Tabs>
+
+### Event Types
+
+| Event Type | Description | Payload |
+|------------|-------------|---------|
+| `snapshot` | Initial state on connection | Array of recent `FeedRfq` records |
+| `rfq.created` | A new RFQ was submitted | RFQ details (tokens, amounts, expiry) |
+| `rfq.quoted` | A quote was submitted for an RFQ | RFQ ID, quote count |
+| `rfq.filled` | An RFQ was filled (trade executed) | RFQ ID, tx hash, amounts |
+| `rfq.cancelled` | An RFQ was cancelled by the taker | RFQ ID |
+| `rfq.expired` | An RFQ expired without being filled | RFQ ID |
+
+### Event Format
+
+Each SSE message contains a JSON payload with a `type` field:
+
+```
+data: {"type":"rfq.created","rfqId":"f47ac10b...","taker":"0x7099...","tokenIn":{"symbol":"USDC"},"tokenOut":{"symbol":"WHYPE"},"amountIn":"1000000000","expiry":1710086430}
+
+data: {"type":"rfq.filled","rfqId":"f47ac10b...","txHash":"0xabc123...","maker":"0xAbCd...","taker":"0x7099..."}
+```
+
+### Keepalive
+
+The server sends a keepalive comment every **15 seconds** to prevent proxy timeouts:
+
+```
+: keep-alive
+```
+
+These are SSE comments (lines starting with `:`) and are automatically ignored by the `EventSource` API.
+
+## Agent Feed
+
+### `GET /api/v1/agent/feed/stream`
+
+An authenticated SSE endpoint with the same event format as the public feed. Provides events scoped to the agent's activity.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+The agent feed delivers the same event types as the public feed, filtered and enriched based on the agent's role.
+
+## WebSocket Relay (Options)
+
+For the options RFQ flow, real-time communication happens over the WebSocket relay rather than SSE. The relay broadcasts `RFQ_BROADCAST` and `QUOTE_BROADCAST` messages to all connected clients.
+
+See [Relay WebSocket Protocol](/api/relay-websocket-protocol) for the full protocol specification.
+
+## Subscribing to Specific Pairs
+
+The SSE feed does not support server-side filtering by token pair. To filter events client-side:
+
+```ts
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === "snapshot") {
+    // Filter snapshot to pairs you care about
+    const filtered = data.data.filter(
+      (rfq: any) =>
+        rfq.tokenIn?.symbol === "USDC" && rfq.tokenOut?.symbol === "WHYPE"
+    );
+    updateUI(filtered);
+    return;
+  }
+
+  // Filter live events
+  if (data.tokenIn?.symbol === "USDC" && data.tokenOut?.symbol === "WHYPE") {
+    handleEvent(data);
+  }
+};
+```
+
+## Reconnection Strategy
+
+<Callout type="info">
+  The browser's native `EventSource` API handles reconnection automatically. For server-side consumers, implement exponential backoff.
+</Callout>
+
+```ts
+function connectFeed(attempt = 0) {
+  const es = new EventSource("/api/v1/feed/stream");
+
+  es.onopen = () => {
+    console.log("Feed connected");
+    attempt = 0; // Reset on success
+  };
+
+  es.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    handleFeedEvent(data);
+  };
+
+  es.onerror = () => {
+    es.close();
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+    console.log(`Reconnecting in ${delay}ms...`);
+    setTimeout(() => connectFeed(attempt + 1), delay);
+  };
+}
+
+connectFeed();
+```
+
+## Response Headers
+
+The SSE stream uses the following headers to ensure proper behavior through proxies and CDNs:
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+The `X-Accel-Buffering: no` header disables nginx buffering, ensuring events are delivered immediately.

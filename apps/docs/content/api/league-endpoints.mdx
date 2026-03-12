@@ -1,0 +1,151 @@
+# League Endpoints
+
+import { Callout } from 'nextra/components'
+
+The League API provides access to the Liquidity League competitive ranking system. Unlike the points-based leaderboard, the league ranks participants by a composite performance score computed from volume, price improvement, and reliability.
+
+## Get League Standings
+
+### `GET /api/v1/league`
+
+Returns ranked league entries sourced from fill records. Performance metrics only -- no badge boosts or points are applied to league scores.
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `role` | `string` | `"maker"` | `"maker"` or `"taker"` |
+| `period` | `string` | `"7d"` | `"7d"`, `"30d"`, or `"all"` |
+| `minUsd` | `number` | `0` | Minimum notional USD filter |
+| `search` | `string` | -- | Address search (minimum 4 characters) |
+
+#### Response
+
+```json
+{
+  "role": "maker",
+  "period": "7d",
+  "minUsd": 0,
+  "entries": [
+    {
+      "rank": 1,
+      "address": "0xabcd1234...",
+      "score": 8542.50,
+      "rawScore": 8542.50,
+      "filledNotional": 2500000.00,
+      "avgImprovementBps": 150,
+      "privateShare": 0.35,
+      "fills": 85,
+      "reliability": 1.1,
+      "cancelRate": 0.0,
+      "boostMultiplier": 1.0,
+      "points": 0
+    },
+    {
+      "rank": 2,
+      "address": "0xefgh5678...",
+      "score": 6230.00,
+      "rawScore": 6230.00,
+      "filledNotional": 1800000.00,
+      "avgImprovementBps": 120,
+      "privateShare": 0.10,
+      "fills": 62,
+      "reliability": 1.05,
+      "cancelRate": 0.02,
+      "boostMultiplier": 1.0,
+      "points": 0
+    }
+  ],
+  "totalParticipants": 156,
+  "hasMore": false,
+  "kpi": {
+    "totalNotional": 8500000.00,
+    "avgImprovementBps": 135,
+    "privateVolumePct": 22.5,
+    "fillCount": 342
+  }
+}
+```
+
+#### Entry Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rank` | `number` | Position in the league |
+| `address` | `string` | Wallet address |
+| `score` | `number` | Composite league score (rounded to 2 decimals) |
+| `filledNotional` | `number` | Total filled notional USD |
+| `avgImprovementBps` | `number` | Average price improvement (basis points) |
+| `privateShare` | `number` | Fraction of fills that were private (0-1) |
+| `fills` | `number` | Number of filled trades |
+| `reliability` | `number or null` | Reliability factor (makers only, 0.5-1.1) |
+| `cancelRate` | `number or null` | Cancel/kill rate (makers only) |
+
+#### KPI Fields
+
+The `kpi` object contains aggregate metrics across all participants in the selected period:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalNotional` | `number` | Total USD volume across all fills |
+| `avgImprovementBps` | `number` | Average improvement for fills with benchmark data |
+| `privateVolumePct` | `number` | Percentage of fills that were private |
+| `fillCount` | `number` | Total number of fills |
+
+## Get League Activity
+
+### `GET /api/v1/league/activity`
+
+Returns recent fills for a specific address, used for the league detail drawer.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | `string` | Yes | Wallet address (`0x` + 40 hex, lowercased) |
+| `role` | `string` | No | `"maker"` (default) or `"taker"` |
+| `period` | `string` | No | `"7d"` (default), `"30d"`, or `"all"` |
+| `limit` | `number` | No | Results per page (default: 10, max: 50) |
+
+#### Response
+
+```json
+{
+  "address": "0xabcd1234...",
+  "role": "maker",
+  "period": "7d",
+  "fills": [
+    {
+      "txHash": "0xabc123...",
+      "filledAt": "2026-03-10T16:00:12.000Z",
+      "counterparty": "0x70997970...",
+      "tokenIn": "0xb88339cb...",
+      "tokenOut": "0x55555555...",
+      "amountIn": "1000000000",
+      "amountOut": "50000000000000000000",
+      "notionalUsd": 1000.0,
+      "isPrivate": false,
+      "improvementBps": 150,
+      "benchmarkAvailable": true
+    }
+  ]
+}
+```
+
+<Callout type="info">
+  League scores and points use different formulas. The league emphasizes recent competitive performance, while points reward long-term cumulative contribution. See [League Overview](/league/league-overview) for details on the scoring model.
+</Callout>
+
+## Scoring Factors
+
+### Maker Scoring
+
+Maker league score is computed from:
+- **Filled notional volume** -- Total USD value of trades
+- **Price improvement** -- How much better the fill was vs. baseline
+- **Reliability factor** -- Penalizes frequent cancellations (`clamp(1.1 - cancelRate * 1.5, 0.5, 1.1)`)
+- **Privacy contribution** -- Bonus for private RFQ routing
+
+### Taker Scoring
+
+Taker league score uses a similar formula but without the reliability factor.

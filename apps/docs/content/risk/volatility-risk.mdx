@@ -1,0 +1,70 @@
+# Volatility Risk
+
+import { Callout } from 'nextra/components'
+
+Market volatility affects all participants in the HyperQuote protocol. Rapid price movements can impact quote quality, settlement outcomes, options exposure, and maker behavior. Understanding how volatility propagates through the protocol helps participants manage their risk.
+
+## Price Movement Between Quote and Execution
+
+From the moment a maker generates a quote to the moment the taker submits the settlement transaction, the market price of the traded tokens may move. This creates mark-to-market risk:
+
+- **Taker perspective** -- If the price moves against the taker during the quote TTL, the RFQ quote may become worse than alternative venues. The taker should re-check the venue comparison before executing.
+- **Maker perspective** -- If the price moves against the maker during the quote TTL, the fill becomes unprofitable. The maker accepted this risk by setting the TTL duration and pricing the spread accordingly.
+
+The longer the quote TTL, the more price movement risk both parties are exposed to. This is why makers typically offer tighter spreads on shorter-TTL quotes.
+
+## Options Exposure
+
+Options positions are inherently sensitive to volatility:
+
+### Delta Risk
+Each option has a delta that describes its sensitivity to the underlying price. A covered call sold at a 25 strike when HYPE is at $22 has a delta that increases as HYPE rises toward $25. Makers (option buyers in V1) who accumulate directional exposure through multiple fills need to manage their aggregate delta.
+
+### Implied Volatility Changes
+The premium of an option depends on implied volatility (IV). Between the time a maker prices a quote and the time the option expires, IV can change significantly. Rising IV increases option value (beneficial for the buyer/maker in V1), while falling IV decreases it.
+
+### Gamma Risk Near Expiry
+As options approach expiry, gamma (the rate of change of delta) increases for near-ATM options. This means small price movements can cause large swings in option value, making pricing and hedging more difficult.
+
+<Callout type="warning">
+  Options trading on HyperQuote carries significant volatility risk. The combination of delta, gamma, and IV exposure means that options positions can gain or lose value rapidly during volatile markets. Participants should only trade options if they understand these dynamics.
+</Callout>
+
+## Maker Withdrawal During Volatility
+
+Makers are not obligated to provide quotes. During periods of extreme volatility, makers commonly:
+
+1. **Widen spreads** -- Quote with larger margins to compensate for pricing uncertainty.
+2. **Reduce quoting frequency** -- Respond to fewer RFQs, skipping those in volatile pairs.
+3. **Stop quoting entirely** -- Disconnect from the relay until conditions stabilize.
+4. **Cancel outstanding quotes** -- Increment their on-chain nonce to invalidate all outstanding quotes.
+
+From the taker's perspective, this manifests as fewer available quotes, wider spreads, or no quotes at all during volatile periods. This is a feature of the RFQ model -- makers can manage their risk in real-time by adjusting their quoting behavior.
+
+## Impact on Venue Comparison
+
+During high volatility, the venue comparison becomes less reliable:
+
+- AMM prices update with every block but may reflect stale oracle data.
+- HyperCore order book depth may thin as market makers pull orders.
+- RFQ quotes from makers may be wider or unavailable.
+- The comparison snapshot may be outdated by the time the taker clicks "execute."
+
+## Mitigation Strategies
+
+### For Takers
+1. **Act quickly** -- During volatile markets, execute quotes promptly. Delays increase the risk of quotes expiring or becoming uncompetitive.
+2. **Use limit awareness** -- Compare the quoted price against your own price target. Do not rely solely on the venue comparison during fast-moving markets.
+3. **Reduce position size** -- Smaller trades are more likely to receive quotes from risk-constrained makers during volatile periods.
+
+### For Makers
+1. **Adjust spreads dynamically** -- Widen spreads proportionally to realized or implied volatility.
+2. **Use short TTLs** -- Shorter quote deadlines reduce the time window for adverse price movement.
+3. **Monitor risk limits** -- Use the SDK's delta bucketing and notional tracking to stay within acceptable exposure.
+4. **Disconnect when necessary** -- If market conditions exceed your risk tolerance, stop quoting until you can reprice.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Quote Expiry Risk](/risk/quote-expiry-risk) -- Quote timing risks
+- [Liquidity Risk](/risk/liquidity-risk) -- Quote availability during stress

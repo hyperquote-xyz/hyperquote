@@ -1,0 +1,20 @@
+{
+  "source": "ht.xyz",
+  "outputAmount": "47750000000000000000",
+  "route": [
+    {
+      "dex": "KittenSwap",
+      "portion": 0.65,
+      "poolAddress": "0x2e08f5ff603e4343864b14599caedb19918bdcaf",
+      "fee": 3000
+    },
+    {
+      "dex": "HyperSwap",
+      "portion": 0.35,
+      "poolAddress": "0xb1c0fa0b789320044a6f623cfe5ebda9562602e3",
+      "fee": 3000
+    }
+  ],
+  "computeTimeMs": 342,
+  "error": null
+}

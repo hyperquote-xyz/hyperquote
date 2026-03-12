@@ -1,0 +1,70 @@
+# League Overview
+
+import { Callout } from 'nextra/components'
+
+The HyperQuote Liquidity League is a competitive ranking system that scores and ranks protocol participants based on the quality, size, and consistency of their trading activity. While the points program measures cumulative contribution over time, the league provides a rolling competitive framework with time-bounded ranking periods.
+
+## What Is the Liquidity League?
+
+The Liquidity League ranks makers and takers separately using scoring formulas that account for:
+
+- **Filled notional volume** -- The total USD value of trades settled on-chain.
+- **Price improvement** -- How much better the RFQ execution was compared to alternative venues.
+- **Reliability** (makers only) -- A maker's quoting consistency, penalizing frequent cancellations.
+- **Privacy contribution** -- Whether the participant engaged in private RFQ routing for large trades.
+
+Each participant receives a league score that combines these factors into a single number, which determines their rank within each time period.
+
+## How the League Differs from Points
+
+| Dimension | Points | League |
+|-----------|--------|--------|
+| **Purpose** | Cumulative reward for all-time activity | Competitive ranking within time windows |
+| **Time horizon** | All-time, never decays | Rolling windows (7d, 30d, all-time) |
+| **NFT boosts** | Applied to point awards | Not applied to league scores |
+| **Pair-repeat decay** | Applied per fill | Not directly applied (volume is volume) |
+| **Reliability factor** | Not directly used | Used in maker scoring |
+| **Output** | Point balance per address | Rank position per period |
+
+<Callout type="info">
+  Points and league scores are computed from the same underlying fill data but use different formulas. A high point earner is not necessarily the top league participant, and vice versa. The league emphasizes recent competitive performance, while points reward long-term cumulative contribution.
+</Callout>
+
+## Ranking Periods
+
+The league maintains three concurrent ranking periods:
+
+| Period | Window | Use Case |
+|--------|--------|----------|
+| **7-day rolling** | Last 7 calendar days | Short-term competitive ranking |
+| **30-day rolling** | Last 30 calendar days | Medium-term performance tracking |
+| **All-time** | Since protocol launch | Lifetime leaderboard |
+
+Each period has its own independent ranking. A maker could be #1 in the 7-day period but #15 in the all-time ranking. See [Ranking Periods](/league/ranking-periods) for details on aggregation and refresh timing.
+
+## Minimum Size Filters
+
+To maintain meaningful rankings, the league applies minimum notional thresholds. Participants whose total filled volume in a given period falls below the minimum are excluded from the ranking for that period.
+
+This prevents the leaderboard from being cluttered with accounts that have made only one or two small trades. The thresholds are set low enough that any actively participating maker or taker will exceed them.
+
+## Separate Maker and Taker Rankings
+
+Makers and takers are ranked on separate leaderboards because their scoring formulas differ:
+
+- **Maker scoring** includes a reliability factor based on quoting behavior (see [Maker Scoring](/league/maker-scoring)).
+- **Taker scoring** uses a slightly different improvement scaling (see [Taker Scoring](/league/taker-scoring)).
+
+An address that acts as both a maker and a taker will appear on both leaderboards with independent scores.
+
+## Activity Feed
+
+Each participant's league profile includes an activity feed showing their recent fills, scores, and ranking changes. The activity feed is also available via API for programmatic access. See [Activity Feed](/league/league-activity-feed).
+
+## Related Pages
+
+- [Maker Scoring](/league/maker-scoring) -- Maker league score formula
+- [Taker Scoring](/league/taker-scoring) -- Taker league score formula
+- [Ranking Periods](/league/ranking-periods) -- Time window details
+- [Activity Feed](/league/league-activity-feed) -- Recent fill history and API
+- [Points Overview](/points/points-overview) -- The separate points program

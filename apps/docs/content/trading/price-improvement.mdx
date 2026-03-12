@@ -1,0 +1,112 @@
+# Price Improvement
+
+import { Callout } from 'nextra/components'
+
+Price improvement measures how much better an RFQ quote is compared to the best available alternative venue. It is the core value proposition of the RFQ model -- by soliciting competing quotes from professional market makers, takers can achieve better execution than passive AMMs or order books, especially on larger trades.
+
+## Formula
+
+Price improvement is calculated by comparing the RFQ output against the best venue output:
+
+```
+improvement = (rfqAmountOut - bestVenueAmountOut) / bestVenueAmountOut
+```
+
+The result is expressed as a percentage or in **basis points** (bps), where 1 bps = 0.01%.
+
+```
+improvementBps = improvement * 10_000
+```
+
+**Example**: If the best venue offers 9,950 USDC output and the RFQ quote offers 9,965 USDC:
+
+```
+improvement = (9965 - 9950) / 9950 = 0.001507...
+improvementBps = 15.07 bps
+```
+
+This means the RFQ delivered 15.07 basis points of price improvement over the best alternative.
+
+<Callout>
+  Positive improvement means the RFQ is better. Negative improvement means a venue would have given you more output -- in this case, the UI will still display the venue results so you can make an informed decision.
+</Callout>
+
+## Where Improvement Is Displayed
+
+### Quote Cards
+
+Each quote card includes a **vs AMM Baseline** comparison row showing the percentage difference between the quote's output and the best AMM estimate. A green `+X.XX%` with an upward trend icon indicates the quote beats the AMM; a grey value indicates it does not.
+
+### Savings Banner
+
+In the Venue Comparison panel, when the best RFQ quote exceeds all venue outputs, a green callout displays the absolute token savings and percentage improvement:
+
+> +15.23 USDC saved with RFQ vs HyperCore Spot (0.15% better execution)
+
+The denominator for this percentage is the best venue output, making the number directly interpretable as "how much extra you got by using the RFQ."
+
+### Execution Success Screen
+
+After a successful fill, the execution panel shows a price improvement callout if the RFQ beat the best venue:
+
+> +12.5 bps better than best venue
+
+This appears in a green badge within the success overlay, giving you confirmation that the RFQ delivered real value.
+
+## Mid-Price Benchmark
+
+In addition to venue-vs-venue comparison, every quote is benchmarked against the **universal mid-price** derived from the HyperCore L2 orderbook. This provides a venue-neutral reference:
+
+```
+referenceOut = amountIn * (midPriceIn / midPriceOut)
+```
+
+The **vs Mid-Price** row on each quote card shows how much slippage you are taking relative to this theoretical zero-impact price. Lower numbers are better.
+
+This mid-price benchmark ensures that slippage numbers across all venues (HyperCore, DEX, RFQ) are computed against the same reference and are directly comparable.
+
+## How Improvement Feeds Into Points
+
+The points engine uses price improvement to compute a **continuous improvement multiplier** that scales the points earned on each fill:
+
+```
+multiplier = 1 + clamp(improvementBps, -20, +50) / 100
+```
+
+This produces a range of 0.80x to 1.50x (clamped to 0.80x - 1.60x after final bounds check):
+
+| Improvement (bps) | Multiplier |
+|-------------------|------------|
+| -20 or worse | 0.80x |
+| 0 (equal to venue) | 1.00x |
+| +10 | 1.10x |
+| +25 | 1.25x |
+| +50 or better | 1.50x |
+
+Fills where the benchmark is unavailable (e.g. the venue comparison could not reach any venue) receive a penalty multiplier of **0.90x** instead of 1.00x, to discourage gaming by intentionally trading in conditions where benchmarks cannot be computed.
+
+<Callout type="info">
+  The improvement multiplier stacks with other multipliers (privacy, repeat decay, NFT boost) to produce the final points earned per fill. See the [Points](/points) section for the complete formula.
+</Callout>
+
+## Interpretation Guidelines
+
+| Improvement Range | Interpretation |
+|-------------------|----------------|
+| > +20 bps | Excellent -- significant savings over venues |
+| +5 to +20 bps | Good -- RFQ is clearly winning |
+| 0 to +5 bps | Marginal -- RFQ is competitive but close |
+| -5 to 0 bps | Neutral -- venues are slightly better at this size |
+| < -5 bps | Consider using a venue directly for this trade |
+
+For large trades ($100k+), even small basis point improvements translate to meaningful absolute savings. A 10 bps improvement on a $500k trade saves $50.
+
+## Partial Fill Considerations
+
+When a venue can only partially fill the requested size, the comparison adjusts:
+
+- The venue's output is scaled to the filled portion only.
+- The RFQ's full output is compared against the venue's partial output, which would naturally favour the RFQ.
+- The UI displays a "Partial (XX.X%)" badge on the venue result so you can see the fill rate.
+
+This ensures that partial fill results do not artificially inflate the improvement number. The savings callout still reflects the real-world advantage of being able to get a full fill via the RFQ.

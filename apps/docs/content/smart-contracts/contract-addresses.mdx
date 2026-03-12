@@ -1,0 +1,111 @@
+# Contract Addresses
+
+import { Callout } from 'nextra/components'
+
+All HyperQuote contracts are deployed on HyperEVM mainnet (chain ID 999). This page lists the official verified addresses. Testnet deployments are not currently available.
+
+<Callout type="error">
+  **Verify you are using official HyperQuote resources.** Only interact with the contract addresses listed on this page. Cross-reference against the [Official Links](/links/official-links) page and the HyperQuote app before approving any token transfers.
+</Callout>
+
+## Who This Is For
+
+- **Developers** integrating with HyperQuote contracts directly.
+- **Makers** configuring their SDK or bot to point at the correct settlement contract.
+- **Security researchers** reviewing on-chain code and verifying deployments.
+- **Anyone** who needs to verify a contract address before approving token transfers.
+
+## HyperEVM Mainnet
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **SpotRFQ** | TBD | Atomic spot token swap settlement — verifies EIP-712 signatures, enforces nonces, executes bilateral token transfers |
+
+<Callout type="warning">
+Always verify contract addresses against this page or the HyperQuote app before interacting with them. Do not trust addresses from unofficial sources.
+</Callout>
+
+Once deployed, contract source code can be verified on the block explorer at [hyperscan.xyz](https://hyperscan.xyz):
+
+```
+https://hyperscan.xyz/address/<contract-address>
+```
+
+## Chain Information
+
+| Property | Value |
+|----------|-------|
+| **Network** | HyperEVM Mainnet |
+| **Chain ID** | 999 |
+| **RPC URL** | `https://rpc.hyperliquid.xyz/evm` |
+| **Block Explorer** | [https://hyperscan.xyz](https://hyperscan.xyz) |
+
+## Key Token Addresses
+
+### Stablecoins
+
+| Token | Symbol | Decimals | Address |
+|-------|--------|----------|---------|
+| USD Coin | USDC | 6 | [`0xb88339cb7199b77e23db6e890353e22632ba630f`](https://hyperscan.xyz/address/0xb88339cb7199b77e23db6e890353e22632ba630f) |
+| Tether USD | USDT0 | 6 | [`0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb`](https://hyperscan.xyz/address/0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb) |
+| Hyperliquid USD | USDH | 18 | See [Supported Tokens](/introduction/supported-tokens) |
+
+### Wrapped HYPE
+
+| Token | Symbol | Decimals | Address |
+|-------|--------|----------|---------|
+| Wrapped HYPE | wHYPE | 18 | [`0x5555555555555555555555555555555555555555`](https://hyperscan.xyz/address/0x5555555555555555555555555555555555555555) |
+
+Native HYPE is automatically wrapped to wHYPE for on-chain settlement. See [Supported Tokens](/introduction/supported-tokens) for the full core token registry.
+
+## EIP-712 Domain Parameters
+
+When constructing EIP-712 signatures for the SpotRFQ contract, use these domain parameters:
+
+```ts
+const domain = {
+  name: "HyperQuote",
+  version: "1",
+  chainId: 999,
+  verifyingContract: SPOT_RFQ_CONTRACT_ADDRESS,
+};
+```
+
+The `verifyingContract` field must match the deployed SpotRFQ address listed above. Signatures constructed with a mismatched domain will be rejected by the contract.
+
+## Adding the Network to Your Wallet
+
+| Parameter | Value |
+|-----------|-------|
+| Network Name | HyperEVM |
+| RPC URL | `https://rpc.hyperliquid.xyz/evm` |
+| Chain ID | `999` |
+| Currency Symbol | `HYPE` |
+| Block Explorer | `https://hyperscan.xyz` |
+
+## Local Development
+
+For local development with Foundry, the default contract address used by the HyperQuote build system is:
+
+```
+0x5FbDB2315678afecb367f032d93F642f64180aa3
+```
+
+This is the standard first-deployed address on a fresh Anvil instance. Set it via the `NEXT_PUBLIC_RFQ_CONTRACT_ADDRESS` environment variable.
+
+## Edge Cases
+
+| Scenario | What happens |
+|----------|-------------|
+| Using the wrong `verifyingContract` in EIP-712 | The contract rejects the signature. The fill transaction reverts. |
+| Interacting with an unverified contract address | Potential loss of funds. Always cross-reference addresses with this page. |
+| Approving tokens to the wrong contract | Tokens could be stolen by a malicious contract. Only approve the official SpotRFQ address. |
+| Contract address changes after redeployment | The old contract remains immutable. Check this page for the current canonical address. |
+
+## Related Pages
+
+- [SpotRFQ Contract](/smart-contracts/spot-rfq-contract) — Function signatures, events, and settlement flow
+- [Supported Tokens](/introduction/supported-tokens) — Full token registry with addresses
+- [Security Model](/smart-contracts/security-model) — Audit status and security architecture
+- [Official Links](/links/official-links) — All official URLs, socials, and scam prevention guidance
+- [API Overview](/api/api-overview) — Programmatic access to RFQ endpoints

@@ -1,0 +1,143 @@
+# Settlement & Expiry
+
+import { Callout } from 'nextra/components'
+
+After a position's expiry timestamp passes, it enters the post-expiry phase where it must be either **settled** (if in-the-money) or **expired** (if out-of-the-money). Both actions are permissionless and executed by keepers who receive a fee for their service.
+
+## Post-Expiry Timeline
+
+```
+Position Created ─────── Expiry (08:00 UTC) ─── +24h Settlement Window ───────>
+                              │                          │
+                              │  settle() available      │  expirePosition()
+                              │  (ITM only, oracle       │  available (OTM only,
+                              │   price required)        │   oracle price required)
+                              │                          │
+```
+
+- **At expiry:** The position becomes eligible for settlement if the oracle has published a price and the option is ITM.
+- **After settlement window (expiry + 24 hours):** OTM positions can be expired, returning collateral to the seller.
+
+<Callout type="info">
+ITM settlement has no upper time bound. An ITM position can be settled at any time after expiry as long as the oracle price is available. The 24-hour window only gates when OTM positions can be expired.
+</Callout>
+
+## Settlement (ITM Positions)
+
+The `settle(positionId)` function handles in-the-money physical delivery. Anyone can call it (keeper model).
+
+### Prerequisites
+
+1. Position state must be `Active`.
+2. `block.timestamp >= pos.expiry` (expiry has passed).
+3. Oracle has a published settlement price for the underlying/expiry pair.
+4. The option is ITM:
+   - **Covered Call:** settlement price > strike (`S > K`)
+   - **Cash-Secured Put:** settlement price < strike (`S < K`)
+
+### Covered Call Settlement
+
+When a covered call is settled ITM:
+
+1. **Buyer delivers stablecoin:** `callSettlementCost(strike, quantity, uDec, cDec)` worth of collateral token, transferred from buyer to the contract.
+2. **Seller receives stablecoin:** The gross stablecoin amount minus the keeper fee.
+3. **Buyer receives underlying:** The full `collateralLocked` amount of wHYPE from the contract.
+4. **Keeper receives fee:** Deducted from the stablecoin payment before it reaches the seller.
+
+### Cash-Secured Put Settlement
+
+When a CSP is settled ITM:
+
+1. **Buyer delivers underlying:** `quantity` worth of wHYPE, transferred from buyer directly to seller.
+2. **Buyer receives stablecoin:** The locked collateral minus the keeper fee.
+3. **Keeper receives fee:** Deducted from the locked collateral before it reaches the buyer.
+
+### State Transition
+
+After settlement:
+- Position state changes to `Settled`.
+- The ERC-721 NFT is burned.
+- A `PositionSettled` event is emitted with the settlement price, amounts transferred, and settler address.
+
+## Expiry (OTM Positions)
+
+The `expirePosition(positionId)` function releases collateral for positions that expired out-of-the-money.
+
+### Prerequisites
+
+1. Position state must be `Active`.
+2. `block.timestamp > pos.expiry + SETTLEMENT_WINDOW` (24-hour window has closed).
+3. Oracle has a published settlement price.
+4. The option is OTM or ATM:
+   - **Covered Call:** settlement price \<= strike (`S <= K`)
+   - **Cash-Secured Put:** settlement price \>= strike (`S >= K`)
+
+<Callout type="warning">
+ITM positions can **never** be expired. They must be settled via the `settle` function. If a keeper tries to call `expirePosition` on an ITM position, the transaction reverts with `PositionNotOTM()`.
+</Callout>
+
+### Collateral Return
+
+- **Covered Call OTM:** The locked underlying (wHYPE) is returned to the seller.
+- **Cash-Secured Put OTM:** The locked stablecoin is returned to the seller.
+
+No keeper fee is charged for OTM expiry. The seller already collected the premium at execution time, and the full collateral is returned.
+
+### State Transition
+
+After expiry:
+- Position state changes to `Expired`.
+- The ERC-721 NFT is burned.
+- A `PositionExpired` event is emitted with the collateral amount returned and the seller address.
+
+## Keeper Fee
+
+Keepers who call `settle` receive a fee as incentive. The fee is computed as:
+
+```
+fee = ceilDiv(notional * keeperBps, 10_000)
+```
+
+Where:
+- `notional` = `strike * quantity` converted to collateral token units (same formula as `putCollateralRequired`)
+- `keeperBps` = configurable basis points (default: 10 bps = 0.10%)
+
+The fee is subject to two caps:
+
+1. **Max keeper fee per collateral token:** A configurable hard cap (e.g., 50 USDC) set by the contract owner via `setMaxKeeperFee`.
+2. **Available funds cap:** The fee cannot exceed the actual stablecoin available in the settlement flow.
+
+| Parameter | Value |
+|---|---|
+| `keeperBps` (default) | 10 bps (0.10%) |
+| `MAX_KEEPER_BPS` | 50 bps (0.50%) |
+| Max keeper fee cap | 50 units of collateral token |
+
+The fee is paid in the position's collateral token:
+- **Covered Call:** Deducted from the stablecoin payment the buyer delivers.
+- **Cash-Secured Put:** Deducted from the locked stablecoin collateral.
+
+## Position State Machine
+
+```
+            execute()
+  (none) ──────────────> Active
+                            │
+                   ┌────────┴────────┐
+                   │                 │
+              settle()          expirePosition()
+              (ITM)               (OTM)
+                   │                 │
+                   v                 v
+               Settled           Expired
+                   │                 │
+               burn NFT          burn NFT
+```
+
+Each position transitions exactly once from `Active` to either `Settled` or `Expired`. Both terminal states are irreversible, and the NFT is burned in both cases.
+
+## Oracle Dependency
+
+Both `settle` and `expirePosition` require an oracle price to determine moneyness. If the settlement oracle has not published a price for the given underlying/expiry pair, both functions revert with `OraclePriceNotAvailable()`.
+
+See the [Settlement Oracle](/options/settlement-oracle) page for details on how prices are published via the commit-reveal mechanism.

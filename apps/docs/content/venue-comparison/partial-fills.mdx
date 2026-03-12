@@ -1,0 +1,123 @@
+# Partial Fills
+
+import { Callout } from 'nextra/components'
+
+When a venue cannot fully satisfy the requested trade size, HyperQuote reports a partial fill rather than a simple failure. This gives takers visibility into how much liquidity is actually available.
+
+## When Partial Fills Occur
+
+Partial fills are detected in two venues:
+
+- **HyperCore Spot** -- The orderbook walk exhausts all available levels before filling the full amount. Detected automatically during the adaptive depth simulation.
+- **HyperEVM DEX** -- A binary search determines the largest amount HT.xyz can route successfully.
+
+## HyperCore Partial Fill Detection
+
+During the orderbook walk simulation, the system tracks how much of the order was filled before running out of levels:
+
+```ts
+for (const level of asks) {
+  if (levelUsd >= usdRemaining) {
+    tokensReceived += usdRemaining / level.price;
+    usdRemaining = 0;
+    break;
+  }
+  tokensReceived += level.size;
+  usdRemaining -= levelUsd;
+}
+
+const filledPct = usdFilled / usdAmount;
+const isFull = usdRemaining === 0;
+```
+
+If `isFull` is false after trying all three aggregation levels in the depth ladder, the system returns the best partial result seen across all levels.
+
+## DEX Binary Search Algorithm
+
+For the HyperEVM DEX venue, partial fills are found using a binary search when:
+
+1. The full-amount direct quote returned null
+2. Multi-hop routing also returned null
+3. The trade size exceeds $25,000 USD (below this threshold, binary search is skipped to avoid unnecessary API calls)
+
+The search runs up to 6 iterations to find the largest fillable amount:
+
+```ts
+const HTXYZ_MIN_SEARCH_USD = 25_000;
+const HTXYZ_SEARCH_MAX_ITERS = 6;
+
+let lo = 0n;
+let hi = originalAmountIn;
+let lastSuccess = null;
+
+for (let i = 0; i < HTXYZ_SEARCH_MAX_ITERS; i++) {
+  if (signal?.aborted) break;
+
+  const mid = (lo + hi) / 2n;
+  if (mid <= 0n) break;
+
+  const result = await fetchHtxyzQuote(tokenIn, tokenOut, mid, signal);
+  if (result) {
+    lastSuccess = { amountIn: mid, estimate: result };
+    lo = mid;  // search higher
+  } else {
+    hi = mid;  // search lower
+  }
+
+  // Converged -- less than 1% gap
+  if (hi - lo < originalAmountIn / 100n) break;
+}
+```
+
+The binary search converges when the gap between `lo` and `hi` is less than 1% of the original amount, or after 6 iterations, whichever comes first.
+
+<Callout type="info">
+The $25k threshold prevents binary search from running on small trades where partial fill information is less useful and the additional API calls would add latency.
+</Callout>
+
+## VenuePartial Result Type
+
+Partial fill results use the `VenuePartial` type:
+
+```ts
+interface VenuePartial {
+  ok: "partial";
+  filledPct: number;           // 0.0-1.0 fraction filled
+  filledIn: bigint;            // amount of tokenIn consumed
+  filledOut: bigint;           // amount of tokenOut received
+  remainingIn: bigint;         // unfilled tokenIn
+  avgPrice: number;            // VWAP for the filled portion
+  slippagePct: number;         // slippage for the filled portion
+  slippageVsMid: number | null;
+  routeLabel: string;
+  reason: "insufficient_liquidity";
+}
+```
+
+The `reason` field is always `"insufficient_liquidity"` for partial fills, distinguishing them from other failure modes.
+
+## Slippage for Partial Fills
+
+When computing slippage vs the mid-price benchmark for a partial fill, the mid-price reference is scaled to the filled portion:
+
+```ts
+const scaledRef = midRef.referenceOut > 0n
+  ? BigInt(Math.round(Number(midRef.referenceOut) * partial.filledPct))
+  : 0n;
+const slippageVsMid = scaledRef > 0n && filledOut > 0n
+  ? impactExactIn(scaledRef, filledOut)
+  : null;
+```
+
+This prevents comparing a partial output against the full reference, which would massively overstate the actual slippage.
+
+## UI Display
+
+The UI displays partial fill results with:
+
+- A percentage indicator showing how much of the order can be filled (e.g. "Partial fill: 73.4% of requested size")
+- The filled output amount and average price for the fillable portion
+- The remaining unfilled amount
+- Slippage computed only on the filled portion
+
+This allows takers to decide whether to proceed with the available liquidity, reduce their order size, or wait for RFQ makers to provide a quote for the full amount.

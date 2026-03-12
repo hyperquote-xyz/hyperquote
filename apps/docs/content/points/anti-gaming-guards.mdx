@@ -1,0 +1,108 @@
+# Anti-Gaming Guards
+
+import { Callout } from 'nextra/components'
+
+The HyperQuote points program includes several mechanisms to detect and discourage wash trading, self-dealing, and other forms of point manipulation. These guards are built into the scoring formula itself, making them automatic and permissionless -- no manual review or blacklisting is required.
+
+## Pair-Repeat Decay
+
+The most direct anti-wash-trading measure is the pair-repeat decay multiplier. When the same address fills multiple trades on the same token pair within a rolling time window, each subsequent fill receives a progressively smaller multiplier.
+
+### Decay Schedule
+
+| Fill Number (same pair, rolling window) | Decay Multiplier |
+|-----------------------------------------|-----------------|
+| 1st fill | 1.00x |
+| 2nd fill | 0.90x |
+| 3rd fill | 0.80x |
+| 4th fill | 0.70x |
+| 5th fill and beyond | 0.50x (floor) |
+
+The decay counter is tracked per (address, pair) combination. Trading HYPE/USDC does not affect your decay counter for HYPE/USDH or any other pair. After the rolling window expires without a fill on that pair, the counter resets to zero.
+
+### Why It Works
+
+A wash trader attempting to farm points by repeatedly buying and selling the same pair rapidly will see their point yield cut in half by the 5th fill. Combined with the gas costs of each settlement transaction, the economic incentive to wash trade is minimal after just a few round-trips.
+
+<Callout type="info">
+  Pair-repeat decay applies to both the maker and taker addresses independently. If a maker and taker are the same entity using two wallets, both wallets accumulate decay on their respective sides.
+</Callout>
+
+## Sublinear Base Formula
+
+The base points formula uses an exponent of 0.9:
+
+```
+basePoints = (notionalUsd / 1000) ^ 0.9
+```
+
+This sublinear scaling means that doubling the trade size does not double the points. A $100,000 trade earns 63.1 base points, while two $50,000 trades earn 67.8 combined. This design has two anti-gaming effects:
+
+1. **No whale dominance** -- A single massive trade cannot generate disproportionate points. The marginal point yield per dollar decreases with size.
+2. **No artificial splitting incentive** -- While splitting does earn slightly more points, the pair-repeat decay quickly offsets this for rapid splits on the same pair.
+
+The interaction between sublinear base and pair-repeat decay creates a balanced system: moderate splitting is mildly rewarded (encouraging activity), but aggressive splitting is penalized (discouraging gaming).
+
+## Missing Benchmark Penalty
+
+When a fill occurs on a pair where no valid benchmark price is available from alternative venues, the improvement multiplier defaults to **0.90x** instead of the neutral 1.00x.
+
+```
+improvementMultiplier = 0.90  (when no benchmark available)
+```
+
+This penalty exists because:
+
+- Without a benchmark, the system cannot verify whether the execution price represents genuine price improvement or a manipulated price between colluding parties.
+- Pairs without observable market prices are more susceptible to self-dealing, since there is no external reference to detect off-market pricing.
+- The penalty incentivizes trading on pairs that have active AMM or order book markets, where price improvement can be independently verified.
+
+<Callout type="warning">
+  The missing benchmark penalty applies regardless of the actual execution quality. Even if the trade is genuinely fair-priced, the absence of a benchmark triggers the 0.90x penalty. This is an intentional conservative design choice.
+</Callout>
+
+## Multiplier Clamping
+
+All individual multipliers and the final multiplier product are clamped to bounded ranges:
+
+| Multiplier | Minimum | Maximum |
+|-----------|---------|---------|
+| Improvement multiplier | 0.80x | 1.50x |
+| Privacy multiplier | 1.00x | 1.10x |
+| Pair-repeat decay | 0.50x | 1.00x |
+| **Product (before NFT)** | **0.50x** | **2.00x** |
+
+Clamping prevents extreme outlier scores in both directions. Even a participant with maximum price improvement and privacy bonus cannot exceed 2.00x on the multiplier product. This bounds the advantage that any single optimization can provide.
+
+## Combined Effect
+
+The guards work together to create a scoring environment where:
+
+- **Genuine large trades** earn good points, but with diminishing returns above moderate sizes.
+- **Consistent moderate trading** earns the best points-per-dollar over time.
+- **Price improvement** is the most impactful single factor, rewarding makers and takers who bring competitive pricing.
+- **Wash trading** is unprofitable due to pair-repeat decay, gas costs, and the inability to claim price improvement on self-dealing trades.
+- **Obscure pair trading** is mildly penalized unless benchmark prices are available.
+
+### Wash Trade Scenario
+
+Consider an attacker who controls both a maker and taker wallet, executing $10,000 self-trades on HYPE/USDC:
+
+```
+Fill 1: basePoints = 7.94, decay = 1.00, improvement = 0.90 (no real improvement)
+        points = 7.94 * 0.90 = 7.15 per wallet
+
+Fill 2: basePoints = 7.94, decay = 0.90, improvement = 0.90
+        points = 7.94 * 0.90 * 0.90 = 6.43 per wallet
+
+Fill 5: basePoints = 7.94, decay = 0.50, improvement = 0.90
+        points = 7.94 * 0.50 * 0.90 = 3.57 per wallet
+```
+
+By the 5th fill, the attacker earns less than half the points per fill, while paying gas costs on 10 settlement transactions (5 fills, each involving both wallets). A legitimate trader making diverse trades across multiple pairs with real price improvement would earn significantly more points per dollar of gas spent.
+
+## Related Pages
+
+- [Base Points Formula](/points/base-points-formula) -- Sublinear base calculation details
+- [Multipliers](/points/multipliers) -- All multiplier formulas and ranges
+- [Points Overview](/points/points-overview) -- Introduction to the points program

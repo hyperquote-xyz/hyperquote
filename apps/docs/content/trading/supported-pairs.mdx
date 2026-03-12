@@ -1,0 +1,118 @@
+# Supported Pairs
+
+import { Callout } from 'nextra/components'
+
+HyperQuote supports any ERC-20 token pair on HyperEVM. However, the availability of venue comparisons, maker liquidity, and routing depends on the token tier and where each token trades.
+
+## Token Tiers
+
+Every token in the HyperQuote token list falls into one of three tiers:
+
+### Core
+
+Core tokens are manually curated, always visible in the token selector, and serve as primary routing and bridge tokens. They have verified contract addresses, known decimals, and logo URLs.
+
+| Token | Symbol | Decimals | Address |
+|-------|--------|----------|---------|
+| HYPE (native) | HYPE | 18 | `0x0000...0000` |
+| USD Coin | USDC | 6 | `0xb883...630f` |
+| Kinetiq kHYPE | kHYPE | 18 | `0xfd73...296d` |
+| USD-T0 | USDT0 | 6 | `0xB8ce...ebb` |
+| HyperUnit USDH | USDH | 18 | `0x2222...2222` |
+| PURR | PURR | 18 | From spotMeta |
+
+### Verified
+
+Verified tokens are sourced from the HyperCore `spotMeta` API (all tokens with a canonical spot market on Hyperliquid). These are shown by default in the token selector and have reliable price data.
+
+Verified tokens include any token that appears in HyperCore's spot token metadata with `isCanonical: true` and a valid HyperEVM ERC-20 address. Their `hyperliquidCoin` identifier is validated at build time to ensure correct orderbook mapping.
+
+### Unverified
+
+Unverified tokens are hidden behind the "Show unverified tokens" toggle. These come from secondary token lists or user-pasted addresses. They may be:
+
+- Legitimate tokens not yet included in the verified list.
+- Misconfigured contracts with incorrect decimals.
+- Potentially malicious or scam tokens.
+
+<Callout type="warning">
+  Always verify the contract address of unverified tokens on HyperEVMScan before trading. The token selector includes a "Check source" button that queries HyperEVMScan for source code verification status.
+</Callout>
+
+## Native HYPE and WHYPE
+
+HYPE is the native gas token of HyperEVM. Since the RFQ settlement contract operates on ERC-20 tokens, native HYPE is automatically wrapped to **WHYPE** (Wrapped HYPE) before settlement.
+
+- **In the UI**: users select "HYPE" as their token.
+- **Under the hood**: `resolveSettlementToken()` converts HYPE to WHYPE (`0x5555...5555`, 18 decimals).
+- **Wrapping**: if the user's token is native HYPE, the UI prompts a wrap step (calling `deposit()` on the WHYPE contract) before the RFQ can proceed.
+- **WHYPE** does not appear in the default token selector -- users always interact with "HYPE" and the wrapping is transparent.
+
+<Callout>
+  You need WHYPE (wrapped HYPE) in your wallet for settlement. If you hold native HYPE, use the wrap modal in the swap interface to convert it to WHYPE before submitting an RFQ.
+</Callout>
+
+## Pair-Specific Venue Availability
+
+Not every pair has liquidity on all three comparison venues. The table below shows typical availability:
+
+| Pair Type | HyperCore Spot | HyperEVM DEX | RFQ |
+|-----------|---------------|--------------|-----|
+| Core/Core (e.g. HYPE/USDC) | Yes | Yes | Yes |
+| Core/Verified (e.g. HYPE/PURR) | Often | Usually (may need multi-hop) | Yes |
+| Verified/Verified | Sometimes | Depends on DEX pools | Yes |
+| Any/Unverified | Rarely | Rarely | Yes (if a maker quotes) |
+| Stablecoin/Stablecoin | Sometimes | Yes (stable pools) | Yes |
+
+The RFQ venue is always available for any ERC-20 pair as long as at least one maker is willing to quote. This is a key advantage over AMM-based venues that require deployed liquidity pools.
+
+### HyperCore Availability
+
+A token has a HyperCore spot market if it has a `hyperliquidCoin` identifier (e.g. `"PURR"`, `"@107"`). Tokens without this field (e.g. newer or EVM-only tokens) will show "No HyperCore spot market for this pair" in the venue comparison.
+
+### DEX Availability
+
+The HyperEVM DEX venue (via HT.xyz) works for any pair where a routing path exists through deployed DEX pools. For pairs without a direct pool, the engine tries multi-hop routing through liquid intermediates:
+
+- **USDC** (`0xb883...630f`)
+- **WHYPE** (`0x5555...5555`)
+- **USDT0** (`0xB8ce...ebb`)
+
+If no route is found even with multi-hop, the venue shows "No DEX route found for this pair."
+
+## Common Pair Categories
+
+### Core Pairs
+
+High-liquidity pairs between core tokens. These have the best venue coverage and the tightest maker spreads:
+
+- HYPE / USDC
+- HYPE / USDT0
+- kHYPE / HYPE
+- kHYPE / USDC
+
+### Stable Pairs
+
+Pairs between stablecoins. These trade with minimal slippage on stable-swap AMM pools:
+
+- USDC / USDT0
+- USDC / USDH
+- USDH / USDT0
+
+### Long-Tail Pairs
+
+Pairs involving verified tokens that are not in the core set. These may have limited AMM liquidity, making the RFQ venue especially valuable:
+
+- PURR / USDC
+- PURR / HYPE
+- Any verified spotMeta token / USDC
+
+For long-tail pairs, the RFQ model often provides better execution than AMMs because makers can source liquidity from external venues and offer tighter spreads than what thin on-chain pools can achieve.
+
+## Custom Token Pairs
+
+If neither token appears in the token list, you can paste any valid ERC-20 contract address (42-character hex string starting with `0x`) into the token selector. The token will be added as "Custom Token" with a default of 18 decimals.
+
+<Callout type="warning">
+  Custom tokens default to 18 decimals, which may be incorrect for tokens with different decimal configurations (e.g. USDC uses 6). Incorrect decimals will cause amount calculations to be wrong. Always verify the contract's actual decimals before trading.
+</Callout>

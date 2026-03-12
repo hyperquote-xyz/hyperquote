@@ -1,0 +1,131 @@
+# Maker Scoring
+
+import { Callout } from 'nextra/components'
+
+The maker league score rewards liquidity providers who combine high fill volume with competitive pricing, reliable quoting, and privacy-enhancing behavior. The formula captures all four dimensions in a single score.
+
+## Formula
+
+```
+score = filledNotional * (1 + avgImprovementBps / 100) * reliabilityFactor * privacyFactor
+```
+
+Where:
+
+| Component | Description | Range |
+|-----------|-------------|-------|
+| `filledNotional` | Total USD notional of fills within the ranking period | 0 to unbounded |
+| `avgImprovementBps` | Average price improvement in basis points across all fills | Typically -20 to +50 |
+| `reliabilityFactor` | Quoting reliability based on cancel rate | 0.50 to 1.10 |
+| `privacyFactor` | Bonus for private fill participation | 1.00 to 1.10 |
+
+## Component Details
+
+### Filled Notional
+
+The sum of USD notional values for all fills where this maker's signed quote was executed on-chain during the ranking period. Only confirmed settlements count. Reverted transactions, expired quotes, and cancelled quotes are excluded.
+
+### Average Improvement (bps)
+
+The volume-weighted average of price improvement across all fills in the period. Price improvement is measured against the best available benchmark from alternative venues at the time of each fill.
+
+```
+avgImprovementBps = sum(improvementBps_i * notional_i) / sum(notional_i)
+```
+
+A maker who consistently provides better-than-benchmark pricing will have a positive `avgImprovementBps`, boosting their score. A maker whose prices are worse than benchmarks will have a negative average, reducing their score.
+
+### Reliability Factor
+
+The reliability factor reflects the maker's quoting consistency:
+
+```
+reliabilityFactor = clamp(1.1 - cancelRate * 1.5, 0.50, 1.10)
+```
+
+Where `cancelRate` is the fraction of quotes that were cancelled (nonce incremented) before the taker could execute them.
+
+| Cancel Rate | Reliability Factor | Effect |
+|-------------|-------------------|--------|
+| 0% (never cancels) | 1.10 | +10% bonus |
+| 5% | 1.025 | Slight bonus |
+| 10% | 0.95 | Slight penalty |
+| 20% | 0.80 | Moderate penalty |
+| 40%+ | 0.50 | Maximum penalty |
+
+<Callout type="info">
+  A maker who never cancels quotes earns a 10% reliability bonus. This rewards the commitment of standing behind every quote sent. Makers who need to cancel occasionally (e.g., due to market moves) face only a mild penalty up to about a 10% cancel rate.
+</Callout>
+
+### Privacy Factor
+
+```
+privacyFactor = 1.00 + (privateFillNotional / totalFillNotional) * 0.10
+```
+
+The privacy factor ranges from 1.00 (no private fills) to 1.10 (all fills are private). It is proportional to the share of the maker's volume that came from private RFQ routing. Only fills with notional \>= $50,000 qualify as private for this calculation.
+
+## Worked Examples
+
+### Example 1: High-Volume Competitive Maker
+
+A maker fills $2,000,000 in notional over a 30-day period with an average improvement of +8 bps, 3% cancel rate, and 40% private volume.
+
+```
+filledNotional     = 2,000,000
+avgImprovementBps  = 8
+reliabilityFactor  = clamp(1.1 - 0.03 * 1.5, 0.50, 1.10) = clamp(1.055, 0.50, 1.10) = 1.055
+privacyFactor      = 1.00 + 0.40 * 0.10 = 1.04
+
+score = 2,000,000 * (1 + 8/100) * 1.055 * 1.04
+      = 2,000,000 * 1.08 * 1.055 * 1.04
+      = 2,000,000 * 1.185
+      = 2,370,240
+```
+
+### Example 2: Small but Reliable Maker
+
+A maker fills $200,000 in notional over a 30-day period with +15 bps average improvement, 0% cancel rate, and no private fills.
+
+```
+filledNotional     = 200,000
+avgImprovementBps  = 15
+reliabilityFactor  = clamp(1.1 - 0 * 1.5, 0.50, 1.10) = 1.10
+privacyFactor      = 1.00
+
+score = 200,000 * (1 + 15/100) * 1.10 * 1.00
+      = 200,000 * 1.15 * 1.10
+      = 253,000
+```
+
+### Example 3: High-Volume Unreliable Maker
+
+A maker fills $3,000,000 but cancels 30% of quotes and has -5 bps average improvement.
+
+```
+filledNotional     = 3,000,000
+avgImprovementBps  = -5
+reliabilityFactor  = clamp(1.1 - 0.30 * 1.5, 0.50, 1.10) = clamp(0.65, 0.50, 1.10) = 0.65
+privacyFactor      = 1.00
+
+score = 3,000,000 * (1 + (-5)/100) * 0.65 * 1.00
+      = 3,000,000 * 0.95 * 0.65
+      = 1,852,500
+```
+
+Despite having 50% more volume than Example 1, this maker scores lower due to poor reliability and negative price improvement.
+
+<Callout type="warning">
+  The reliability penalty is significant. A 30% cancel rate drops the reliability factor to 0.65, effectively reducing the score by 35% compared to a perfect reliability score. Makers should minimize unnecessary cancellations to maintain competitive league positioning.
+</Callout>
+
+## Score Interpretation
+
+The league score is denominated in "adjusted notional" units. A score of 2,370,240 means that the maker's activity is equivalent to $2.37M of fills at perfectly benchmark-matching prices with perfect reliability and no privacy contribution. The multipliers adjust the raw notional up or down based on quality factors.
+
+## Related Pages
+
+- [League Overview](/league/league-overview) -- Introduction to the Liquidity League
+- [Taker Scoring](/league/taker-scoring) -- Taker league score formula
+- [Ranking Periods](/league/ranking-periods) -- Time window details
+- [Maker Overview](/makers/maker-overview) -- General maker documentation

@@ -1,0 +1,169 @@
+# Venue Comparison Engine
+
+import { Callout } from 'nextra/components'
+
+HyperQuote benchmarks every RFQ quote against alternative execution venues so you can verify that the RFQ is offering genuine price improvement. The venue comparison runs automatically when you submit an RFQ and refreshes periodically while your request is active.
+
+## Who This Is For
+
+- **Takers** who want to verify that an RFQ quote beats what they could get on DEXes or the order book.
+- **Institutional traders** who need documented best-execution evidence.
+- **Makers** who want to understand how their pricing compares to on-chain venues.
+
+## Three Venues
+
+The comparison engine queries three sources in parallel:
+
+### 1. HyperCore Spot (L2 Orderbook)
+
+The Hyperliquid L2 orderbook provides the deepest on-chain liquidity for many HyperEVM tokens. The engine simulates a market order walk through the orderbook at your requested size.
+
+- **Source**: L2 book data via the Hyperliquid API (2-second cache).
+- **Method**: Adaptive orderbook walk that sums available levels until the requested amount is filled.
+- **Supports**: Full fills and partial fills. If the orderbook cannot absorb the full size, a partial fill result is returned with the percentage filled, average price, and remaining unfilled amount.
+- **Limitations**: Only available for tokens with a HyperCore spot market. Tokens that trade exclusively on HyperEVM DEXes will show "No HyperCore spot market for this pair."
+
+### 2. HyperEVM DEX (Aggregated)
+
+On-chain DEX liquidity on HyperEVM, sourced through the HT.xyz routing aggregator. This covers Uniswap V2/V3 forks, stable pools, and concentrated liquidity positions deployed on HyperEVM.
+
+- **Source**: HT.xyz price API via a server-side proxy at `/api/v1/bench/ht/price`.
+- **Method**: The aggregator finds the best route (potentially multi-hop) for the requested trade.
+- **Multi-hop routing**: When no direct route exists (e.g. USDH to PURR), the engine automatically tries routing through liquid intermediates: USDC, WHYPE, and USDT0. The best multi-hop result is used.
+- **Partial fill search**: For large trades (above $25k USD) where the full amount fails, the engine runs a binary search (up to 6 iterations) to find the maximum fillable size. The result is presented as a partial fill with the filled percentage and remaining unfilled amount.
+
+### 3. RFQ (Maker Quotes)
+
+The third "venue" is the RFQ quote itself — the best quote from competing makers. This is what the comparison is measured against.
+
+## Comparison Methodology
+
+All three venues are fetched in parallel using `Promise.allSettled` to ensure that a failure in one venue does not block the others. Each fetch includes automatic retry with jitter (200-500ms delay) on transient errors.
+
+### Mid-Price Benchmark
+
+A universal mid-price reference is computed from the HyperCore L2 orderbook:
+
+```
+mid = (bestBid + bestAsk) / 2
+```
+
+This mid-price is used to compute slippage for every venue, ensuring the numbers are directly comparable. Stablecoins (USDC, USDH, USDT0) are anchored at $1.00.
+
+The reference output at mid-price is:
+
+```
+referenceOut = (amountIn / 10^decimalsIn) * (priceIn / priceOut) * 10^decimalsOut
+```
+
+Slippage for each venue is then:
+
+```
+slippage = (referenceOut - actualOut) / referenceOut * 100
+```
+
+This is clamped to \>= 0%. If a venue beats mid-price (e.g. due to a stale cache or favourable market move), slippage displays as 0.00% rather than a negative value.
+
+## Venue Result Types
+
+Each venue returns one of three result types:
+
+### Success
+
+The venue can fill the entire requested amount.
+
+| Field | Description |
+|-------|-------------|
+| `amountOut` | Total output amount |
+| `routeLabel` | The route path (e.g. "USDC -> HYPE" or "USDH -> USDC -> PURR") |
+| `slippageVsMid` | Percentage slippage vs the mid-price benchmark |
+
+### Partial Fill
+
+The venue can fill only a portion of the requested amount. This applies to both HyperCore (insufficient orderbook depth) and HyperEVM DEX (binary search fallback).
+
+| Field | Description |
+|-------|-------------|
+| `filledPct` | Fraction filled (0.0 to 1.0) |
+| `filledOut` | Output amount for the filled portion |
+| `remainingIn` | Input amount that could not be filled |
+| `avgPrice` | Average execution price for the filled portion |
+| `slippagePct` | Slippage on the filled portion |
+
+Partial fills are displayed with an amber "Partial (XX.X%)" badge.
+
+### Failure
+
+The venue cannot provide any quote for this pair/size.
+
+| Reason Code | Meaning |
+|-------------|---------|
+| `no_hl_market` | Token has no HyperCore spot market |
+| `no_dex_route` | DEX aggregator found no route for this pair |
+| `transient_failure` | Network or timeout error (retries exhausted) |
+| `unsupported_pair` | Neither venue supports this combination |
+| `aborted` | Request was cancelled by the user |
+
+Each failure reason maps to a human-readable explanation displayed in the UI.
+
+## How Results Are Displayed
+
+The Venue Comparison panel shows two rows (HyperCore Spot and HyperEVM DEX), each with:
+
+- **Venue name and sublabel** (e.g. "HyperCore Spot / order book").
+- **Output amount** — the total output for successful fills, or the partial output with "X.XX unfilled" for partials.
+- **Slippage** — the percentage slippage vs mid-price.
+- **vs Best Quote** — when an active RFQ quote exists, shows how much more or less the venue would deliver compared to the best maker quote.
+
+Colour coding:
+- **Default** — neutral grey background.
+- **Amber** — partial fill result.
+- **Red tint** — venue output is worse than the best RFQ quote.
+
+### Savings Callout
+
+When the best RFQ quote beats all venue outputs, a green savings callout appears at the bottom:
+
+> +X.XX TOKEN saved with RFQ vs [Best Venue] (Y.YY% better execution)
+
+The percentage is calculated as:
+
+```
+savingsPct = (makerAmount - bestVenueAmount) / bestVenueAmount * 100
+```
+
+## Refresh Behaviour
+
+| Trigger | Behaviour |
+|---------|-----------|
+| Input change (amount, token pair) | 1.2-second debounce, then fetch |
+| Active RFQ polling | Every 30 seconds while an RFQ is open |
+| No active RFQ | No polling; last result persists |
+| Failed fetch | Previous successful result is preserved |
+
+<Callout>
+  The venue comparison is designed to be resilient. If one venue fails, the others still display. Failed fetches never overwrite a previous successful result, so you always see the best available data.
+</Callout>
+
+## Timing
+
+The total wall-clock time for a parallel venue fetch is typically 200-800ms. The timing is recorded and available in development console logs as `timingMs` for performance monitoring.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| Token has no HyperCore market and no DEX route | Both venues show failure states. You can still trade via RFQ if makers are willing to quote. |
+| HyperCore API is temporarily down | The HyperCore row shows a transient failure. The DEX comparison still displays. Previous successful HyperCore data is preserved. |
+| Trade size exceeds all on-chain liquidity | Both venues return partial fills or failures. The RFQ quote (if available) may be the only way to execute the full size. |
+| Stablecoin pair (e.g., USDC to USDH) | Mid-price anchors both at $1.00. Slippage reflects the actual swap cost (pool fees, curve deviation). |
+| Venue shows 0.00% slippage | The venue matched or beat mid-price. This can happen with stale caches or favourable market moves. |
+| Comparison data is stale (30-second polling) | Between polls, prices may have moved. Use the comparison as a directional guide, not a real-time oracle. |
+
+## Related Pages
+
+- [Requesting a Quote](/trading/requesting-a-quote) — How to submit an RFQ
+- [Your First Trade](/getting-started/your-first-trade) — End-to-end walkthrough including venue comparison
+- [Public vs Private RFQs](/trading/public-vs-private-rfqs) — How visibility affects quote competition
+- [Supported Tokens](/introduction/supported-tokens) — Which tokens have venue comparison data
+- [Benchmark Endpoints](/api/benchmark-endpoints) — API access to venue pricing data

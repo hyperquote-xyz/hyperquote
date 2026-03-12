@@ -1,0 +1,110 @@
+# NFT Boosts
+
+import { Callout } from 'nextra/components'
+
+Holders of specific NFT collections receive permanent multiplicative boosts on all points earned through HyperQuote. NFT boosts are applied after all other multipliers, providing a final scaling factor on every fill.
+
+## Eligible Collections
+
+| Collection | Boost Multiplier | Description |
+|-----------|-----------------|-------------|
+| **Lucky Hypio Winners** | 1.25x | Commemorative collection for early participants |
+| **Hypurr** | 1.50x | Hyperliquid ecosystem NFT collection |
+| **Both collections** | 2.00x | Holding at least one NFT from each collection |
+
+<Callout type="info">
+  The combined boost for holding both collections is 2.00x, not 1.25 * 1.50 = 1.875x. The protocol applies a special combined rate that exceeds the multiplicative product of the individual boosts, rewarding deep ecosystem participation.
+</Callout>
+
+## Contract Addresses
+
+The NFT collections are verified against the following on-chain contracts on HyperEVM:
+
+| Collection | Contract Address |
+|-----------|-----------------|
+| Lucky Hypio Winners | Refer to [Contract Addresses](/links/contract-addresses) for the current deployment |
+| Hypurr | Refer to [Contract Addresses](/links/contract-addresses) for the current deployment |
+
+Ownership is checked at the time of each fill by querying the NFT contract's `balanceOf()` function for the address that executed the trade.
+
+## How the Boost Is Applied
+
+The NFT boost is the final multiplier applied in the points calculation:
+
+```
+finalPoints = basePoints * multiplierProduct * nftBoost
+```
+
+Where `multiplierProduct` is the clamped product of the improvement, privacy, and pair-repeat multipliers (range 0.50 to 2.00), and `nftBoost` is one of:
+
+| Holding | nftBoost |
+|---------|----------|
+| No eligible NFTs | 1.00x |
+| Lucky Hypio Winners only | 1.25x |
+| Hypurr only | 1.50x |
+| Both collections | 2.00x |
+
+### Worked Example
+
+A maker fills a $50,000 trade with 1.20x multiplier product, holding both NFT collections:
+
+```
+basePoints        = (50000 / 1000) ^ 0.9 = 33.9
+multiplierProduct = 1.20
+nftBoost          = 2.00 (both collections)
+
+finalPoints       = 33.9 * 1.20 * 2.00 = 81.4 points
+```
+
+Without NFTs, the same fill would earn:
+
+```
+finalPoints = 33.9 * 1.20 * 1.00 = 40.7 points
+```
+
+The NFT boost doubles the point award in this case.
+
+## Verification Details
+
+### Ownership Check
+
+NFT ownership is verified by calling `balanceOf(address)` on each eligible NFT contract. A balance of 1 or more qualifies the address for the boost. The specific token ID held does not matter -- any token from the collection qualifies.
+
+### Timing
+
+The ownership check is performed at the time the settlement transaction is mined on-chain. If you transfer your NFT before a pending trade settles, you will not receive the boost on that fill.
+
+### Wallet Matching
+
+The boost applies to the address that directly holds the NFT. If your trading address and your NFT-holding address are different wallets, the boost will not apply. There is no delegation or proxy mechanism for NFT boost verification.
+
+<Callout type="warning">
+  If you transfer or sell your NFT, you immediately lose the boost on all future fills. Points already earned are not affected -- they remain in your balance permanently.
+</Callout>
+
+## Maximum Point Scaling
+
+With all multipliers at maximum and both NFT collections held:
+
+```
+basePoints        = (notionalUsd / 1000) ^ 0.9
+multiplierProduct = 2.00 (max clamp)
+nftBoost          = 2.00 (both collections)
+
+maxPoints         = basePoints * 2.00 * 2.00 = basePoints * 4.00
+```
+
+The theoretical maximum scaling factor is 4.00x on base points. For a $100,000 trade:
+
+```
+basePoints = 63.1
+maxPoints  = 63.1 * 4.00 = 252.4 points
+```
+
+In practice, achieving the full 2.00x multiplier product requires maximum price improvement, privacy eligibility, and no pair-repeat decay, which is uncommon.
+
+## Related Pages
+
+- [Points Overview](/points/points-overview) -- Introduction to the points program
+- [Multipliers](/points/multipliers) -- All multiplier details
+- [Contract Addresses](/links/contract-addresses) -- Deployed contract addresses

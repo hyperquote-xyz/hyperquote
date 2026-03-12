@@ -1,0 +1,120 @@
+# Supported Tokens
+
+import { Callout } from 'nextra/components'
+
+HyperQuote supports a curated list of ERC-20 tokens deployed on HyperEVM. Tokens are organized into three tiers based on verification status, and the full list is available in the trading UI.
+
+## Who This Is For
+
+- **Traders** checking whether a specific token is available for RFQ trading.
+- **Makers** looking at which pairs have the most liquidity and demand.
+- **Developers** integrating token data into their own applications.
+
+## Token Tiers
+
+HyperQuote classifies tokens into three tiers that control visibility and default behavior in the UI:
+
+### Core Tokens
+
+Core tokens are manually curated by the HyperQuote team. They are always visible in the token selector, used as routing tokens for multi-hop swaps, and are the primary tokens for RFQ trading. Core tokens have manually verified contract addresses, decimals, and logos.
+
+### Verified Tokens
+
+Verified tokens come from two sources:
+
+- **spotMeta-sourced** — Tokens listed on Hyperliquid's spot market metadata. These are automatically imported with their on-chain parameters.
+- **Manually allowlisted** — Tokens from HyperEVM that have been reviewed and added to the verified allowlist (e.g., popular DeFi protocol tokens, wrapped assets, stablecoins).
+
+Verified tokens are shown by default in the token selector alongside core tokens.
+
+### Unverified Tokens
+
+Unverified tokens are imported from on-chain token registries but have not been individually reviewed. They are hidden by default and only appear when a user enables the "Show unverified tokens" toggle.
+
+<Callout type="warning">
+Unverified tokens have not been reviewed for contract safety. Exercise caution when trading unverified tokens. Always verify the contract address independently before approving or trading.
+</Callout>
+
+## Core Token Registry
+
+The following tokens are classified as core and are always available for RFQ trading:
+
+| Token | Symbol | Decimals | Address | Notes |
+|-------|--------|----------|---------|-------|
+| HYPE | `HYPE` | 18 | `0x0000...0000` (native) | Native gas token; auto-wraps to WHYPE for settlement |
+| USD Coin | `USDC` | 6 | `0xb883...630f` | Circle native USDC on HyperEVM |
+| Kinetiq kHYPE | `kHYPE` | 18 | `0xfd73...296d` | Kinetiq liquid staked HYPE |
+| USD₮0 | `USD₮0` | 6 | `0xB8ce...ebb` | Tether USDT0 on HyperEVM |
+| Purr | `PURR` | 18 | `0x9b49...44e` | Hyperliquid community token |
+| USDH | `USDH` | 6 | `0x1111...1111` | HyperEVM native stablecoin |
+| Unit Bitcoin | `UBTC` | 8 | `0x9FDB...3463` | Synthetic Bitcoin exposure |
+| Unit Ethereum | `UETH` | 18 | `0xBe67...5907` | Synthetic Ethereum exposure |
+| Unit Solana | `USOL` | 9 | `0x068f...a29` | Synthetic Solana exposure |
+| Unit Plasma | `UXPL` | 18 | `0x33af...21f5` | Synthetic Plasma exposure |
+| Unit Ethena | `UENA` | 18 | `0x5853...0133` | Synthetic Ethena exposure |
+| Unit Pump Fun | `UPUMP` | 6 | `0x27ec...9452` | Synthetic Pump Fun exposure |
+| Unit Fartcoin | `UFART` | 6 | `0x3b45...cedf` | Synthetic Fartcoin exposure |
+
+<Callout type="info">
+Core token addresses are authoritative and take precedence over any data from spotMeta or external registries. If a discrepancy exists, the core token configuration is always used.
+</Callout>
+
+## Native HYPE and WHYPE Settlement
+
+HYPE is the native gas token of HyperEVM. Since ERC-20 settlement contracts can only transfer ERC-20 tokens (not native ETH-style assets), HyperQuote handles HYPE specially:
+
+- **In the UI**, users select `HYPE` as the token they want to trade. This is the familiar native asset.
+- **At settlement**, the protocol automatically wraps native HYPE into WHYPE (Wrapped HYPE) at address `0x5555555555555555555555555555555555555555`. The settlement contract interacts with the WHYPE ERC-20 contract.
+- **WHYPE is hidden** from the token selector to avoid confusion. Users never need to manually wrap or unwrap HYPE.
+
+This wrapping is transparent to the user. When you trade HYPE, the UI handles the wrap/unwrap automatically so that on-chain settlement can proceed with the ERC-20 WHYPE token.
+
+## Venue Availability
+
+Tokens may be available on different execution venues:
+
+| Venue | Description |
+|-------|-------------|
+| `hyperevm` | Token is available on HyperEVM DEXes (AMM pools) |
+| `hypercore` | Token is available on Hyperliquid's native order book |
+| `both` | Token is available on both HyperEVM and HyperCore |
+
+Most core tokens are available on both venues, which enables the venue comparison engine to show side-by-side pricing. Tokens only available on HyperEVM can still be traded via RFQ but will not have HyperCore comparison quotes.
+
+## Token Data Sources
+
+HyperQuote assembles its token list from multiple sources, with a strict priority order:
+
+1. **Manual core tokens** (highest priority) — Hand-curated list with verified addresses, decimals, and logos. These override any conflicting data from other sources.
+2. **Hyperliquid spotMeta** — On-chain metadata from Hyperliquid's spot markets. Provides token addresses, decimal precision, and coin identifiers for HyperCore integration.
+3. **Verified allowlist** — Manually reviewed HyperEVM tokens not present in spotMeta. Includes popular DeFi tokens, wrapped assets, and stablecoins.
+4. **PRJX registry** (lowest priority) — Broad token registry used to populate the unverified tier. Tokens from this source are hidden by default.
+
+When the same token address appears in multiple sources, the highest-priority source wins for all fields (symbol, name, decimals, logo).
+
+## Adding a New Token
+
+Token additions follow this process:
+
+- **Core tier** — Added by the HyperQuote team through a configuration update. Core tokens require manual review of the token contract, decimal configuration, and logo asset.
+- **Verified tier** — Tokens automatically enter the verified tier when they appear in Hyperliquid's spotMeta. Tokens can also be manually promoted to verified via the allowlist.
+- **Unverified tier** — Tokens from the PRJX registry are automatically available in the unverified tier. No action is required.
+
+If you believe a token should be promoted to core or verified status, contact the HyperQuote team.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| Token you want is not listed | Paste the contract address directly into the token search. It will appear as unverified. Verify the address independently before trading. |
+| Token has non-standard decimals | The UI reads decimals from the contract. If the value is wrong in a registry, the core token list takes precedence. |
+| Token uses a transfer fee or rebasing mechanism | Settlement may fail or produce unexpected output amounts. Avoid trading fee-on-transfer tokens unless you understand the implications. |
+| WHYPE appears in your wallet but not in the UI | WHYPE is intentionally hidden. Trade using `HYPE` and the protocol handles wrapping automatically. |
+| spotMeta and core token list disagree on a symbol | Core token data always wins. The UI displays the core configuration. |
+
+## Related Pages
+
+- [Requesting a Quote](/trading/requesting-a-quote) — How to request an RFQ for any supported token pair
+- [Contract Addresses](/smart-contracts/contract-addresses) — Deployed contract addresses on HyperEVM
+- [Venue Comparison Engine](/trading/venue-comparison-engine) — How cross-venue pricing works
+- [Your First Trade](/getting-started/your-first-trade) — Step-by-step trading walkthrough

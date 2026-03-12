@@ -1,0 +1,133 @@
+# Cash-Secured Puts
+
+import { Callout } from 'nextra/components'
+
+A cash-secured put (CSP) is an options strategy where the seller locks stablecoin collateral and grants the buyer the right to sell the underlying token at a predetermined strike price on the expiry date. The buyer pays a premium upfront for this right.
+
+## How It Works
+
+In HyperQuote, the **taker is always the seller** and the **maker is always the buyer** (V1 constraint). When a cash-secured put is executed:
+
+1. The **seller** (taker) locks stablecoin collateral (USDC, USDH, or USDT0) in the OptionsEngine contract. The locked amount equals `strike * quantity`, scaled to the collateral token's decimals.
+2. The **buyer** (maker) pays a premium in the same collateral stablecoin to the seller.
+3. An ERC-721 position NFT is minted to the buyer.
+
+<Callout type="info">
+The seller receives the premium immediately at execution time. The locked stablecoin collateral is held by the contract until expiry.
+</Callout>
+
+## Collateral Calculation
+
+For a cash-secured put, the collateral required is the full notional value of the position: strike price multiplied by quantity, converted to the collateral token's decimal precision.
+
+```
+collateral = ceilDiv(strike * quantity, 10^(18 + uDec - cDec))
+```
+
+Where:
+- `strike` is the strike price in 1e18 fixed-point (e.g., $25 = `25e18`)
+- `quantity` is the amount of underlying in underlying decimals (e.g., 1 wHYPE = `1e18`)
+- `uDec` is the underlying token decimals (18 for wHYPE)
+- `cDec` is the collateral token decimals (6 for USDC, 18 for USDH)
+
+### Example
+
+Selling a CSP on 100 wHYPE at a $25 strike, collateral in USDC:
+
+```
+collateral = ceilDiv(25e18 * 100e18, 10^(18+18-6))
+           = ceilDiv(2500e36, 10^30)
+           = 2,500,000,000  (= 2,500 USDC in 6-decimal units)
+```
+
+The seller must lock **2,500 USDC** to fully secure the put obligation.
+
+## Settlement: In-the-Money (ITM)
+
+A cash-secured put is ITM when the settlement price falls below the strike price (`S < K`). When settled:
+
+1. The **buyer** delivers the underlying tokens (wHYPE) equal to the position quantity to the seller.
+2. The **contract** releases the locked stablecoin collateral to the buyer, minus the keeper fee.
+
+In effect, the seller buys the underlying at the strike price using their locked stablecoin, and the buyer sells their underlying at above-market price.
+
+### Example
+
+| Parameter | Value |
+|---|---|
+| Underlying | wHYPE |
+| Collateral | USDC |
+| Strike | $25.00 |
+| Quantity | 100 wHYPE |
+| Premium | 50 USDC |
+| Settlement Price | $20.00 |
+
+The put is ITM ($20 < $25). At settlement:
+
+- Buyer delivers **100 wHYPE** to the seller
+- Buyer receives **2,500 USDC** (the locked collateral) minus keeper fee
+- Seller now holds **100 wHYPE** purchased at an effective price of **$24.50** (strike minus premium per unit)
+
+The seller's effective purchase price is $24.50 per wHYPE. The buyer sold at $25 instead of the $20 market price, netting $5 per wHYPE minus the premium paid.
+
+## Expiry: Out-of-the-Money (OTM)
+
+A cash-secured put is OTM when the settlement price is at or above the strike (`S >= K`). The option expires worthless:
+
+1. The **seller's** locked stablecoin is returned in full.
+2. The **seller** keeps the premium collected at execution.
+3. The position NFT is burned.
+
+### Example
+
+Using the same parameters but with a settlement price of $30:
+
+- Seller gets back **2,500 USDC**
+- Seller keeps **50 USDC** premium
+- Buyer's option expires worthless (no rational reason to sell at $25 when market is $30)
+
+## When to Sell Cash-Secured Puts
+
+Cash-secured puts are typically attractive when:
+
+- You want to accumulate the underlying token at a price below current market
+- You have a neutral-to-slightly-bearish outlook and want to earn premium while waiting
+- You have idle stablecoin capital and want to generate yield
+
+<Callout type="warning">
+If the underlying price drops significantly below the strike, you will purchase tokens at above-market value. Your maximum loss is the full collateral locked minus the premium received.
+</Callout>
+
+## On-Chain Mechanics
+
+The OptionsEngine calculates and locks CSP collateral in `_createPosition`:
+
+```solidity
+if (!quote.isCall) {
+    uint8 uDec = _tokenDecimals(quote.underlying);
+    uint8 cDec = _tokenDecimals(quote.collateral);
+    collateralAmount = CollateralMath.putCollateralRequired(
+        quote.strike, quote.quantity, uDec, cDec
+    );
+}
+// ...
+// Lock stablecoin collateral from seller
+if (!quote.isCall) {
+    IERC20(quote.collateral).safeTransferFrom(
+        seller, address(this), collateralAmount
+    );
+}
+```
+
+At settlement, the `_executeSettlement` function handles physical delivery for ITM puts:
+
+```solidity
+if (!pos.isCall) {
+    // Buyer delivers underlying to seller
+    IERC20(pos.underlying).safeTransferFrom(
+        buyer, seller, pos.quantity
+    );
+    // Contract releases locked stablecoin to buyer (net of keeper fee)
+    IERC20(pos.collateral).safeTransfer(buyer, buyerNet);
+}
+```

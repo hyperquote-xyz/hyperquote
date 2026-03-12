@@ -1,0 +1,125 @@
+# Activity Feed
+
+import { Callout } from 'nextra/components'
+
+The league activity feed provides a detailed view of recent fills for any participant address. It is available both through the HyperQuote UI and via the REST API, enabling programmatic access to fill history and league scoring data.
+
+## UI Detail Sheet
+
+In the HyperQuote UI, clicking on any participant in the league leaderboard opens a detail sheet that shows:
+
+- **Address and rank** -- The participant's wallet address and current rank in the selected period.
+- **League score** -- The computed league score with a breakdown of each component (volume, improvement, reliability, privacy).
+- **Recent fills** -- A chronological list of the participant's most recent settled trades, including:
+  - Token pair and direction
+  - Notional value (USD)
+  - Price improvement (bps) vs. benchmark
+  - Timestamp of settlement
+  - Transaction hash (linked to block explorer)
+
+The detail sheet updates in near-real-time as new fills are confirmed.
+
+## API Endpoint
+
+The activity feed is accessible via the HyperQuote REST API:
+
+```
+GET /api/v1/league/activity
+```
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `address` | string | Yes | The wallet address to query (hex, checksummed or lowercase) |
+| `period` | string | No | Ranking period: `7d`, `30d`, or `all`. Defaults to `30d` |
+| `limit` | number | No | Maximum number of fills to return. Defaults to 50, max 200 |
+| `offset` | number | No | Pagination offset. Defaults to 0 |
+
+### Example Request
+
+```bash
+curl "https://hyperquote.xyz/api/v1/league/activity?address=0x1234...abcd&period=7d&limit=20"
+```
+
+### Response Format
+
+```json
+{
+  "address": "0x1234...abcd",
+  "period": "7d",
+  "rank": 12,
+  "score": 547320,
+  "scoreBreakdown": {
+    "filledNotional": 500000,
+    "avgImprovementBps": 8.5,
+    "reliabilityFactor": 1.055,
+    "privacyFactor": 1.02
+  },
+  "fills": [
+    {
+      "txHash": "0xabcd...1234",
+      "timestamp": "2026-03-09T14:32:00Z",
+      "pair": "HYPE/USDC",
+      "side": "buy",
+      "notionalUsd": 25000,
+      "improvementBps": 12.3,
+      "role": "maker",
+      "private": false
+    }
+  ],
+  "pagination": {
+    "total": 45,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+<Callout type="info">
+  The `scoreBreakdown` object shows each factor that contributes to the league score, making it easy to understand what is driving a participant's ranking.
+</Callout>
+
+### Response Fields
+
+| Field | Description |
+|-------|-------------|
+| `address` | The queried wallet address |
+| `period` | The ranking period used for the query |
+| `rank` | The participant's rank in the leaderboard for this period |
+| `score` | The computed league score |
+| `scoreBreakdown` | Detailed breakdown of score components |
+| `fills` | Array of recent fill objects |
+| `fills[].txHash` | On-chain transaction hash of the settlement |
+| `fills[].timestamp` | ISO 8601 timestamp of the settlement block |
+| `fills[].pair` | Token pair (e.g., "HYPE/USDC") |
+| `fills[].side` | Trade direction from the queried address's perspective |
+| `fills[].notionalUsd` | USD notional value of the fill |
+| `fills[].improvementBps` | Price improvement vs. benchmark in basis points |
+| `fills[].role` | Whether the address was the `maker` or `taker` in this fill |
+| `fills[].private` | Whether the fill came from a private RFQ |
+
+## Use Cases
+
+### Maker Performance Monitoring
+
+Makers can query their own activity feed to track fill rates, average improvement, and reliability scores over time. This data can be fed into monitoring dashboards to optimize quoting strategies.
+
+### Taker Quote Quality Analysis
+
+Takers can review their fill history to assess whether they are consistently selecting the best available quotes. A negative average improvement suggests the taker could benefit from using the venue comparison more actively.
+
+### Third-Party Analytics
+
+The public API enables third-party analytics platforms to build leaderboards, performance dashboards, and competitive analysis tools on top of HyperQuote league data.
+
+<Callout type="warning">
+  The activity feed API is rate-limited. See [Technical FAQ](/faq/technical-faq) for current rate limit details.
+</Callout>
+
+## Related Pages
+
+- [League Overview](/league/league-overview) -- Introduction to the Liquidity League
+- [Maker Scoring](/league/maker-scoring) -- Maker league score formula
+- [Taker Scoring](/league/taker-scoring) -- Taker league score formula
+- [Ranking Periods](/league/ranking-periods) -- Time window details

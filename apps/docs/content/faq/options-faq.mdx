@@ -1,0 +1,103 @@
+# Options FAQ
+
+import { Callout } from 'nextra/components'
+
+Common questions about trading options on HyperQuote, including expiries, settlement, keeper mechanics, and position management.
+
+## What expiries are available?
+
+Options on HyperQuote currently support **daily expiries at 08:00 UTC**. When you request an options RFQ, you specify the expiry date and the strike price. The UI shows available expiry dates based on the current time.
+
+The protocol supports any expiry date that is in the future at the time of the RFQ. However, maker participation tends to be concentrated on near-term expiries (1-7 days out), so you are more likely to receive competitive quotes for shorter-dated options.
+
+## How is the settlement price determined?
+
+The settlement price is published by a designated **trusted oracle publisher**. The publisher submits the HYPE/USD price as of the expiry moment (08:00 UTC) to the `OptionsEngine` contract using a commit-reveal mechanism:
+
+1. **Commit phase** -- The publisher submits a hash of the settlement price to the contract.
+2. **Reveal phase** -- After the commit is confirmed, the publisher reveals the actual price in a second transaction.
+
+This two-step process prevents frontrunning of the settlement price. See [Oracle Risk](/risk/oracle-risk) for details on the trust assumptions involved.
+
+## What happens when my option is in-the-money (ITM)?
+
+If your option is ITM at expiry (based on the oracle-published settlement price), physical settlement occurs:
+
+- **Covered call ITM** -- The call buyer (maker in V1) receives the intrinsic value in underlying tokens. The remaining collateral is returned to the seller.
+- **Cash-secured put ITM** -- The put buyer (maker in V1) receives the intrinsic value in stablecoins. The remaining collateral is returned to the seller.
+
+Settlement is not automatic -- it requires a keeper to call the `settle()` function on the contract.
+
+<Callout type="info">
+  Physical settlement means actual tokens are exchanged, not just the cash difference. For a covered call, the buyer receives HYPE tokens. For a cash-secured put, the buyer receives stablecoins.
+</Callout>
+
+## Who calls the settle function?
+
+Anyone can call `settle()` on an expired, ITM option. The protocol uses a **keeper incentive** to ensure timely settlement:
+
+- The keeper who successfully calls `settle()` earns a fee (default 10 bps of the settlement notional, capped by `maxKeeperFee`).
+- Multiple keepers may compete to settle profitable positions. The first successful transaction wins.
+- The keeper fee is deducted from the settlement payout, not charged separately.
+
+In practice, automated keeper bots monitor expiring positions and call `settle()` shortly after the oracle price is published.
+
+## What are the keeper fees?
+
+The keeper fee is calculated as:
+
+```
+keeperFee = min(notional * keeperBps / 10000, maxKeeperFee)
+```
+
+With defaults of `keeperBps = 10` (0.10%) and a configurable `maxKeeperFee` absolute cap. The fee is small relative to the settlement value and serves as an incentive for timely settlement.
+
+See [Keeper Fees (Options)](/fees/keeper-fees-options) for detailed examples and the full formula.
+
+## What happens if no keeper settles my ITM option?
+
+If no keeper calls `settle()` within the 24-hour settlement window (from 08:00 UTC on the expiry day to 08:00 UTC the next day), the option expires without settlement. The locked collateral is returned to the seller.
+
+This means the ITM option holder loses the intrinsic value. While this scenario is extremely unlikely (the keeper fee provides a clear economic incentive to settle), it is a risk that participants should be aware of.
+
+<Callout type="warning">
+  If you hold an ITM option and want to guarantee settlement, you can act as your own keeper by calling `settle()` directly on the contract. You would pay the gas cost but receive the settlement payout minus the keeper fee that you yourself earn.
+</Callout>
+
+## What happens to OTM options at expiry?
+
+Options that expire out-of-the-money (OTM) do not require settlement. After the settlement window passes:
+
+- The seller can claim their locked collateral from the contract.
+- The buyer's position NFT becomes worthless.
+- No keeper action is needed for OTM options.
+
+## Can I transfer my option position?
+
+Yes. Each option position is represented as an ERC-721 NFT. You can transfer it to another address using standard NFT transfer methods (`transferFrom`, `safeTransferFrom`). The new holder inherits all rights associated with the position, including the right to receive settlement proceeds if the option is ITM.
+
+<Callout type="warning">
+  Transferring a position NFT transfers all associated rights and obligations. Ensure you understand the implications before transferring. A position sent to an incorrect or incompatible address may be lost permanently.
+</Callout>
+
+## Can I close a position before expiry?
+
+There is no built-in mechanism to close or "sell back" an option position before expiry in the current protocol version. However, since positions are ERC-721 NFTs, you could theoretically sell the NFT on a secondary market or negotiate an OTC transfer with another party.
+
+The most straightforward way to reduce exposure is to take an offsetting position (e.g., if you are long a call, sell a call at the same strike and expiry to another party via a new RFQ).
+
+## What collateral tokens are accepted?
+
+For options trading on HyperQuote:
+
+- **Covered calls** -- The seller locks the underlying token (e.g., HYPE/WHYPE) as collateral.
+- **Cash-secured puts** -- The seller locks stablecoins (USDC, USDH, or USDT0) at the strike price as collateral.
+- **Premium payments** -- The buyer (maker in V1) pays the premium in the collateral token denomination.
+
+## Related Pages
+
+- [Options Overview](/options/options-overview) -- Introduction to HyperQuote options
+- [Options RFQ Flow](/options/options-rfq-flow) -- Step-by-step options trading flow
+- [Settlement & Expiry](/options/settlement-and-expiry) -- Settlement lifecycle details
+- [Keeper Fees (Options)](/fees/keeper-fees-options) -- Keeper fee formula and examples
+- [Oracle Risk](/risk/oracle-risk) -- Settlement oracle trust assumptions

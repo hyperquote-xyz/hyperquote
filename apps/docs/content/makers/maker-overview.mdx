@@ -1,0 +1,100 @@
+# Maker Overview
+
+import { Callout } from 'nextra/components'
+
+Makers are the professional liquidity providers that power HyperQuote's spot RFQ system. Rather than depositing capital into a passive pool, makers actively compete to provide the best prices on token swaps requested by takers.
+
+<Callout type="info">
+  Makers connect via WebSocket, receive RFQ broadcasts in real-time, and submit signed quotes. The best price wins the fill.
+</Callout>
+
+## Who This Is For
+
+- **Professional market makers** looking for a selective quoting model on HyperEVM.
+- **Trading desks** that want to provide liquidity without passive AMM exposure.
+- **Algorithmic traders** who can price token pairs programmatically and respond to RFQs within seconds.
+- **OTC desks** looking to formalize bilateral trading through on-chain settlement.
+
+## What Makers Do
+
+When a taker submits a Request for Quote (RFQ) — for example, swapping 50,000 USDC for HYPE — the relay broadcasts that request to all connected makers. Each maker independently evaluates the RFQ, prices the trade based on current market conditions and their inventory, and submits a signed quote back through the relay.
+
+The taker selects the most competitive quote and executes it on-chain by calling the `fill` function on the SpotRFQ contract with the maker's EIP-712 signed quote.
+
+The maker transfers the output tokens to the taker, and the taker's input tokens (minus the protocol fee) are transferred to the maker. Settlement is atomic — both transfers happen in a single transaction or neither does.
+
+## How Makers Differ from AMM Liquidity Providers
+
+| Property | HyperQuote Maker | AMM LP |
+|---|---|---|
+| **Capital deployment** | Per-quote, on demand | Continuous pool deposit |
+| **Pricing** | Active, competitive quoting | Passive bonding curve |
+| **Impermanent loss** | None — makers choose each trade | Constant exposure to IL |
+| **Selectivity** | Full — filter by token pair, size, market conditions | No selectivity over trades |
+| **Downtime** | Can disconnect at any time | Capital always exposed |
+| **Inventory risk** | Controlled via position limits and hedging | Dictated by pool utilization |
+
+<Callout type="info">
+  Because makers actively choose which RFQs to quote on, they have zero passive exposure. If market conditions are unfavorable, the maker simply stops quoting — no capital is at risk.
+</Callout>
+
+## Revenue Model
+
+Makers earn revenue through **spread capture**. The spread is the difference between the market mid-price and the price the maker quotes to the taker.
+
+For example, if the mid-price of HYPE is $25.00 and the maker quotes a sell price of $25.05, the maker captures $0.05 per HYPE in edge on that fill. Over many fills, this spread accumulates as the maker's primary revenue stream.
+
+Key factors that influence spread revenue:
+
+- **Competition** — More makers quoting on the same RFQ compresses spreads. The most competitive maker wins the fill.
+- **Size** — Larger trades justify wider spreads to compensate for inventory risk.
+- **Volatility** — Higher market volatility requires wider spreads to account for price movement between quoting and settlement.
+- **Token liquidity** — Less liquid token pairs support wider spreads due to higher hedging costs.
+
+## The Maker Lifecycle
+
+1. **Connect** — Establish a WebSocket connection to the relay as a `maker` role.
+2. **Receive RFQ** — The relay pushes incoming RFQ broadcasts with token pair, amount, direction, and TTL.
+3. **Price the trade** — Evaluate the RFQ against your pricing model, inventory, and risk limits.
+4. **Sign a quote** — Construct an EIP-712 typed data quote with your offered price, deadline, and nonce. Sign it with your maker wallet.
+5. **Submit the quote** — Send the signed quote back through the relay (or directly to the taker for private RFQs).
+6. **Settlement** — If the taker selects your quote, they call `fill` on-chain. The contract verifies your signature and executes the atomic token swap.
+
+## Reliability Scoring
+
+Makers are tracked by a **reliability factor** that reflects their quoting behavior:
+
+```
+reliabilityFactor = clamp(1.1 - cancelRate * 1.5, 0.5, 1.1)
+```
+
+A maker who never cancels quotes has a reliability factor of 1.1 (a bonus), while a maker who frequently cancels is penalized down to 0.5. This score affects league ranking and may influence taker preferences for routing private RFQs.
+
+See [Reliability Score](/makers/maker-reliability-score) for full details.
+
+## Maker-Specific Features
+
+- **WebSocket relay connection** — Real-time, low-latency delivery of RFQ broadcasts and quote submission via persistent WebSocket.
+- **Private RFQ routing** — Takers can route RFQs exclusively to a named set of makers, giving those makers exclusive quoting opportunities.
+- **EIP-712 typed data signing** — All quotes are cryptographically signed, ensuring they are verifiable and non-repudiable on-chain.
+- **Nonce-based replay protection** — Each quote includes a monotonically increasing nonce. Makers can bulk-invalidate outstanding quotes by calling `incrementNonce()` on-chain.
+- **Agent API** — Programmatic RFQ management, quoting, and fill execution via bearer-token authenticated REST endpoints.
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| Your quote is not selected | No on-chain transaction occurs. You owe nothing and no gas is spent. |
+| You submit a quote after the RFQ TTL expires | The relay rejects the quote. It is never shown to the taker. |
+| Your quote is selected but you lack sufficient token balance | The on-chain `fill` transaction reverts. The taker's tokens remain in their wallet. Your reliability score is unaffected (the taker chose to fill a quote you could not cover). |
+| You want to cancel all outstanding quotes | Call `incrementNonce()` on the SpotRFQ contract. All quotes signed with a lower nonce become unfillable. |
+| Relay disconnects mid-session | Reconnect automatically or manually. Any quotes already submitted remain valid on-chain until their deadline. |
+| Multiple takers try to fill the same quote | Only the first `fill` transaction succeeds. The nonce is consumed, so subsequent attempts revert. |
+
+## Next Steps
+
+- [Relay Connection](/makers/relay-connection) — Connect to the WebSocket relay
+- [SDK Quickstart](/makers/maker-sdk-quickstart) — Get a maker bot running in 10 minutes
+- [Pricing Strategies](/makers/pricing-strategies) — Build a pricing model for spot RFQs
+- [Reliability Score](/makers/maker-reliability-score) — How your quoting behavior affects your ranking
+- [API Overview](/api/api-overview) — Programmatic access via REST and WebSocket

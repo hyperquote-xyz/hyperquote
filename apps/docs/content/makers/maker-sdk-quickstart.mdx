@@ -1,0 +1,386 @@
+# SDK Quickstart
+
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+Get a maker bot running in 10 minutes. This guide walks you through installing the `@hyperquote/sdk-maker` package, configuring your environment, connecting to the relay, and submitting your first signed quote.
+
+## Prerequisites
+
+- **Node.js 18+** with npm or pnpm
+- A running HyperQuote relay (see [Relay Connection](/makers/relay-connection))
+- An Ethereum private key for EIP-712 signing (Anvil account #1 works for local dev)
+- Basic familiarity with TypeScript and async/await
+
+<Steps>
+
+### Install the SDK
+
+<Tabs items={['npm', 'pnpm', 'monorepo']}>
+  <Tabs.Tab>
+```bash
+npm install @hyperquote/sdk-maker
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+pnpm add @hyperquote/sdk-maker
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+If you are working within the HyperQuote monorepo, the SDK is already available as a workspace dependency:
+
+```bash
+cd packages/sdk-maker
+npm install
+```
+  </Tabs.Tab>
+</Tabs>
+
+The SDK depends on `ethers` v6 for EIP-712 signing and `ws` for WebSocket connectivity. Both are listed as peer dependencies and will be installed automatically.
+
+### Configure Environment Variables
+
+Create a `.env` file in your project root, or export the following variables in your shell:
+
+```bash
+# Required -- signing key
+MAKER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+
+# Chain configuration
+CHAIN_ID=31337
+ENGINE_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+# Relay
+RELAY_WS_URL=ws://127.0.0.1:8080
+
+# Token addresses (V1)
+WHYPE_ADDRESS=0x0000000000000000000000000000000000000001
+USDC_ADDRESS=0x0000000000000000000000000000000000000002
+USDH_ADDRESS=0x0000000000000000000000000000000000000003
+
+# Market data
+HYPE_SPOT_USD=25
+HYPE_IV_BPS=8000
+RISK_FREE_RATE_BPS=500
+```
+
+<Callout type="warning">
+  The default `MAKER_PRIVATE_KEY` above is Anvil account #1. Never use this key on a live network. For production, use a dedicated hot wallet with limited funds and rotate keys regularly.
+</Callout>
+
+#### Environment Variable Reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `MAKER_PRIVATE_KEY` | Anvil account #1 | Hex-encoded private key for EIP-712 signing |
+| `CHAIN_ID` | `31337` | EIP-712 domain chain ID |
+| `ENGINE_ADDRESS` | `0x5FbDB...` | Deployed `OptionsEngine` contract address |
+| `RELAY_WS_URL` | `ws://127.0.0.1:8080` | WebSocket URL of the relay server |
+| `WHYPE_ADDRESS` | `0x...001` | WHYPE token address |
+| `USDC_ADDRESS` | `0x...002` | USDC token address |
+| `USDH_ADDRESS` | `0x...003` | USDH token address |
+| `HYPE_SPOT_USD` | `25` | Current HYPE spot price in USD |
+| `HYPE_IV_BPS` | `8000` | Implied volatility in basis points (8000 = 80%) |
+| `RISK_FREE_RATE_BPS` | `500` | Risk-free rate in basis points (500 = 5%) |
+
+### Create a MakerClient
+
+The SDK exports all the building blocks you need. Here is how to set up the core components:
+
+```ts
+import { Wallet } from "ethers";
+import WebSocket from "ws";
+import {
+  rfqFromJson,
+  quoteToJson,
+  signQuote,
+  StubPricingEngine,
+  RiskState,
+  checkRisk,
+  computeNotional,
+} from "@hyperquote/sdk-maker";
+import type {
+  Quote,
+  MakerConfig,
+  MarketData,
+  RFQBroadcastMessage,
+  QuoteSubmitMessage,
+  RelayMessage,
+} from "@hyperquote/sdk-maker";
+
+// 1. Initialize wallet from private key
+const wallet = new Wallet(process.env.MAKER_PRIVATE_KEY!);
+
+// 2. Chain configuration
+const chainId = parseInt(process.env.CHAIN_ID ?? "31337");
+const engineAddress =
+  process.env.ENGINE_ADDRESS ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
+// 3. Pricing engine (uses Black-Scholes with configurable vol surface)
+const pricingEngine = new StubPricingEngine();
+
+// 4. Risk state tracker (per-expiry delta buckets + per-collateral notional)
+const riskState = new RiskState();
+
+// 5. Market data snapshot
+const spotPriceUsd = parseFloat(process.env.HYPE_SPOT_USD ?? "25");
+const market: MarketData = {
+  spotPrice: BigInt(Math.round(spotPriceUsd * 1e18)),
+  ivBps: parseInt(process.env.HYPE_IV_BPS ?? "8000"),
+  riskFreeRateBps: parseInt(process.env.RISK_FREE_RATE_BPS ?? "500"),
+};
+
+// 6. Nonce counter (increments with each submitted quote)
+let nonce = 0n;
+```
+
+### Connect to the Relay WebSocket
+
+Open a persistent WebSocket connection to the relay. The relay requires no authentication -- all connected clients receive `RFQ_BROADCAST` messages immediately.
+
+```ts
+const relayUrl = process.env.RELAY_WS_URL ?? "ws://127.0.0.1:8080";
+const ws = new WebSocket(relayUrl);
+
+ws.on("open", () => {
+  console.log("[CONNECTED] Relay WebSocket open");
+});
+
+ws.on("error", (err) => {
+  console.error("[WS ERROR]", err.message);
+});
+
+ws.on("close", () => {
+  console.log("[DISCONNECTED] Reconnecting in 3s...");
+  setTimeout(() => { /* reconnect logic */ }, 3000);
+});
+```
+
+<Callout type="info">
+  The relay sends `PING` messages every 30 seconds. Your bot must respond with `PONG` to keep the connection alive. See [Relay Connection](/makers/relay-connection) for the full heartbeat protocol.
+</Callout>
+
+### Handle RFQ Events
+
+Listen for incoming `RFQ_BROADCAST` messages and process them through the quoting pipeline:
+
+```ts
+ws.on("message", async (raw) => {
+  const msg: RelayMessage = JSON.parse(raw.toString());
+
+  // Respond to relay keepalive
+  if (msg.type === "PING") {
+    ws.send(JSON.stringify({ type: "PONG", data: {} }));
+    return;
+  }
+
+  // Log relay errors
+  if (msg.type === "ERROR") {
+    console.error("[RELAY ERROR]", (msg.data as { message: string }).message);
+    return;
+  }
+
+  // Process RFQ broadcasts
+  if (msg.type === "RFQ_BROADCAST") {
+    const broadcast = msg as unknown as RFQBroadcastMessage;
+    const rfq = rfqFromJson(broadcast.data.rfq);
+    const rfqId = broadcast.data.rfqId;
+
+    console.log(`[RFQ] ${rfqId.slice(0, 14)}... ${rfq.isCall ? "CC" : "CSP"}`);
+
+    // ... filter, price, risk check, build quote, sign, submit
+  }
+});
+```
+
+### Submit a Signed Quote
+
+Once you have priced the RFQ and passed risk checks, build the `Quote` struct, sign it with EIP-712, and submit it to the relay:
+
+```ts
+// Build the quote (most fields mirror the RFQ)
+const now = BigInt(Math.floor(Date.now() / 1000));
+const quote: Quote = {
+  maker: wallet.address,
+  taker: "0x0000000000000000000000000000000000000000", // open quote
+  underlying: rfq.underlying,
+  collateral: rfq.collateral,
+  isCall: rfq.isCall,
+  isMakerSeller: false,  // V1 requirement: maker is always the buyer
+  strike: rfq.strike,
+  quantity: rfq.quantity,
+  premium: pricingResult.premium,  // from your pricing engine
+  expiry: rfq.expiry,
+  deadline: now + 120n,  // quote valid for 2 minutes
+  nonce: nonce,
+};
+
+// Sign with EIP-712
+const signature = await signQuote(wallet, quote, chainId, engineAddress);
+
+// Submit to relay
+const submitMsg: QuoteSubmitMessage = {
+  type: "QUOTE_SUBMIT",
+  data: {
+    rfqId,
+    quote: quoteToJson(quote),
+    makerSig: signature,
+  },
+};
+ws.send(JSON.stringify(submitMsg));
+
+// Advance nonce for next quote
+nonce += 1n;
+
+console.log(`[QUOTE] Submitted for ${rfqId.slice(0, 14)}...`);
+```
+
+</Steps>
+
+## Run the Bundled Relay Bot
+
+The SDK includes a ready-to-run relay bot at `src/makerRelay.ts`:
+
+```bash
+npx tsx src/makerRelay.ts
+```
+
+You should see output like:
+
+```
+=== HyperQuote Maker Bot (Relay Mode) ===
+  Maker:    0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  Chain ID: 31337
+  Engine:   0x5FbDB2315678afecb367f032d93F642f64180aa3
+  Relay:    ws://127.0.0.1:8080
+  Spot:     $25
+
+[CONNECTED] Relay WebSocket open
+```
+
+When a taker submits an RFQ, the bot logs each pipeline stage:
+
+```
+[RFQ] 0xabc123def456... CSP K=$25 Q=1 exp=1700121600
+  [PRICE] premium=1500000 delta=-0.4200 iv=82.5%
+  [QUOTE] Submitted nonce=0 premium=1500000 sig=0x1234abcd...
+```
+
+## Run in Offline Mode (No Relay Required)
+
+For testing pricing and risk logic without a live relay, use the mock feed:
+
+```bash
+npx tsx src/main.ts
+```
+
+This processes a built-in set of mock RFQs and outputs signed quotes to the console, including EIP-712 signature verification:
+
+```
+=== HyperQuote Maker Bot (Mock Feed) ===
+  Maker:    0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  Chain ID: 31337
+  Spot:     $25
+  IV:       80%
+
+Loaded 6 RFQs from mock feed
+
+--- RFQ #1 [0xabc123def4...] ---
+  CSP WHYPE K=$25 Q=1 exp=1700121600
+  PRICE: premium=$1.5000 (1500000 units) delta=-0.4200 iv=82.5%
+  QUOTE: nonce=0 deadline=1700035320
+  SIG:   0x1a2b3c4d5e6f7890...abcdef12
+  VERIFY: OK
+```
+
+## Minimal Working Example
+
+A complete maker bot in under 30 lines, suitable for copy-paste:
+
+```ts
+import { Wallet } from "ethers";
+import WebSocket from "ws";
+import {
+  rfqFromJson, quoteToJson, signQuote,
+  StubPricingEngine, RiskState, checkRisk, computeNotional,
+} from "@hyperquote/sdk-maker";
+import type { Quote, RFQBroadcastMessage, QuoteSubmitMessage } from "@hyperquote/sdk-maker";
+
+const wallet = new Wallet(process.env.MAKER_PRIVATE_KEY!);
+const chainId = parseInt(process.env.CHAIN_ID ?? "31337");
+const engine = process.env.ENGINE_ADDRESS ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const pricing = new StubPricingEngine();
+const riskState = new RiskState();
+let nonce = 0n;
+
+const ws = new WebSocket(process.env.RELAY_WS_URL ?? "ws://127.0.0.1:8080");
+
+ws.on("message", async (raw) => {
+  const msg = JSON.parse(raw.toString());
+  if (msg.type === "PING") { ws.send(JSON.stringify({ type: "PONG", data: {} })); return; }
+  if (msg.type !== "RFQ_BROADCAST") return;
+
+  const { rfqId, rfq: rfqJson } = (msg as RFQBroadcastMessage).data;
+  const rfq = rfqFromJson(rfqJson);
+  const result = pricing.price(rfq, { spotPrice: 25_000000000000000000n, ivBps: 8000, riskFreeRateBps: 500 }, 6);
+
+  const quote: Quote = {
+    maker: wallet.address, taker: "0x" + "0".repeat(40),
+    underlying: rfq.underlying, collateral: rfq.collateral,
+    isCall: rfq.isCall, isMakerSeller: false,
+    strike: rfq.strike, quantity: rfq.quantity,
+    premium: result.premium, expiry: rfq.expiry,
+    deadline: BigInt(Math.floor(Date.now() / 1000)) + 120n, nonce: nonce++,
+  };
+
+  const sig = await signQuote(wallet, quote, chainId, engine);
+  const submitMsg: QuoteSubmitMessage = { type: "QUOTE_SUBMIT", data: { rfqId, quote: quoteToJson(quote), makerSig: sig } };
+  ws.send(JSON.stringify(submitMsg));
+  console.log(`Quoted ${rfqId.slice(0, 14)}... premium=${result.premium}`);
+});
+```
+
+## Understanding the Pipeline
+
+Each RFQ goes through a sequential pipeline before a quote is submitted:
+
+1. **Filter** -- Check underlying, collateral, and expiry validity against the maker's allowlists.
+2. **Price** -- Compute premium via Black-Scholes with the vol surface.
+3. **Min premium check** -- Skip if the computed premium is below the taker's `minPremium`.
+4. **Risk check** -- Validate against tenor, strike deviation, notional, and delta limits.
+5. **Build quote** -- Construct the `Quote` struct with all required fields.
+6. **Sign** -- EIP-712 typed data signing with the maker's private key.
+7. **Record risk** -- Update exposure state (delta buckets, notional tracking).
+8. **Submit** -- Send `QUOTE_SUBMIT` to the relay.
+
+If any step fails, the RFQ is skipped and the bot moves on to the next broadcast.
+
+## Verifying Relay Connectivity
+
+Check that the relay is running and reachable before starting your bot:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "chainId": 31337,
+  "engineAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "activeRfqs": 0,
+  "totalQuotes": 0,
+  "connectedClients": 0,
+  "uptime": 42
+}
+```
+
+## Next Steps
+
+- [Auto-Quoting Bot](/makers/auto-quoting-bot) -- Understand the full pipeline and all customization points.
+- [Pricing Strategies](/makers/pricing-strategies) -- Replace the stub BSM engine with a custom model.
+- [Risk Management](/makers/risk-management) -- Configure risk limits for production.
+- [SDK Reference](/makers/maker-sdk-reference) -- Full API documentation for every module, class, and function.
+- [EIP-712 Signing](/makers/eip712-signing) -- Deep dive into the signing and verification protocol.

@@ -1,0 +1,204 @@
+# Private RFQ Routing
+
+import { Callout, Steps } from 'nextra/components'
+
+Private RFQ routing allows takers to send RFQs exclusively to a named set of makers, rather than broadcasting to the entire network. This gives selected makers exclusive quoting opportunities and prevents the broader market from seeing the order flow.
+
+## What Are Private RFQs?
+
+In the standard (public) flow, every maker connected to the relay receives every `RFQ_BROADCAST`. Private RFQs change this: the taker specifies an `allowedMakers` list of Ethereum addresses, and the relay delivers the broadcast only to those makers. All other connected makers never see the RFQ.
+
+```
+Taker submits RFQ with allowedMakers: [makerA, makerB]
+       |
+  Relay validates RFQ (signature, params, expiry)
+       |
+  Relay checks allowedMakers list
+       |
+  RFQ_BROADCAST sent ONLY to makerA and makerB
+       |
+  makerC, makerD, ... never see the RFQ
+```
+
+## Public vs Private RFQs
+
+| Property | Public RFQ | Private RFQ |
+|---|---|---|
+| **Broadcast** | All connected makers | Only `allowedMakers` addresses |
+| **Competition** | Maximum -- all makers can quote | Limited to invited makers |
+| **Information leakage** | Full -- all participants see the intent | None for non-targeted makers |
+| **Feed visibility** | Appears on the live RFQ feed | Hidden from the public feed |
+| **Max active per wallet** | 3 | 5 |
+| **Points multiplier** | None | 1.10x on fills \>= $50K notional |
+
+For a full comparison from the taker's perspective, see [Public vs Private RFQs](/trading/public-vs-private-rfqs).
+
+## Use Cases
+
+### OTC Desk Relationships
+
+Institutional takers often maintain relationships with preferred makers who consistently provide good liquidity at competitive prices. Private routing allows these takers to funnel large block trades exclusively to trusted counterparties, avoiding information leakage on the public feed.
+
+### Preferred Pricing Arrangements
+
+A maker and taker may negotiate preferred terms (tighter spreads, larger sizes, guaranteed response times). Private RFQs formalize this relationship within the protocol -- the taker routes exclusively to the maker, and the maker provides preferential pricing in return.
+
+### Block Trade Confidentiality
+
+Large trades broadcast publicly can cause adverse price movement before the taker executes. By routing privately to 1-3 trusted makers, the taker preserves confidentiality and reduces the risk of front-running on other venues.
+
+### Self-Quoting and Internal Crosses
+
+A special case is **intra-taker mode**, where the taker and maker are the same entity. This is useful for OTC desks executing internal crosses or market makers rebalancing inventory through the protocol.
+
+<Callout type="warning">
+  Self-trades where `maker === taker` receive zero points. The points engine includes a self-trade guard that sets the multiplier to 0.0 for any fill where the maker and taker addresses match.
+</Callout>
+
+## How the Relay Filters Private RFQs
+
+When the relay receives an `RFQ_SUBMIT` message with a non-empty `allowedMakers` array, it performs the following:
+
+<Steps>
+
+### Validate the RFQ
+
+Standard validation: signature verification, parameter checks, expiry validation, timestamp anti-replay. This is identical to public RFQ validation.
+
+### Check the allowedMakers list
+
+The relay iterates over connected WebSocket clients and matches their registered maker addresses against the `allowedMakers` list.
+
+### Deliver the broadcast
+
+Only clients whose maker address appears in `allowedMakers` receive the `RFQ_BROADCAST` message. All other connected clients are silently skipped.
+
+### Accept quotes
+
+Only quotes from addresses in the `allowedMakers` list are accepted. If a non-listed maker somehow submits a quote (e.g., by guessing the `rfqId`), the relay rejects it with an `ERROR` message.
+
+</Steps>
+
+## How to Identify Private RFQs in the SDK
+
+From a maker's perspective, **private RFQs are indistinguishable from public ones**. They arrive through the exact same `RFQ_BROADCAST` message type. There is no special flag, header, or field indicating that the RFQ is private.
+
+The key insight: if your bot receives a broadcast, you are on the `allowedMakers` list (or the RFQ is public). Either way, process it through your normal pipeline.
+
+```ts
+ws.on("message", async (raw) => {
+  const msg = JSON.parse(raw.toString());
+  if (msg.type === "RFQ_BROADCAST") {
+    // This could be a public OR private RFQ
+    // Either way, process it through the normal pipeline
+    const rfq = rfqFromJson(msg.data.rfq);
+    const rfqId = msg.data.rfqId;
+    await processRfq(rfqId, rfq);
+  }
+});
+```
+
+<Callout type="info">
+  Private RFQs are indistinguishable from public ones at the maker level. The filtering is handled entirely by the relay. Your bot does not need any special handling for private vs public RFQs.
+</Callout>
+
+## Taker-Side Configuration
+
+Takers specify private routing when constructing their RFQ submission. The `allowedMakers` field is an array of Ethereum addresses:
+
+```ts
+const rfqSubmission = {
+  type: "RFQ_SUBMIT",
+  data: {
+    rfq: rfqJson,
+    userSig: signature,
+    allowedMakers: [
+      "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "0xAnotherMakerAddress...",
+    ],
+  },
+};
+```
+
+<Callout type="warning">
+  If the `allowedMakers` list is empty or omitted, the RFQ is treated as public and broadcast to all connected makers. Takers must explicitly include maker addresses to enable private routing.
+</Callout>
+
+## Bilateral RFQ Import (Off-Relay)
+
+For fully bilateral or OTC-style workflows, a taker can share a private RFQ directly with a maker as a JSON payload, bypassing the relay entirely. This is useful when both parties are communicating over a separate channel (API, chat, email).
+
+### Workflow
+
+1. The taker constructs an RFQ JSON and shares it with the maker.
+2. The maker imports the RFQ, prices it, signs a quote, and returns the signed quote to the taker.
+3. The taker calls `OptionsEngine.execute(quote, signature)` on-chain. No relay involvement.
+
+### Maker-Side Import
+
+```ts
+import { rfqFromJson, computeRfqIdFromJson } from "@hyperquote/sdk-maker";
+
+// Receive a private RFQ JSON from the taker (e.g., via API, chat, email)
+const rfqJson = {
+  requester: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  underlying: "0x0000000000000000000000000000000000000001",
+  collateral: "0x0000000000000000000000000000000000000002",
+  isCall: false,
+  strike: "0x15af1d78b58c40000",
+  quantity: "0xde0b6b3a7640000",
+  expiry: "0x6555f400",
+  minPremium: "0x7a120",
+  timestamp: "0x6554a600",
+};
+
+// Compute the rfqId (deterministic, matches relay computation)
+const rfqId = computeRfqIdFromJson(rfqJson);
+
+// Deserialize and process through your pricing pipeline
+const rfq = rfqFromJson(rfqJson);
+
+// ... price, build quote, sign, return signed quote to taker
+```
+
+The taker then executes on-chain:
+
+```ts
+// Taker side: execute the maker's signed quote on-chain
+await optionsEngine.execute(quote, makerSignature);
+```
+
+## Becoming a Preferred Maker
+
+To be included in takers' private RFQ allowlists, focus on building a reputation for quality:
+
+1. **Consistent pricing** -- Takers prefer makers who provide competitive quotes reliably across market conditions.
+2. **High fill rate** -- Avoid cancelling quotes after submission. Quote expiry via `deadline` is normal; active cancellation is penalized.
+3. **Large size capacity** -- Takers route block trades to makers who can handle the full size without splitting.
+4. **Low latency** -- Faster quote responses improve the taker's experience and increase their confidence in routing to you.
+5. **Reliability score** -- A high [reliability factor](/makers/maker-reliability-score) signals trustworthiness and directly affects your league ranking.
+6. **Direct relationships** -- Reach out to active takers and OTC desks. Private routing is relationship-driven.
+
+## Points Multiplier for Private Fills
+
+Private fills that meet the notional threshold receive a points multiplier:
+
+| Condition | Requirement |
+|---|---|
+| RFQ visibility | Private |
+| Fill notional | \>= $50,000 USD |
+| Points multiplier | 1.10x |
+| League score multiplier | 1.05x |
+
+The privacy multiplier stacks with other multipliers (improvement, repeat decay, NFT boost) and is subject to the global multiplier floor (0.5x) and cap (3.0x).
+
+<Callout type="info">
+  If the benchmark is unavailable for a private fill, a 0.9x penalty multiplier is applied instead of the standard 1.0x, to discourage fills that cannot be verified against market benchmarks.
+</Callout>
+
+## Next Steps
+
+- [Public vs Private RFQs](/trading/public-vs-private-rfqs) -- Full comparison from the taker's perspective.
+- [Reliability Score](/makers/maker-reliability-score) -- How your quoting behavior affects routing priority.
+- [Receiving RFQs](/makers/receiving-rfqs) -- The complete `RFQ_BROADCAST` message format and filtering.
+- [SDK Quickstart](/makers/maker-sdk-quickstart) -- Get a maker bot running to start receiving private RFQs.

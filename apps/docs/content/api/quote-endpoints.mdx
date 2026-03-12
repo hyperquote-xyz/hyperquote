@@ -1,0 +1,154 @@
+# Quote Endpoints
+
+import { Callout, Tabs } from 'nextra/components'
+
+These endpoints handle quote submission and retrieval. Makers submit signed quotes in response to RFQ broadcasts, and takers retrieve them to compare pricing.
+
+## Submit Quote (Public)
+
+### `POST /api/v1/quotes`
+
+Submits a signed quote in response to an active RFQ. The quote is validated and broadcast to all feed subscribers.
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `rfqId` | `string` | Yes | The RFQ this quote responds to |
+| `quote` | `RFQQuoteJSON` | Yes | Quote parameters (see schema below) |
+| `token` | `string` | No | Share token (required for private RFQs) |
+
+#### Quote Schema (`RFQQuoteJSON`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `maker` | `string` | Maker wallet address |
+| `taker` | `string` | Taker wallet address (from the RFQ) |
+| `tokenIn` | `string` | Input token address |
+| `tokenOut` | `string` | Output token address |
+| `amountIn` | `string` | Input amount (BigInt string) |
+| `amountOut` | `string` | Output amount (BigInt string) |
+| `expiry` | `number` | Quote expiry (Unix seconds) |
+| `nonce` | `string` | Unique nonce for replay protection |
+| `signature` | `string` | EIP-712 signature from the maker |
+
+#### Example Request
+
+```ts
+const res = await fetch("https://hyperquote.xyz/api/v1/quotes", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    rfqId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    quote: {
+      maker: "0xAbCd1234567890abcdef1234567890abcdef1234",
+      taker: "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      tokenIn: "0xb88339cb...",
+      tokenOut: "0x55555555...",
+      amountIn: "1000000000",
+      amountOut: "50000000000000000000",
+      expiry: 1710086460,
+      nonce: "42",
+      signature: "0x...",
+    },
+  }),
+});
+```
+
+#### Response (200 OK -- Accepted)
+
+```json
+{
+  "accepted": true
+}
+```
+
+#### Response (400 -- Rejected)
+
+```json
+{
+  "accepted": false,
+  "reason": "RFQ not found or expired"
+}
+```
+
+Common rejection reasons:
+
+| Reason | Description |
+|--------|-------------|
+| `"Missing rfqId or quote"` | Required fields not provided |
+| `"RFQ not found or expired"` | The referenced RFQ is no longer active |
+| `"Duplicate quote from this maker"` | One quote per maker per RFQ |
+| `"Invalid signature"` | Quote signature verification failed |
+
+## Submit Quote (Agent)
+
+### `POST /api/v1/agent/rfqs/:id/quotes`
+
+Agent-authenticated version of quote submission. Requires the `maker` role.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | RFQ ID to submit a quote for |
+
+The request body and response format are the same as the public quote endpoint.
+
+## List Agent Quotes
+
+### `GET /api/v1/agent/quotes`
+
+Returns quotes associated with the authenticated agent.
+
+**Headers:** `Authorization: Bearer hq_live_...`
+
+#### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `status` | `string` | -- | Filter by quote status |
+| `limit` | `number` | `50` | Results per page (max 100) |
+| `cursor` | `string` | -- | Pagination cursor |
+
+#### Response
+
+```json
+{
+  "quotes": [
+    {
+      "id": "clx9quote123...",
+      "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "maker": "0xAbCd...",
+      "amountIn": "1000000000",
+      "amountOut": "50000000000000000000",
+      "status": "SUBMITTED",
+      "createdAt": "2026-03-10T16:00:05.000Z"
+    }
+  ],
+  "nextCursor": "clx9quote789..."
+}
+```
+
+## Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Invalid JSON body, missing rfqId or quote |
+| `400` | Quote validation failed (expired, duplicate, invalid signature) |
+| `401` | Missing or invalid authentication (agent endpoints) |
+| `403` | Insufficient role permissions |
+
+<Callout type="info">
+  Quotes can also be submitted via the WebSocket relay for lower-latency delivery. See [Relay WebSocket Protocol](/api/relay-websocket-protocol) for the `QUOTE_SUBMIT` message format.
+</Callout>
+
+## Related Pages
+
+- [API Overview](/api/api-overview) — Endpoint index and response format
+- [RFQ Endpoints](/api/rfq-endpoints) — Create and query RFQs
+- [Fill Endpoints](/api/fill-endpoints) — Record completed fills
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — Real-time quote submission via WebSocket
+- [Error Codes](/api/error-codes) — Full error reference

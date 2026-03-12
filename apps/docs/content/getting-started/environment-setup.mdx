@@ -1,0 +1,310 @@
+# Environment Setup
+
+import { Callout, Steps } from 'nextra/components'
+
+This guide covers how to set up a local development environment for the full HyperQuote protocol stack: the UI, relay, terminal services, SDK, and smart contracts.
+
+## Prerequisites
+
+Before starting, ensure you have the following installed:
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **Node.js** | 18+ | Runtime for all TypeScript packages |
+| **npm** | 9+ | Workspace-aware package manager |
+| **Foundry** (`forge`, `anvil`, `cast`) | Latest | Solidity compiler, local testnet, and CLI tools |
+| **Git** | 2.x | Source control (with submodule support) |
+
+Install Foundry if you do not have it:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+## Monorepo Structure
+
+The HyperQuote monorepo (`hyperquote-v3`) uses npm workspaces to manage all packages from a single root:
+
+```
+hyperquote-v3/
+  apps/
+    hyperquote-ui/        # Next.js 15 + React 19 frontend (spot RFQ, options, terminal, maker dashboard)
+    docs/                 # Nextra documentation site (this site)
+  packages/
+    sdk-maker/            # Maker SDK — EIP-712 signing, pricing, risk, relay client
+    sdk-agent/            # Agent SDK — programmatic RFQ agent
+  services/
+    relay/                # WebSocket + REST relay server for RFQ/quote broadcast
+    terminal-api/         # REST API serving market data to the terminal UI
+    terminal-ingest/      # Background ingestion of on-chain data and IV feeds
+  contracts/
+    options/              # Foundry project — OptionsEngine, QuoteLib, settlement contracts
+```
+
+The workspaces defined in the root `package.json` are:
+
+```json
+{
+  "workspaces": [
+    "apps/hyperquote-ui",
+    "packages/sdk-maker",
+    "packages/sdk-agent",
+    "services/relay",
+    "services/terminal-api",
+    "services/terminal-ingest"
+  ]
+}
+```
+
+## Getting Started
+
+<Steps>
+
+### Clone the repository
+
+```bash
+git clone https://github.com/hyperquote/hyperquote-v3.git
+cd hyperquote-v3
+```
+
+If the repo uses git submodules for Foundry dependencies (forge-std, openzeppelin-contracts), initialize them:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Install all dependencies
+
+From the monorepo root, a single `npm install` installs dependencies for every workspace:
+
+```bash
+npm install
+```
+
+This creates a single `node_modules` tree at the root with symlinks for each workspace package.
+
+### Configure environment variables
+
+The UI requires a `.env.local` file. Copy the example and review the defaults:
+
+```bash
+cp apps/hyperquote-ui/.env.example apps/hyperquote-ui/.env.local
+```
+
+Key variables for local development:
+
+```bash
+# Deployed contract address (Anvil default from forge script)
+NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+# Chain configuration
+NEXT_PUBLIC_CHAIN_ID=999999
+NEXT_PUBLIC_CHAIN_NAME=HyperEVM
+NEXT_PUBLIC_RPC_URL=https://rpc.hyperevm.io
+
+# Service URLs (localhost defaults)
+NEXT_PUBLIC_RELAY_WS_URL=ws://127.0.0.1:8080
+NEXT_PUBLIC_TERMINAL_API_URL=http://127.0.0.1:4200
+NEXT_PUBLIC_USE_RELAY=false
+
+# Feature flags
+NEXT_PUBLIC_ENABLE_OPTIONS=false
+NEXT_PUBLIC_ENABLE_TERMINAL=false
+
+# Optional — WalletConnect (leave empty to use injected wallets only)
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
+```
+
+<Callout type="warning">
+The preflight script (`scripts/preflight.mjs`) runs automatically before `next dev` and `next build`. In development mode, missing variables fall back to safe defaults. In production (`NODE_ENV=production`), missing critical variables cause the build to fail.
+</Callout>
+
+### Run the preflight check
+
+You can run the preflight check standalone to verify your environment:
+
+```bash
+cd apps/hyperquote-ui
+node scripts/preflight.mjs
+```
+
+A successful output shows green checkmarks for configured variables and yellow warnings for variables using defaults.
+
+### Start the development server
+
+From the monorepo root, use the workspace scripts:
+
+```bash
+# Start just the UI (most common for frontend work)
+npm run dev:ui
+
+# Start the relay (needed for live RFQ/quote flow)
+npm run dev:relay
+
+# Start everything in parallel (UI + relay + terminal API)
+npm run dev:all
+```
+
+The UI runs on `http://localhost:3000`, the relay on `ws://127.0.0.1:8080`, and the terminal API on `http://127.0.0.1:4200`.
+
+### Verify the setup
+
+Open `http://localhost:3000` in your browser. You should see the HyperQuote landing page. Connect a wallet configured for HyperEVM (see [Connect Wallet](/getting-started/connect-wallet)).
+
+</Steps>
+
+## Working with Individual Workspaces
+
+Each workspace has its own scripts. You can run them from the root using `npm run --workspace=` or from the workspace directory directly.
+
+### UI (`apps/hyperquote-ui`)
+
+```bash
+# Development server
+npm run dev:ui
+
+# Production build
+NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS=0x... npm run build:ui
+
+# Linting
+npm run lint:ui
+
+# Type checking
+npm run typecheck:ui
+```
+
+<Callout>
+For production builds, `NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS` must be set as a shell environment variable **before** running the build command. The preflight script validates this and will reject builds with a missing or zero address.
+</Callout>
+
+### Maker SDK (`packages/sdk-maker`)
+
+```bash
+# Build
+npm run build:sdk
+
+# Run tests (Vitest)
+npm run test:sdk
+
+# Type check
+npm run typecheck:sdk
+
+# Run the relay-connected maker bot
+npm run dev:relay --workspace=packages/sdk-maker
+```
+
+### Relay (`services/relay`)
+
+```bash
+# Development (tsx hot-reload)
+npm run dev:relay
+
+# Build for production
+npm run build:relay
+
+# Type check
+npm run typecheck:relay
+```
+
+The relay accepts configuration via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RELAY_PORT` | `8080` | HTTP + WebSocket listen port |
+| `RFQ_TTL_SECS` | `60` | How long RFQs remain active |
+| `RATE_LIMIT_PER_MIN` | `30` | Max messages per minute per IP |
+| `CHAIN_ID` | `31337` | EIP-712 domain chain ID |
+| `ENGINE_ADDRESS` | `0x5FbDB...` | OptionsEngine address for signature verification |
+
+### Terminal Services (`services/terminal-api`, `services/terminal-ingest`)
+
+```bash
+# Terminal API server
+npm run dev:terminal-api
+
+# Terminal ingestion service
+npm run dev:terminal-ingest
+
+# Type check
+npm run typecheck:terminal-api
+npm run typecheck:terminal-ingest
+```
+
+## Smart Contracts (Foundry)
+
+The contracts live at `contracts/options/` and use Foundry with Solidity 0.8.24.
+
+### Setup
+
+```bash
+cd contracts/options
+
+# Install Foundry dependencies (if submodules not yet initialized)
+forge install
+
+# Build contracts
+forge build
+
+# Run tests
+forge test
+
+# Run tests with verbose output
+forge test -vvv
+```
+
+### Foundry Configuration
+
+The `foundry.toml` configures:
+
+```toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.24"
+via_ir = true
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+```
+
+<Callout type="info">
+The `via_ir` flag is enabled, which routes compilation through the Yul intermediate representation. This produces more optimized bytecode but increases compile times. If you need faster iteration during development, you can temporarily disable it.
+</Callout>
+
+### Local Testnet with Anvil
+
+For end-to-end testing with the UI, run a local Anvil instance:
+
+```bash
+# Start Anvil with chain ID 31337 (default)
+anvil
+
+# Deploy contracts to Anvil
+forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
+Update your `.env.local` to point at the local Anvil RPC and the deployed contract address.
+
+## Useful Root-Level Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev:all` | Start UI + relay + terminal API concurrently |
+| `npm run build:all` | Build SDK, relay, terminal services, then UI |
+| `npm run typecheck:all` | Type-check all workspaces in sequence |
+| `npm run check:all` | Lint, type-check, and build everything |
+| `npm run clean` | Remove all build artifacts (`.next`, `dist`) |
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `preflight.mjs` fails with missing address | Set `NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS` in `.env.local` or as a shell env var |
+| `npm install` peer dependency warnings | These are generally safe to ignore. The workspaces are tested with the pinned versions. |
+| Relay connection refused | Ensure `npm run dev:relay` is running and `NEXT_PUBLIC_USE_RELAY=true` is set |
+| Forge build fails on submodule imports | Run `git submodule update --init --recursive` then `forge install` |
+| Port 3000 already in use | Kill the existing process or set `PORT=3001` before running `npm run dev:ui` |
+| TypeScript errors after pulling | Run `npm install` to pick up any new dependencies, then `npm run typecheck:all` |

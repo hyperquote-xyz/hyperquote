@@ -1,0 +1,81 @@
+# Points Overview
+
+import { Callout } from 'nextra/components'
+
+The HyperQuote Points Program rewards active participation in the protocol's liquidity ecosystem. Points are earned on every filled trade and reflect the quality, size, and consistency of a participant's trading activity. The program is designed to incentivize genuine liquidity activity rather than passive holding or wash trading.
+
+## Purpose
+
+The points program serves three goals:
+
+1. **Reward liquidity activity** -- Both makers and takers earn points for contributing to real price discovery and execution on the protocol.
+2. **Incentivize quality** -- Points multipliers reward price improvement, privacy-enhancing behavior, and reliable quoting.
+3. **Build reputation** -- Accumulated points feed into leaderboard rankings and league standings, creating a public track record for participants.
+
+## How Points Are Earned
+
+Points are awarded on every **filled trade** (both spot RFQ and options RFQ). The point award is computed at the time the on-chain settlement transaction is confirmed. Both the maker and the taker involved in the fill receive points, though the scoring formulas differ slightly by role.
+
+The point calculation involves three components:
+
+1. **Base points** -- Derived from the USD notional value of the trade using a sublinear formula. See [Base Points Formula](/points/base-points-formula).
+2. **Multipliers** -- A product of several adjustment factors including price improvement, privacy, and pair-repeat decay. See [Multipliers](/points/multipliers).
+3. **NFT boosts** -- Holders of eligible NFT collections receive a multiplicative boost on all points earned. See [NFT Boosts](/points/nft-boosts).
+
+The final formula is:
+
+```
+points = basePoints * multiplierProduct * nftBoost
+```
+
+<Callout type="info">
+  Points are awarded to the on-chain address that executed the trade. For makers, this is the address that signed the EIP-712 quote. For takers, this is the address that submitted the settlement transaction.
+</Callout>
+
+## Leaderboard
+
+The points leaderboard ranks all participants by cumulative points earned. The leaderboard is publicly visible in the HyperQuote UI and updates after each filled trade.
+
+Key leaderboard features:
+
+- **Global ranking** -- All participants ranked by total points.
+- **Role-specific views** -- Separate maker and taker leaderboards.
+- **Time-filtered views** -- 7-day, 30-day, and all-time rankings.
+- **Address lookup** -- Search any address to see its points history and breakdown.
+
+## Point Decay
+
+Points do not decay after they are earned. However, the pair-repeat decay multiplier means that repeatedly trading the same pair in rapid succession yields diminishing returns. This discourages wash trading while allowing genuine repeat activity at a reduced rate.
+
+See [Anti-Gaming Guards](/points/anti-gaming-guards) for details on how decay and other protections work.
+
+## NFT Boosts
+
+Holders of specific NFT collections receive permanent multiplicative boosts on all points earned. This creates an additional incentive layer for community participation.
+
+| Collection | Boost |
+|-----------|-------|
+| Lucky Hypio Winners | 1.25x |
+| Hypurr | 1.50x |
+| Both collections | 2.00x |
+
+See [NFT Boosts](/points/nft-boosts) for collection addresses and verification details.
+
+## Anti-Gaming Protections
+
+The points program includes several mechanisms to prevent manipulation:
+
+- **Sublinear base formula** -- Diminishing returns on larger trades prevent point farming through a single large trade.
+- **Pair-repeat decay** -- Repeated trades on the same pair yield fewer points over time.
+- **Missing benchmark penalty** -- Trades without a valid venue comparison benchmark receive a 0.9x multiplier.
+- **Multiplier clamping** -- All multipliers are bounded to prevent extreme values.
+
+See [Anti-Gaming Guards](/points/anti-gaming-guards) for the full list of protections.
+
+## Related Pages
+
+- [Base Points Formula](/points/base-points-formula) -- How base points are calculated from trade size
+- [Multipliers](/points/multipliers) -- All point multiplier factors
+- [NFT Boosts](/points/nft-boosts) -- NFT collection boosts and eligibility
+- [Anti-Gaming Guards](/points/anti-gaming-guards) -- Wash trading protections
+- [Points FAQ](/points/points-faq) -- Common questions about the points program

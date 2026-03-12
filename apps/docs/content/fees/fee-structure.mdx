@@ -1,0 +1,63 @@
+# Fee Structure
+
+import { Callout } from 'nextra/components'
+
+HyperQuote charges transparent, on-chain fees on every filled trade. There are no hidden fees, subscription costs, or off-chain deductions. Every fee parameter is readable directly from the deployed smart contracts and displayed to users in the quote comparison UI before execution.
+
+## Spot RFQ Fees
+
+The spot RFQ settlement contract charges a protocol fee denominated in **basis points (bps)** via the `feePips` parameter. This fee is deducted from the output token amount at the time of settlement.
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `feePips` | 250 bps (default) | Protocol fee on spot RFQ fills |
+| Denomination | Basis points (1 bps = 0.01%) | 250 bps = 2.50% |
+| Deducted from | `amountOut` (output token) | Taker receives `amountOut - fee` |
+| Visibility | On-chain, readable from contract | `RFQSettlement.feePips()` |
+
+The `feePips` value is set by the contract admin at deployment and can be adjusted. Makers should always read the current `feePips` from the contract when pricing quotes, since the fee directly reduces the taker's net received amount.
+
+<Callout type="info">
+  The fee is deducted from the **output** side of the trade. If a taker is buying HYPE with USDC, the fee is taken from the HYPE amount received. The taker's input amount is transferred in full.
+</Callout>
+
+### Fee Calculation Example (Spot)
+
+A taker requests to swap 10,000 USDC for HYPE. A maker quotes `amountOut = 500 HYPE`.
+
+```
+feePips     = 250
+fee         = amountOut * feePips / 10000
+            = 500 * 250 / 10000
+            = 12.5 HYPE
+
+takerReceives = 500 - 12.5 = 487.5 HYPE
+```
+
+The taker sends 10,000 USDC and receives 487.5 HYPE. The 12.5 HYPE protocol fee is retained by the settlement contract.
+
+## Fee Visibility
+
+The HyperQuote UI displays all applicable fees before a taker confirms execution:
+
+- **Quote comparison panel** -- Each maker quote shows the gross amount, fee deduction, and net amount the taker will receive.
+- **Venue comparison** -- When comparing RFQ quotes against AMM or HyperCore venues, the displayed rates are net of all fees on both sides, enabling fair comparison.
+- **Transaction confirmation** -- The final confirmation dialog shows the exact fee amount and net execution.
+
+<Callout type="warning">
+  Fees are enforced by the smart contract at settlement time. The values shown in the UI are computed from the same on-chain parameters. There is no way for the protocol to charge a different fee than what the contract specifies.
+</Callout>
+
+## No Hidden Fees
+
+HyperQuote does not charge:
+
+- **Gas subsidies** -- Users pay their own HyperEVM gas fees (typically fractions of a cent).
+- **Relay fees** -- The off-chain relay does not charge for broadcasting RFQs or forwarding quotes.
+- **Withdrawal fees** -- There are no fees for approving or revoking token allowances.
+- **Subscription or access fees** -- The protocol is permissionless. Anyone can request quotes or register as a maker.
+
+## Related Pages
+
+- [Maker Fees](/fees/maker-fees) -- How makers should account for protocol fees when pricing
+- [Taker Fees](/fees/taker-fees) -- How takers see fees in the quote comparison flow

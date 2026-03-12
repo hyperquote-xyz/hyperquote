@@ -1,0 +1,244 @@
+# Terminal API
+
+import { Callout, Tabs } from 'nextra/components'
+
+The Terminal API provides options market data for the HyperQuote Terminal interface. It serves trade tapes, strike ladders, venue snapshots, and strike-level pricing detail from a PostgreSQL database that ingests data from multiple venues.
+
+## Base URL
+
+```
+Production: https://terminal.hyperquote.xyz
+Local:      http://localhost:4200
+```
+
+## Authentication
+
+When the `API_KEY` environment variable is set, all endpoints (except `/health`) require a Bearer token:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://terminal.hyperquote.xyz/options/tape?underlying=ETH
+```
+
+In development (no `API_KEY` set), all endpoints are publicly accessible.
+
+---
+
+## GET /options/tape
+
+Returns a unified trade tape combining trades from multiple venues (Derive, HyperQuote). Sorted by timestamp descending (most recent first).
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `underlying` | `string` | -- | Filter by underlying asset (e.g. `"ETH"`, case-insensitive) |
+| `limit` | `number` | `50` | Row limit (max 500) |
+| `offset` | `number` | `0` | Pagination offset |
+| `liquidityGuess` | `string` | `"all"` | Filter: `"all"`, `"rfq"` (LIKELY_RFQ/RFQ), `"clob"` (LIKELY_CLOB), `"unknown"` |
+| `venue` | `string` | `"all"` | Filter: `"all"`, `"DERIVE"`, `"HYPERQUOTE"` |
+
+### Example Request
+
+```bash
+curl "https://terminal.hyperquote.xyz/options/tape?\
+underlying=ETH&limit=20&liquidityGuess=rfq"
+```
+
+### Response
+
+```json
+{
+  "trades": [
+    {
+      "venue": "DERIVE",
+      "trade_ref": "abc123",
+      "instrument": "ETH-20260301-2500-C",
+      "underlying": "ETH",
+      "is_call": true,
+      "strike_display": 2500,
+      "expiry": "2026-03-01T08:00:00.000Z",
+      "price": 0.045,
+      "quantity_display": 10.0,
+      "premium_usd": 1125.0,
+      "iv": 0.65,
+      "spot_ref": 2500.0,
+      "side": "buy",
+      "counterparty": null,
+      "derive_liquidity_guess": "LIKELY_RFQ",
+      "ts": "2026-03-10T15:30:00.000Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Trade Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `venue` | `string` | Source venue (`"DERIVE"` or `"HYPERQUOTE"`) |
+| `trade_ref` | `string` | Venue-specific trade reference |
+| `instrument` | `string` | Full instrument name (e.g. `"ETH-20260301-2500-C"`) |
+| `underlying` | `string` | Underlying asset symbol |
+| `is_call` | `boolean` | `true` for call, `false` for put |
+| `strike_display` | `number` | Strike price in display units |
+| `expiry` | `string` | ISO expiry timestamp |
+| `price` | `number` | Trade price |
+| `quantity_display` | `number` | Trade quantity in display units |
+| `premium_usd` | `number` | USD premium value |
+| `iv` | `number` | Implied volatility |
+| `spot_ref` | `number` | Spot reference price at trade time |
+| `side` | `string` | Trade direction (`"buy"` or `"sell"`) |
+| `derive_liquidity_guess` | `string` | Liquidity type estimate (`"LIKELY_RFQ"`, `"LIKELY_CLOB"`, `"UNKNOWN"`) |
+| `ts` | `string` | Trade timestamp |
+
+---
+
+## GET /options/ladder
+
+Returns a strike ladder for a specific underlying and expiry date, showing bid/ask/mark/IV per strike from the latest Derive ticker snapshot, merged with the most recent trades.
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `underlying` | `string` | Yes | Underlying asset (e.g. `"ETH"`) |
+| `expiry` | `string` | Yes | Expiry date in `YYYYMMDD` format (e.g. `"20260301"`) |
+
+### Response
+
+```json
+{
+  "underlying": "ETH",
+  "expiry": "20260301",
+  "expiryTs": "2026-03-01T08:00:00.000Z",
+  "strikes": [
+    {
+      "instrument": "ETH-20260301-2200-C",
+      "strike": 2200,
+      "isCall": true,
+      "bid": 0.085,
+      "bidSize": 50.0,
+      "ask": 0.092,
+      "askSize": 30.0,
+      "mark": 0.088,
+      "index": 2500.0,
+      "iv": 0.58,
+      "delta": 0.72,
+      "oi": 150.0,
+      "volume24h": 25.0,
+      "lastTrade": {
+        "price": 0.087,
+        "amount": 5.0,
+        "direction": "buy",
+        "tradedAt": "2026-03-10T14:00:00.000Z"
+      },
+      "snapshotAt": "2026-03-10T16:00:00.000Z"
+    }
+  ]
+}
+```
+
+Strikes are sorted by strike price ascending, with calls before puts at the same strike.
+
+---
+
+## GET /options/venues
+
+Returns a venue snapshot with summary statistics per expiry date. Shows active expiries with instrument counts, open interest, volume, and trade activity.
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `underlying` | `string` | Yes | Underlying asset (e.g. `"ETH"`) |
+
+### Response
+
+```json
+{
+  "venue": "DERIVE",
+  "underlying": "ETH",
+  "expiries": [
+    {
+      "expiry": "2026-03-15T08:00:00.000Z",
+      "instruments": 24,
+      "calls": 12,
+      "puts": 12,
+      "spot": 2500.0,
+      "totalOI": 1250.0,
+      "totalVolume24h": 85.0,
+      "tradeCount24h": 15,
+      "lastSnapshot": "2026-03-10T16:00:00.000Z"
+    }
+  ],
+  "hyperquote": {
+    "status": "coming_soon",
+    "note": "HyperQuote RFQ data will appear here once there is on-chain activity."
+  }
+}
+```
+
+---
+
+## GET /options/strike-detail
+
+Returns detailed pricing for a single strike, used by the RFQ suggestion panel. Includes the latest ticker snapshot, last trade, and 1-hour volume/trade count.
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `underlying` | `string` | Yes | Underlying asset |
+| `expiry` | `string` | Yes | Expiry date in `YYYYMMDD` format |
+| `strike` | `number` | Yes | Strike price (display value) |
+| `isCall` | `string` | Yes | `"true"` or `"false"` |
+
+### Response
+
+```json
+{
+  "instrument": "ETH-20260301-2500-C",
+  "bid": 0.045,
+  "ask": 0.052,
+  "mark": 0.048,
+  "iv": 0.65,
+  "lastTrade": {
+    "price": 0.047,
+    "amount": 3.0,
+    "tradedAt": "2026-03-10T14:30:00.000Z"
+  },
+  "volume1h": 12.5,
+  "tradeCount1h": 3,
+  "spot": 2500.0
+}
+```
+
+Fields return `null` when no data is available for the requested instrument.
+
+---
+
+## GET /health
+
+Health check endpoint. Always publicly accessible (no authentication required).
+
+```json
+{
+  "status": "ok"
+}
+```
+
+## Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Missing required query parameters |
+| `401` | Unauthorized (API_KEY set but no valid Bearer token) |
+| `404` | Unknown endpoint |
+| `405` | Method not allowed (only GET is supported) |
+| `500` | Internal server error (database query failure) |
+
+<Callout type="info">
+  The Terminal API uses a PostgreSQL database populated by a separate ingestion service (`terminal-ingest`). Data freshness depends on the ingestion schedule. The `snapshotAt` and `ts` fields indicate when data was last captured.
+</Callout>

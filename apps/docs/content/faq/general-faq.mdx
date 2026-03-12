@@ -1,0 +1,84 @@
+# General FAQ
+
+import { Callout } from 'nextra/components'
+
+Frequently asked questions about HyperQuote, the protocol, and how it works.
+
+## What is HyperQuote?
+
+HyperQuote is a permissionless Request-for-Quote (RFQ) protocol on HyperEVM. It connects traders (takers) with competing liquidity providers (makers) for size-aware execution. When a taker wants to trade, they broadcast an RFQ, makers respond with signed quotes, and the taker selects the best one. Settlement happens atomically on-chain through immutable smart contracts.
+
+## How does HyperQuote differ from a DEX?
+
+Traditional DEXes (AMMs like Uniswap) use pooled liquidity governed by a bonding curve. Price impact scales with trade size, and trades are visible in the mempool (exposing them to MEV attacks).
+
+HyperQuote uses an RFQ model where professional makers compete to fill each trade. Key differences:
+
+| Property | AMM DEX | HyperQuote RFQ |
+|----------|---------|----------------|
+| Pricing | Bonding curve, passive | Active quotes per trade |
+| Price impact | Scales with size | None (firm quotes) |
+| MEV risk | Sandwich attacks possible | None (atomic settlement) |
+| Liquidity | Always available (pool) | Requires active makers |
+| Best for | Small trades, long-tail pairs | Larger trades, competitive pricing |
+
+## What chain does HyperQuote run on?
+
+HyperQuote is deployed on **HyperEVM**, the EVM-compatible execution environment of the Hyperliquid L1 blockchain. HyperEVM provides fast block times and low gas costs while being connected to the Hyperliquid ecosystem.
+
+## Is HyperQuote permissionless?
+
+Yes. Anyone can:
+
+- **Trade as a taker** -- Connect a wallet and request quotes with no registration or approval.
+- **Become a maker** -- Connect to the relay via WebSocket and start responding to RFQs. No whitelisting required.
+- **Settle trades** -- Submit settlement transactions directly to the on-chain contracts.
+
+There are no gatekeepers, KYC requirements, or access restrictions at the protocol level.
+
+## What tokens are supported?
+
+HyperQuote supports any ERC-20 token deployed on HyperEVM. The most actively traded tokens include:
+
+- **HYPE** (wrapped as WHYPE for settlement)
+- **USDC** -- USD stablecoin
+- **USDH** -- Hyperliquid-native stablecoin
+- **USDT0** -- Bridged USDT
+
+Support for a specific pair depends on whether makers are willing to quote it. The protocol itself does not restrict which token pairs can be traded.
+
+<Callout type="info">
+  Native HYPE is automatically wrapped to WHYPE during settlement. You can trade with native HYPE in the UI, and the wrapping happens transparently in the settlement transaction.
+</Callout>
+
+## What are the fees?
+
+HyperQuote charges the following fees:
+
+- **Spot RFQ fee** -- `feePips` (default 250 bps / 2.50%), deducted from the output token amount at settlement.
+- **Gas fees** -- Standard HyperEVM gas costs for settlement transactions (typically fractions of a cent).
+
+There are no subscription fees, relay fees, withdrawal fees, or hidden charges. See [Fee Structure](/fees/fee-structure) for full details.
+
+## Do I need to create an account?
+
+No. HyperQuote is a permissionless protocol. You interact with it by connecting your Ethereum-compatible wallet (e.g., MetaMask, Rabby, or any WalletConnect-compatible wallet). There is no account registration, email verification, or profile creation.
+
+## Is there a minimum trade size?
+
+There is no protocol-enforced minimum trade size. However, very small trades may not receive quotes from makers (since the spread revenue may not justify the quoting effort) and the gas cost of settlement may exceed the value of the trade for tiny amounts.
+
+## Where can I find the contracts?
+
+All deployed contract addresses are listed on the [Contract Addresses](/smart-contracts/contract-addresses) page. You can verify the contracts on the HyperEVM block explorer.
+
+## How does settlement work?
+
+Settlement is atomic: both sides of the swap execute in a single transaction, or neither does. The SpotRFQ contract verifies the maker's EIP-712 signature, transfers tokens from the taker to the maker, and transfers tokens from the maker to the taker, all in one transaction. There is no escrow, no multi-step process, and no window for partial execution.
+
+## Related Pages
+
+- [What is HyperQuote?](/introduction/what-is-hyperquote) -- Detailed protocol introduction
+- [How RFQ Works](/introduction/how-rfq-works) -- RFQ lifecycle explanation
+- [Fee Structure](/fees/fee-structure) -- Complete fee documentation
+- [Contract Addresses](/links/contract-addresses) -- Deployed contract addresses

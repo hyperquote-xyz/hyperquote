@@ -1,0 +1,120 @@
+# Exact In vs Exact Out
+
+import { Callout } from 'nextra/components'
+
+HyperQuote supports two quoting modes that determine which side of the trade is fixed and which side is variable. Choosing the right mode depends on whether you care more about how much you spend or how much you receive.
+
+## Two Quoting Modes
+
+### Exact In (mode = 0)
+
+You specify the **exact amount you are selling** (`amountIn`). Makers compete by offering the highest `amountOut` -- whoever gives you the most output tokens wins.
+
+**Example**: "I want to sell exactly 10,000 USDC. How much HYPE will I get?"
+
+| Field | Set by |
+|-------|--------|
+| `amountIn` | Taker (fixed) |
+| `amountOut` | Maker (quoted) |
+| `minOut` | Taker (optional floor) |
+
+The optional `minOut` constraint protects you from accepting a quote that pays less than your minimum acceptable output. This is enforced on-chain -- the fill transaction reverts if the maker's `amountOut` is below `minOut`.
+
+### Exact Out (mode = 1)
+
+You specify the **exact amount you want to receive** (`amountOut`). Makers compete by quoting the lowest `amountIn` -- whoever asks you to pay the least wins.
+
+**Example**: "I want to receive exactly 500 HYPE. How much USDC do I need to pay?"
+
+| Field | Set by |
+|-------|--------|
+| `amountOut` | Taker (fixed) |
+| `amountIn` | Maker (quoted) |
+| `maxIn` | Taker (optional ceiling) |
+
+The optional `maxIn` constraint protects you from paying more than your ceiling. This is also enforced on-chain.
+
+## When to Use Each Mode
+
+| Scenario | Recommended Mode | Reason |
+|----------|-----------------|--------|
+| Selling a fixed allocation | Exact In | You know exactly how much you are deploying |
+| Filling a specific position size | Exact Out | You need a precise amount of the target token |
+| Rebalancing a portfolio | Exact In | You are unwinding a known quantity |
+| Buying a set notional | Exact Out | You want a specific dollar amount of the output |
+| Hedging an exact exposure | Exact Out | The hedge size is defined by the position |
+
+<Callout>
+  If you are unsure, **Exact In** is the default and is generally the simpler mode. Most RFQ activity on HyperQuote uses Exact In.
+</Callout>
+
+## How Makers Price Each Mode
+
+### Exact In pricing
+
+The maker knows the taker's fixed input amount and needs to determine how much output to offer. The pricing calculation:
+
+1. Start with the mid-price of the pair (e.g. from the HyperCore orderbook or an internal model).
+2. Apply a spread to account for inventory risk, market volatility, and the specific size.
+3. Deduct the protocol fee impact (2.5 bps on the input side).
+4. Arrive at `amountOut` -- the net output offered to the taker.
+
+Larger trades typically receive wider spreads because the maker takes on more inventory risk.
+
+### Exact Out pricing
+
+The maker knows the taker's desired output and works backwards to compute the input cost:
+
+1. Start with the same mid-price.
+2. Apply a spread (similar logic as above).
+3. Add the protocol fee impact.
+4. Arrive at `amountIn` -- the total cost the taker will pay.
+
+Exact Out pricing tends to produce slightly wider spreads because the maker must ensure they can source the exact output quantity, which limits their hedging flexibility.
+
+## Impact on Venue Benchmarks
+
+The [Venue Comparison Engine](/trading/venue-comparison-engine) adapts its benchmark calculations based on the mode:
+
+- **Exact In**: compares `amountOut` across venues -- higher is better.
+- **Exact Out**: compares `amountIn` across venues -- lower is better.
+
+The mid-price benchmark also adjusts:
+
+```
+Exact In impact  = (referenceOut - actualOut) / referenceOut * 100
+Exact Out impact = (actualIn - referenceIn) / referenceIn * 100
+```
+
+In both cases, a lower impact percentage means better execution.
+
+## On-Chain Enforcement
+
+The settlement contract uses the `kind` field (0 = Exact In, 1 = Exact Out) to determine which constraints to validate at fill time:
+
+- **Exact In**: the contract verifies `quote.amountOut >= taker.minOut` (if set).
+- **Exact Out**: the contract verifies `quote.amountIn <= taker.maxIn` (if set).
+
+If the constraint is violated, the transaction reverts. This ensures the taker always gets at least what they specified, regardless of any off-chain manipulation.
+
+## Relay Protocol
+
+The quoting mode is transmitted to makers in the relay message as the `mode` field:
+
+```json
+{
+  "v": 1,
+  "requestId": "...",
+  "mode": "EXACT_IN",
+  "tokenIn": "0x...",
+  "tokenOut": "0x...",
+  "amountIn": "10000000000",
+  "amountOut": null,
+  "minOut": "4950000000000000000000",
+  "maxIn": null,
+  "expiry": 1710000060,
+  "requestTtlSec": 60
+}
+```
+
+For Exact In, `amountIn` is set and `amountOut` is null. For Exact Out, `amountOut` is set and `amountIn` is null. Makers read the `mode` field to determine which pricing path to use.

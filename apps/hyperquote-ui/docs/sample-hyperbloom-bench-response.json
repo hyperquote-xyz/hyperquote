@@ -1,0 +1,34 @@
+{
+  "_comment": "When HYPERBLOOM_API_KEY is set and the API returns data:",
+  "enabled_example": {
+    "source": "hyperbloom",
+    "enabled": true,
+    "outputAmount": "47600000000000000000",
+    "route": [
+      {
+        "dex": "Laminar",
+        "portion": 0.6,
+        "poolAddress": "0x40059a6f242c3de0e639693973004921b04d96ad",
+        "fee": 500
+      },
+      {
+        "dex": "KittenSwap",
+        "portion": 0.4,
+        "poolAddress": "0xda12f450580a4cc485c3b501bab7b0b3cbc3b31b",
+        "fee": 3000
+      }
+    ],
+    "computeTimeMs": 510,
+    "error": null
+  },
+
+  "_comment2": "When HYPERBLOOM_API_KEY is not set:",
+  "disabled_example": {
+    "source": "hyperbloom",
+    "enabled": false,
+    "outputAmount": null,
+    "route": [],
+    "computeTimeMs": 1,
+    "error": "API key not configured"
+  }
+}

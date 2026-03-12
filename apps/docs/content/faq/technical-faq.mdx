@@ -1,0 +1,122 @@
+# Technical FAQ
+
+import { Callout } from 'nextra/components'
+
+Developer-oriented questions about running HyperQuote infrastructure, integrating with the protocol, and accessing data.
+
+## How do I run the project locally?
+
+The HyperQuote monorepo uses npm workspaces and can be set up for local development:
+
+1. Clone the repository from GitHub.
+2. Install dependencies with `npm install` from the root.
+3. Set the required environment variable: `NEXT_PUBLIC_RFQ_CONTRACT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3` (default local dev address).
+4. Build the UI with `npm run build:ui` or start the dev server with `npm run dev:ui`.
+5. For smart contract development, ensure Foundry is installed (`forge build` to compile contracts).
+
+<Callout type="info">
+  The `NEXT_PUBLIC_RFQ_CONTRACT_ADDRESS` environment variable must be set in your shell before building, not just in `.env.local`. The preflight script requires it at build time.
+</Callout>
+
+## How does the relay work?
+
+The relay is a WebSocket server that coordinates real-time communication between takers and makers:
+
+1. **Takers** connect via the UI (or programmatically) and send RFQ requests.
+2. The relay broadcasts the RFQ to all connected makers (or a private subset if specified).
+3. **Makers** receive the RFQ, compute a price, sign an EIP-712 quote, and send it back through the relay.
+4. The relay forwards maker quotes to the originating taker.
+5. The taker selects a quote and submits the settlement transaction directly to the blockchain (not through the relay).
+
+The relay uses the `ws` library for WebSocket handling and `ethers` for signature verification of incoming maker quotes. It does not custody funds or participate in settlement.
+
+## What is EIP-712 signing?
+
+EIP-712 is an Ethereum standard for typed structured data signing. HyperQuote uses EIP-712 for maker quotes, which provides several benefits:
+
+- **Human-readable** -- Wallets can display the structured data being signed, so makers can verify the exact trade parameters.
+- **Domain-bound** -- The signature includes a domain separator tied to the specific settlement contract address and chain ID, preventing cross-chain or cross-contract replay.
+- **Gas-efficient verification** -- On-chain verification of EIP-712 signatures is cheaper than alternatives like EIP-191 with ABI-encoded data.
+
+The EIP-712 domain for HyperQuote includes:
+- `name`: The contract name
+- `version`: The contract version
+- `chainId`: The HyperEVM chain ID
+- `verifyingContract`: The settlement contract address
+
+See [EIP-712 Signing](/makers/eip712-signing) for implementation details and code examples.
+
+## How does agent registration work?
+
+Makers can register as "agents" in the system, which enables:
+
+- Relay authentication via signed messages
+- Association of a maker address with relay connection metadata
+- Optional display name and contact information for private RFQ routing
+
+Agent registration is done through the relay's WebSocket API by sending a registration message signed with the maker's private key. The relay verifies the signature and associates the connection with the maker address.
+
+## What are the rate limits?
+
+The relay enforces rate limits to prevent abuse and ensure fair access:
+
+| Action | Rate Limit |
+|--------|-----------|
+| RFQ submissions (taker) | Limited per address per time window |
+| Quote submissions (maker) | Limited per address per time window |
+| WebSocket connections | Limited per IP address |
+| API queries | Limited per IP address |
+
+Specific rate limit values may be adjusted by the protocol team based on network conditions. If you encounter rate limiting, reduce your request frequency or contact the team for higher limits if you have a legitimate use case.
+
+<Callout type="warning">
+  Rate limits are enforced at the relay level. On-chain transactions are limited only by gas costs and block space, not by relay rate limits.
+</Callout>
+
+## How do I access historical data?
+
+Historical trade data is available from multiple sources:
+
+- **On-chain events** -- All settlements emit events on the HyperEVM blockchain. You can index these events using standard Ethereum tooling (ethers.js, viem, subgraphs, or custom indexers).
+- **League activity API** -- The `GET /api/v1/league/activity` endpoint provides recent fill data for specific addresses. See [Activity Feed](/league/league-activity-feed).
+- **Block explorer** -- HyperEVM block explorers display all settlement transaction details.
+
+The relay does not guarantee long-term storage of historical RFQ and quote data. On-chain settlement events are the authoritative source for trade history.
+
+## What SDK libraries are available?
+
+The `sdk-maker` package provides TypeScript/JavaScript tooling for building maker bots:
+
+- **RFQ listener** -- WebSocket client for receiving RFQ broadcasts.
+- **Quote builder** -- Constructs EIP-712 typed data quotes with correct formatting.
+- **Signer integration** -- Works with ethers.js v6 signers for quote signing.
+- **Risk management** -- Notional tracking and configurable risk limits.
+- **Pricing engine interface** -- Pluggable `PricingEngine` interface for custom pricing models.
+
+The SDK is tested with Vitest and all tests pass. Install it from the monorepo packages directory.
+
+## Can I build a custom UI?
+
+Yes. The protocol is open and the smart contracts are public. You can build a custom frontend that:
+
+1. Connects to the relay WebSocket for RFQ communication.
+2. Reads contract state for fee parameters, nonces, and balances.
+3. Submits settlement transactions directly to the on-chain contracts.
+4. Queries the league API for scoring and activity data.
+
+The official UI (`hyperquote-ui`) is built with Next.js 15, React 19, Radix UI, and TailwindCSS, but you can use any frontend stack.
+
+## What development tools do I need?
+
+- **Node.js 18+** -- For the UI, SDK, and relay.
+- **Foundry** -- For smart contract compilation and testing (`forge build`, `forge test`).
+- **TypeScript** -- The SDK and relay are written in TypeScript.
+- **ethers.js v6** -- Used by the SDK for Ethereum interactions.
+- **A HyperEVM RPC endpoint** -- For on-chain queries and transaction submission.
+
+## Related Pages
+
+- [Maker SDK Quickstart](/makers/maker-sdk-quickstart) -- Get started building a maker bot
+- [EIP-712 Signing](/makers/eip712-signing) -- Signing implementation details
+- [Contract Architecture](/smart-contracts/contract-architecture) -- Smart contract design
+- [Activity Feed](/league/league-activity-feed) -- API for historical data

@@ -1,0 +1,97 @@
+# Glossary
+
+Protocol-specific terminology used throughout the HyperQuote documentation. Terms are listed alphabetically.
+
+import { Callout } from 'nextra/components'
+
+---
+
+### Basis Points (bps)
+
+A unit of measurement equal to 1/100th of a percentage point (0.01%). Used to express fees, spreads, and price differences. 100 basis points = 1%. For example, a keeper fee of 10 bps means the keeper receives 0.10% of the notional value of a settled position.
+
+### Collateral
+
+The asset locked by the seller of an options contract to guarantee their obligation at settlement. For covered calls, the collateral is the underlying token (e.g., WHYPE). For cash-secured puts, the collateral is a stablecoin (e.g., USDC). Collateral is held by the OptionsEngine smart contract until the position is settled or expires.
+
+### Deadline
+
+The timestamp after which a signed quote is no longer valid. If the taker attempts to execute a quote after its deadline, the on-chain transaction will revert. Deadlines are set by the maker when signing the quote and are typically seconds to minutes in the future.
+
+### EIP-712
+
+An Ethereum standard for typed structured data signing. HyperQuote uses EIP-712 to create cryptographic signatures that bind a maker to specific trade parameters (token addresses, amounts, strike, expiry, nonce, deadline). The signature can be verified on-chain without revealing the maker's private key. The EIP-712 domain for HyperQuote is `{ name: "HyperQuote Options", version: "1", chainId, verifyingContract }`.
+
+### Expiry
+
+The timestamp at which an options contract reaches maturity. In HyperQuote, all options expire at 08:00 UTC on the expiry date. After expiry, in-the-money positions can be settled via the keeper mechanism, and out-of-the-money positions can have their collateral released. The minimum expiry duration is 24 hours and the maximum is 90 days from the time of execution.
+
+### Fill
+
+The successful execution of a trade. In the RFQ context, a fill occurs when the taker submits the maker's signed quote to the settlement contract and the atomic token transfer completes. A partial fill is not possible in HyperQuote — trades either fill completely or revert entirely.
+
+### Keeper
+
+Any Ethereum address that triggers the settlement of an in-the-money options position after expiry. Keepers are incentivized by a small fee (denominated in the position's collateral token) paid from the settlement proceeds. The keeper fee is configurable by the protocol owner, with a default of 10 bps and a maximum cap of 50 bps. Keepers do not need any special permissions — the `settle()` function is callable by anyone.
+
+### Maker
+
+A liquidity provider who responds to RFQ requests with signed quotes. Makers connect to the HyperQuote relay via WebSocket, receive RFQ broadcasts, and submit EIP-712 signed quotes when they choose to compete on a trade. Makers are never passively exposed to order flow — they only commit capital when they actively sign a quote. Also referred to as a "market maker" or "quoter."
+
+### Nonce
+
+A monotonically increasing counter stored on-chain for each maker address. Every signed quote includes a nonce field that must be greater than or equal to the maker's current on-chain nonce. This prevents replay attacks (reusing an old signature to execute a trade the maker did not intend). Makers can also increment their nonce to bulk-cancel all outstanding quotes with lower nonce values.
+
+### Notional
+
+The total dollar value of a trade or position. For options, the notional is calculated as `strike price * quantity` (adjusted for token decimals). The notional is used as the basis for fee calculations such as keeper fees.
+
+### Oracle
+
+A contract that provides settlement prices for options at expiry. The HyperQuote OptionsEngine relies on a `SettlementOracle` contract that publishes the price of the underlying asset at the expiry timestamp. The oracle price determines whether a position is in-the-money or out-of-the-money, and is used to execute physical settlement.
+
+### Pips
+
+The smallest price increment in a given market, traditionally used in foreign exchange. In the context of HyperQuote, pips may refer to the minimum meaningful price difference between competing quotes or the precision of price improvement measurements. One pip is typically equivalent to 1 basis point (0.01%) of the quoted price, though the exact definition depends on the token pair.
+
+### Price Improvement
+
+The difference between the price a taker receives via RFQ and the price they would have received from the next-best available venue (HyperCore order book or HyperEVM AMM). Positive price improvement means the RFQ quote is better (cheaper to buy, or higher proceeds to sell) than the alternative. HyperQuote's venue comparison engine calculates and displays price improvement in real time.
+
+### Quote
+
+A binding price commitment from a maker to execute a trade at specific terms. In HyperQuote, a quote is an EIP-712 signed message containing the full trade parameters: maker address, taker address (or `address(0)` for open quotes), token addresses, amounts, strike (for options), expiry, deadline, and nonce. Once signed, a quote cannot be modified — it can only be executed by the taker or cancelled by the maker.
+
+### Relay
+
+The off-chain WebSocket server that coordinates RFQ communication between takers and makers. The relay broadcasts RFQs to makers, forwards signed quotes back to takers, validates message formats, verifies signatures, and enforces rate limits. The relay does not hold funds, cannot execute trades, and has no special on-chain privileges.
+
+### RFQ (Request-for-Quote)
+
+A structured message from a taker expressing intent to trade a specific token pair at a specific size. The RFQ is broadcast to all connected makers, who may respond with competing quotes. The RFQ itself is not an order — it does not commit the taker to any price. It is an invitation for makers to bid on the trade. Each RFQ is identified by an `rfqId` computed as a keccak256 hash of its parameters.
+
+### Settlement
+
+The process of executing the final token transfers for a trade or options position. For spot RFQ, settlement is the atomic swap of tokens between taker and maker. For options, settlement occurs after expiry when an in-the-money position is exercised — the buyer delivers one side of the trade and receives the other, with physical delivery of the underlying and collateral tokens.
+
+### Settlement Window
+
+The 24-hour period immediately following an option's expiry timestamp during which in-the-money positions must be settled. Keepers can call the `settle()` function at any time after expiry for ITM positions. After the settlement window closes, out-of-the-money positions can be expired to release the seller's collateral.
+
+### Slippage
+
+The difference between the expected execution price and the actual execution price. In AMM trades, slippage increases with trade size due to price impact on the bonding curve. In RFQ trades, slippage is effectively zero because the maker's quote is a fixed price for the exact trade size. The taker receives exactly the amount specified in the signed quote.
+
+### Taker
+
+A trader who initiates an RFQ and selects a quote for execution. The taker specifies what they want to trade (token pair, size, direction) and chooses from competing maker quotes. In the on-chain settlement transaction, the taker is `msg.sender` — the address that calls the `execute` function on the settlement contract.
+
+### Venue
+
+An execution destination where a trade can be settled. HyperQuote recognizes three venue types:
+
+- **RFQ** — The HyperQuote RFQ protocol itself, with off-chain quote competition and on-chain settlement
+- **HyperCore** — Hyperliquid's native central limit order book
+- **HyperEVM DEXes** — Automated market maker protocols deployed on HyperEVM
+
+The venue comparison engine fetches prices from all available venues so takers can verify they are getting the best execution.

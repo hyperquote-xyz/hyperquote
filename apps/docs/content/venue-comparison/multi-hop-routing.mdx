@@ -1,0 +1,115 @@
+# Multi-Hop Routing
+
+import { Callout } from 'nextra/components'
+
+When the HT.xyz aggregator cannot find a direct DEX route for a token pair, HyperQuote attempts multi-hop routing through liquid intermediate tokens to discover a viable two-leg path.
+
+## When Multi-Hop Is Attempted
+
+Multi-hop routing activates only when the direct HT.xyz quote returns null. This happens for pairs where no single DEX pool exists but the tokens can be connected through a common intermediary.
+
+For example, there may be no direct `USDH -> PURR` pool, but there are liquid pools for `USDH -> USDC` and `USDC -> PURR`. The multi-hop router chains these two legs together.
+
+## Intermediate Token Priority List
+
+The system maintains a fixed list of liquid intermediate tokens:
+
+| Token | Address | Decimals |
+|-------|---------|----------|
+| USDC | `0xb88339cb...` | 6 |
+| wHYPE | `0x55555555...` | 18 |
+| USDT0 | `0xb8ce59fc...` | 6 |
+
+These tokens were selected because they have deep liquidity pools on HyperEVM DEXes and serve as common routing hubs.
+
+<Callout type="info">
+Intermediate tokens that match either the input or output token are automatically filtered out to prevent circular routes.
+</Callout>
+
+## Two-Leg Chaining
+
+For each candidate intermediate token, the system executes two sequential HT.xyz calls:
+
+```
+Leg 1: tokenIn -> intermediate  (sell amountIn)
+Leg 2: intermediate -> tokenOut (sell leg1.amountOut)
+```
+
+Both legs must succeed for the route to be valid. If either leg returns null or an output of zero, that intermediate is discarded.
+
+```ts
+// Leg 1: tokenIn -> intermediate
+const leg1 = await fetchHtxyzQuote(tokenIn, intermediateToken, amountIn, signal);
+if (!leg1 || leg1.amountOut <= 0n) return null;
+
+// Leg 2: intermediate -> tokenOut (sell leg1 output)
+const leg2 = await fetchHtxyzQuote(intermediateToken, tokenOut, leg1.amountOut, signal);
+if (!leg2 || leg2.amountOut <= 0n) return null;
+```
+
+## Parallel Attempts
+
+All candidate intermediates are tried in parallel using `Promise.allSettled`. This minimizes latency since the system does not wait for one intermediate to fail before trying the next.
+
+```ts
+const results = await Promise.allSettled(
+  candidates.map(async (intermediate) => {
+    const leg1 = await fetchHtxyzQuote(tokenIn, intermediateToken, amountIn, signal);
+    const leg2 = await fetchHtxyzQuote(intermediateToken, tokenOut, leg1.amountOut, signal);
+    return { amountOut: leg2.amountOut, intermediateSymbol: intermediate.symbol };
+  }),
+);
+```
+
+Each parallel attempt is also AbortSignal-aware, so cancellation propagates to all in-flight requests.
+
+## Best Result Selection
+
+After all parallel attempts settle, the system selects the route with the highest `amountOut` (most favorable for the taker):
+
+```ts
+let best = null;
+for (const r of results) {
+  if (r.status !== "fulfilled" || r.value === null) continue;
+  if (!best || r.value.amountOut > best.amountOut) {
+    best = r.value;
+  }
+}
+```
+
+If no intermediate produces a valid two-leg route, multi-hop returns null and the system falls through to the binary search partial fill strategy.
+
+## Route Label Format
+
+Multi-hop routes display all three tokens in the path:
+
+```
+tokenIn.symbol -> intermediate.symbol -> tokenOut.symbol
+```
+
+For example: `"USDH -> USDC -> PURR"`
+
+The route array in the returned `AMMEstimate` contains all three symbols, and the `isDirect` flag is set to `false` with `hops: 2`.
+
+## Example Output
+
+A successful multi-hop result:
+
+```ts
+{
+  source: "HyperEVM DEX",
+  amountOut: 1250000000000n,    // 1,250,000 PURR (with decimals)
+  priceImpact: 0,
+  effectivePrice: 0.0008,
+  poolLiquidity: 0n,
+  route: ["USDH", "USDC", "PURR"],
+  isDirect: false,
+  hops: 2,
+}
+```
+
+## Limitations
+
+- Multi-hop only supports **two-leg** routes (one intermediate). Three-leg routes are not attempted.
+- The intermediate token list is static. Newly deployed tokens with deep liquidity are not automatically discovered.
+- Each leg incurs its own swap fees and slippage, so multi-hop routes typically have slightly worse pricing than direct routes of equivalent liquidity.

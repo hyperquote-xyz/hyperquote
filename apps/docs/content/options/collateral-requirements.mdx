@@ -1,0 +1,164 @@
+# Collateral Requirements
+
+import { Callout } from 'nextra/components'
+
+HyperQuote Options are fully collateralized at execution time. The seller must lock sufficient collateral to cover the worst-case settlement obligation. The `CollateralMath` library handles all precision-sensitive arithmetic, including cross-decimal scaling between 18-decimal underlyings and 6-decimal stablecoins.
+
+## Collateral by Strategy
+
+| Strategy | What is Locked | Token | Amount |
+|---|---|---|---|
+| **Covered Call** | Underlying tokens | wHYPE (18 dec) | `quantity` |
+| **Cash-Secured Put** | Stablecoin | USDC/USDH/USDT0 | `strike * quantity` (scaled) |
+
+For covered calls, the math is straightforward: the seller locks the exact quantity of underlying tokens.
+
+For cash-secured puts, the seller must lock enough stablecoin to buy the full quantity at the strike price. This requires precise decimal conversion.
+
+## The Core Formula
+
+The `CollateralMath` library uses a single core formula for all notional/collateral calculations:
+
+```
+result = ceilDiv(strike * quantity, 10^(18 + uDec - cDec))
+```
+
+Where:
+- **strike** -- Strike price with 18 decimals (1e18 = $1.00)
+- **quantity** -- Amount of underlying in underlying token decimals
+- **uDec** -- Decimals of the underlying token (18 for wHYPE)
+- **cDec** -- Decimals of the collateral token (6 for USDC, 18 for USDH)
+- **result** -- Collateral amount in collateral token units
+
+### Derivation
+
+The formula converts from a "price times quantity" product into the correct collateral decimal units:
+
+```
+value_in_usd   = (strike / 1e18) * (quantity / 10^uDec)
+value_in_token = value_in_usd * 10^cDec
+               = strike * quantity * 10^cDec / (1e18 * 10^uDec)
+               = strike * quantity / 10^(18 + uDec - cDec)
+```
+
+## Ceiling Division
+
+All collateral calculations use **ceiling division** (`ceilDiv`) to ensure rounding always favors the protocol. This prevents a seller from locking slightly less collateral than needed due to integer truncation.
+
+```solidity
+function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) return 0;
+    return ((a - 1) / b) + 1;
+}
+```
+
+For example, if the exact collateral required is `2500.000001 USDC`, ceiling division rounds up to `2500000002` (in 6-decimal units) rather than truncating to `2500000001`.
+
+## Library Functions
+
+The `CollateralMath` library exposes four functions, all built on the same core formula:
+
+### `putCollateralRequired`
+
+Computes the stablecoin collateral a CSP seller must lock.
+
+```solidity
+function putCollateralRequired(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256)
+```
+
+### `callSettlementCost`
+
+Computes the stablecoin amount the covered call buyer must deliver at ITM settlement (strike multiplied by quantity, in collateral units).
+
+```solidity
+function callSettlementCost(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256)
+```
+
+### `notional`
+
+Computes the notional value of a position in collateral token units. Used for keeper fee calculation.
+
+```solidity
+function notional(
+    uint256 strike,
+    uint256 quantity,
+    uint8 uDec,
+    uint8 cDec
+) internal pure returns (uint256)
+```
+
+### `ceilDiv`
+
+General-purpose ceiling division utility.
+
+```solidity
+function ceilDiv(uint256 a, uint256 b) internal pure returns (uint256)
+```
+
+## Worked Examples
+
+### Example 1: CSP with USDC (6 decimals)
+
+| Parameter | Value |
+|---|---|
+| Strike | $25.00 (`25e18`) |
+| Quantity | 100 wHYPE (`100e18`) |
+| uDec | 18 |
+| cDec | 6 |
+
+```
+exponent = 18 + 18 - 6 = 30
+product  = 25e18 * 100e18 = 2500e36
+divisor  = 10^30
+result   = ceilDiv(2500e36, 10^30) = 2,500,000,000
+         = 2,500 USDC (in 6-decimal units)
+```
+
+### Example 2: CSP with USDH (18 decimals)
+
+| Parameter | Value |
+|---|---|
+| Strike | $25.00 (`25e18`) |
+| Quantity | 100 wHYPE (`100e18`) |
+| uDec | 18 |
+| cDec | 18 |
+
+```
+exponent = 18 + 18 - 18 = 18
+product  = 25e18 * 100e18 = 2500e36
+divisor  = 10^18
+result   = ceilDiv(2500e36, 10^18) = 2,500,000,000,000,000,000,000
+         = 2,500 USDH (in 18-decimal units)
+```
+
+### Example 3: Covered Call Collateral
+
+For a covered call on 50 wHYPE, the collateral is simply:
+
+```
+collateralLocked = quantity = 50e18 = 50 wHYPE
+```
+
+The strike price does not affect the collateral locked for covered calls since the seller is locking the underlying tokens directly.
+
+<Callout type="warning">
+When building quotes off-chain, always use ceiling division for collateral calculations. Standard integer division (floor) can result in a collateral amount that is 1 unit too low, causing the `execute` transaction to revert due to insufficient transfer.
+</Callout>
+
+## Decimal Scaling Reference
+
+| Collateral Token | Decimals | Exponent (18+18-cDec) | 1 USD in raw units |
+|---|---|---|---|
+| USDC | 6 | 30 | `1,000,000` |
+| USDT0 | 6 | 30 | `1,000,000` |
+| USDH | 18 | 18 | `1,000,000,000,000,000,000` |

@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "timestamp": "2025-01-15T10:30:45.123Z",
+    "asOfBlock": "1234567",
+    "computeTimeMs": 42,
+    "candidatesConsidered": 12,
+    "viableRoutes": 4,
+    "isSplit": true
+  },
+  "summary": {
+    "tokenIn": "0x1b4b73cf4e26b7b63e4e3da49832ce072d1e4292",
+    "tokenInSymbol": "USDC",
+    "tokenInDecimals": 6,
+    "tokenOut": "0x0000000000000000000000000000000000000000",
+    "tokenOutSymbol": "HYPE",
+    "tokenOutDecimals": 18,
+    "amountIn": "1000000000",
+    "amountOut": "47619047619047619047",
+    "amountInFormatted": "1,000",
+    "amountOutFormatted": "47.619",
+    "effectivePrice": 0.047619,
+    "midPrice": 0.047662,
+    "priceImpactBps": 9,
+    "priceImpactPct": "0.09%"
+  },
+  "routes": [
+    {
+      "fraction": 0.6,
+      "fractionPct": "60%",
+      "amountIn": "600000000",
+      "amountOut": "28586857142857142857",
+      "hops": [
+        {
+          "poolAddress": "0xabcdef1234567890abcdef1234567890abcdef12",
+          "protocol": "kittenswap-amm",
+          "poolType": "V2",
+          "tokenIn": "0x1b4b73cf4e26b7b63e4e3da49832ce072d1e4292",
+          "tokenInSymbol": "USDC",
+          "tokenOut": "0x0000000000000000000000000000000000000000",
+          "tokenOutSymbol": "HYPE",
+          "amountIn": "600000000",
+          "amountOut": "28586857142857142857",
+          "fee": "1800000",
+          "priceImpactBps": 5
+        }
+      ],
+      "pathLabel": "USDC → HYPE via KittenSwap",
+      "priceImpactBps": 5
+    },
+    {
+      "fraction": 0.4,
+      "fractionPct": "40%",
+      "amountIn": "400000000",
+      "amountOut": "19032190476190476190",
+      "hops": [
+        {
+          "poolAddress": "0x1234567890abcdef1234567890abcdef12345678",
+          "protocol": "hyperswap-v2",
+          "poolType": "V2",
+          "tokenIn": "0x1b4b73cf4e26b7b63e4e3da49832ce072d1e4292",
+          "tokenInSymbol": "USDC",
+          "tokenOut": "0x0000000000000000000000000000000000000000",
+          "tokenOutSymbol": "HYPE",
+          "amountIn": "400000000",
+          "amountOut": "19032190476190476190",
+          "fee": "1200000",
+          "priceImpactBps": 8
+        }
+      ],
+      "pathLabel": "USDC → HYPE via HyperSwap",
+      "priceImpactBps": 8
+    }
+  ],
+  "alternatives": [
+    {
+      "pathLabel": "USDC → USDH → HYPE via KittenSwap",
+      "amountOut": "47400000000000000000",
+      "diffBps": -46,
+      "diffPct": "-0.46%",
+      "reason": "2-hop route, higher total impact"
+    },
+    {
+      "pathLabel": "USDC → HYPE via Laminar V3",
+      "amountOut": "47200000000000000000",
+      "diffBps": -88,
+      "diffPct": "-0.88%",
+      "reason": "Lower liquidity"
+    }
+  ],
+  "warnings": [],
+  "fees": [
+    {
+      "token": "0x1b4b73cf4e26b7b63e4e3da49832ce072d1e4292",
+      "amount": "3000000",
+      "symbol": "USDC"
+    }
+  ],
+  "splitInfo": {
+    "routeCount": 2,
+    "bestSingleRouteOutput": "47200000000000000000",
+    "improvementBps": 88,
+    "improvementPct": "0.88%"
+  },
+  "confidenceLevel": "HIGH"
+}

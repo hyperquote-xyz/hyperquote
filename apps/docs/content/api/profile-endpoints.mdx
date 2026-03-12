@@ -1,0 +1,107 @@
+# Profile Endpoints
+
+import { Callout } from 'nextra/components'
+
+The Profile API returns trading statistics for a wallet address, including separate maker and taker performance across rolling time windows.
+
+## Get Profile
+
+### `GET /api/v1/profile/:address`
+
+Returns maker and taker stats for a wallet address across 7-day and 30-day windows. No authentication required.
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `address` | `string` | Wallet address (`0x` + 40 hex chars) |
+
+#### Response (200 OK)
+
+```json
+{
+  "address": "0xabcd1234567890abcdef1234567890abcdef1234",
+  "tier": "gold",
+  "maker7d": {
+    "points": 4200,
+    "volume": 125000.00,
+    "fills": 8,
+    "avgImprovementBps": 85
+  },
+  "maker30d": {
+    "points": 18500,
+    "volume": 580000.00,
+    "fills": 42,
+    "avgImprovementBps": 102
+  },
+  "taker7d": {
+    "points": 1500,
+    "volume": 45000.00,
+    "fills": 3,
+    "avgImprovementBps": 120
+  },
+  "taker30d": {
+    "points": 6200,
+    "volume": 195000.00,
+    "fills": 15,
+    "avgImprovementBps": 95
+  }
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | `string` | The wallet address (lowercased) |
+| `tier` | `string` | Tier badge: `"bronze"`, `"silver"`, or `"gold"` |
+| `maker7d` | `PeriodStats` | Maker stats for the last 7 days |
+| `maker30d` | `PeriodStats` | Maker stats for the last 30 days |
+| `taker7d` | `PeriodStats` | Taker stats for the last 7 days |
+| `taker30d` | `PeriodStats` | Taker stats for the last 30 days |
+
+#### PeriodStats Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `points` | `number` | Total points earned in this role and period |
+| `volume` | `number` | Total USD volume traded |
+| `fills` | `number` | Number of completed fills |
+| `avgImprovementBps` | `number` | Average price improvement in basis points |
+
+## Tier Badges
+
+The `tier` field is computed based on **30-day maker points**:
+
+| Tier | 30d Maker Points | Description |
+|------|-----------------|-------------|
+| `bronze` | < 10,000 | Base tier |
+| `silver` | 10,000 -- 99,999 | Active maker |
+| `gold` | \>= 100,000 | Top-tier maker |
+
+<Callout type="info">
+  Tiers are computed in real-time from the 30-day maker points. There is no separate tier progression system -- your tier changes immediately as your points change.
+</Callout>
+
+## Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Invalid address format (must be `0x` + 40 hex characters) |
+
+## Zero-Activity Response
+
+If the address has no trading activity, all period stats return zero values:
+
+```json
+{
+  "address": "0x1234...",
+  "tier": "bronze",
+  "maker7d": { "points": 0, "volume": 0, "fills": 0, "avgImprovementBps": 0 },
+  "maker30d": { "points": 0, "volume": 0, "fills": 0, "avgImprovementBps": 0 },
+  "taker7d": { "points": 0, "volume": 0, "fills": 0, "avgImprovementBps": 0 },
+  "taker30d": { "points": 0, "volume": 0, "fills": 0, "avgImprovementBps": 0 }
+}
+```
+
+The endpoint always returns 200 -- it does not return 404 for addresses with no activity.

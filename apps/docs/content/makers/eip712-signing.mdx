@@ -1,0 +1,198 @@
+# EIP-712 Signing
+
+import { Callout } from 'nextra/components'
+
+Every quote submitted by a maker must be cryptographically signed using [EIP-712 typed structured data](https://eips.ethereum.org/EIPS/eip-712). The signature is verified both by the relay (off-chain) and by the `OptionsEngine` contract (on-chain) using `ECDSA.recover`.
+
+This page is the technical reference for the EIP-712 domain, type definitions, signing process, and verification.
+
+## EIP-712 Domain
+
+The domain separator must match the on-chain `OptionsEngine` constructor, which initializes `EIP712("HyperQuote Options", "1")`:
+
+```ts
+import { TypedDataDomain } from "ethers";
+
+const domain: TypedDataDomain = {
+  name: "HyperQuote Options",
+  version: "1",
+  chainId: 31337,                // your chain ID
+  verifyingContract: "0x5FbDB...", // OptionsEngine contract address
+};
+```
+
+The SDK provides a helper to build this:
+
+```ts
+import { buildDomain } from "@hyperquote/sdk-maker";
+
+const domain = buildDomain(31337, "0x5FbDB2315678afecb367f032d93F642f64180aa3");
+```
+
+<Callout type="warning">
+  The `chainId` and `verifyingContract` must exactly match the deployed `OptionsEngine`. A mismatch will produce a different domain separator, and the on-chain signature verification will fail with `InvalidSignature()`.
+</Callout>
+
+## Quote Type Definition
+
+The `QUOTE_TYPEHASH` in Solidity is:
+
+```
+Quote(address maker,address taker,address underlying,address collateral,bool isCall,bool isMakerSeller,uint256 strike,uint256 quantity,uint256 premium,uint256 expiry,uint256 deadline,uint256 nonce)
+```
+
+The TypeScript equivalent used by the SDK:
+
+```ts
+import { TypedDataField } from "ethers";
+
+const QUOTE_TYPES: Record<string, TypedDataField[]> = {
+  Quote: [
+    { name: "maker",         type: "address" },
+    { name: "taker",         type: "address" },
+    { name: "underlying",    type: "address" },
+    { name: "collateral",    type: "address" },
+    { name: "isCall",        type: "bool" },
+    { name: "isMakerSeller", type: "bool" },
+    { name: "strike",        type: "uint256" },
+    { name: "quantity",      type: "uint256" },
+    { name: "premium",       type: "uint256" },
+    { name: "expiry",        type: "uint256" },
+    { name: "deadline",      type: "uint256" },
+    { name: "nonce",         type: "uint256" },
+  ],
+};
+```
+
+<Callout type="error">
+  Field order matters. The fields must appear in exactly the order shown above, matching the Solidity `QuoteLib.QUOTE_TYPEHASH` string. Reordering fields produces a different typehash and will cause all signatures to fail.
+</Callout>
+
+## Signing a Quote with ethers v6
+
+The SDK's `signQuote` function uses `wallet.signTypedData()` from ethers v6:
+
+```ts
+import { Wallet } from "ethers";
+import { signQuote } from "@hyperquote/sdk-maker";
+
+const wallet = new Wallet("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d");
+
+const quote = {
+  maker: wallet.address,
+  taker: "0x0000000000000000000000000000000000000000",
+  underlying: "0x0000000000000000000000000000000000000001",
+  collateral: "0x0000000000000000000000000000000000000002",
+  isCall: false,
+  isMakerSeller: false,
+  strike: 25000000000000000000n,  // $25 in 1e18
+  quantity: 1000000000000000000n, // 1 WHYPE
+  premium: 1000000n,              // $1 in 1e6 USDC
+  expiry: 1700121600n,
+  deadline: 1700035200n,
+  nonce: 0n,
+};
+
+const chainId = 31337;
+const engineAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
+const signature = await signQuote(wallet, quote, chainId, engineAddress);
+// signature: "0x..." (132 hex chars = 0x + 65 bytes)
+```
+
+### Under the Hood
+
+The `signQuote` function internally does:
+
+```ts
+import { buildDomain, QUOTE_TYPES, quoteToTypedDataValue } from "@hyperquote/sdk-maker";
+
+const domain = buildDomain(chainId, engineAddress);
+const value = quoteToTypedDataValue(quote); // converts Quote to plain object
+
+// ethers v6 signTypedData
+const signature = await wallet.signTypedData(domain, QUOTE_TYPES, value);
+```
+
+The `quoteToTypedDataValue` function converts the `Quote` object into the value record expected by `TypedDataEncoder`. Bigint fields are passed directly -- ethers v6 handles them natively.
+
+## Signature Format
+
+The signature is a 65-byte hex string (with `0x` prefix, totaling 132 characters):
+
+```
+0x[r: 32 bytes][s: 32 bytes][v: 1 byte]
+```
+
+- **r** (bytes 0-31): The x-coordinate of the ephemeral public key point.
+- **s** (bytes 32-63): The signature proof scalar.
+- **v** (byte 64): Recovery identifier, either `27` or `28`.
+
+The on-chain contract uses OpenZeppelin's `ECDSA.recover(digest, signature)` to extract the signer address from these components.
+
+## Verification
+
+### Off-chain Verification (TypeScript)
+
+```ts
+import { verifyQuoteSignature, recoverQuoteSigner } from "@hyperquote/sdk-maker";
+
+// Verify signature matches the maker address
+const isValid = verifyQuoteSignature(quote, signature, chainId, engineAddress);
+// isValid: true
+
+// Recover the signer address
+const signer = recoverQuoteSigner(quote, signature, chainId, engineAddress);
+// signer: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+```
+
+The verification function internally uses `verifyTypedData` from ethers:
+
+```ts
+import { verifyTypedData } from "ethers";
+
+const recovered = verifyTypedData(domain, QUOTE_TYPES, value, signature);
+const isValid = recovered.toLowerCase() === quote.maker.toLowerCase();
+```
+
+### On-chain Verification (Solidity)
+
+The `OptionsEngine._validateAndVerifyQuote` function computes the EIP-712 digest and recovers the signer:
+
+```solidity
+bytes32 digest = _hashTypedDataV4(QuoteLib.hash(quote));
+address signer = ECDSA.recover(digest, signature);
+if (signer != quote.maker) revert InvalidSignature();
+```
+
+## Computing Hashes Directly
+
+The SDK also exports functions for computing intermediate hash values, useful for debugging:
+
+```ts
+import {
+  hashQuoteStruct,
+  hashQuoteTypedData,
+  buildDomain,
+} from "@hyperquote/sdk-maker";
+
+// Struct hash (without domain)
+const structHash = hashQuoteStruct(quote);
+
+// Full EIP-712 hash (the digest that gets signed)
+const domain = buildDomain(chainId, engineAddress);
+const digest = hashQuoteTypedData(domain, quote);
+```
+
+## Cross-Verification Test Vectors
+
+The SDK includes test vectors that are verified against Foundry/Solidity output to ensure exact cross-language compatibility:
+
+| Value | Expected Hash |
+|---|---|
+| QUOTE_TYPEHASH | `0xa658686ca3f902cf1315142c0a4df619d29c35f788c2a46c2c1dbcc66319d88a` |
+| Struct hash (test quote) | `0xf586aeaa8533a62ea9b68dfba2d8e28330a14e4e2e5a395f4d82f35332dda319` |
+| Domain separator (chain 31337) | `0x64f51da9639c393a7b73866db9f4e32fb43540402f8114e15b5416230171896e` |
+| Full digest (test quote) | `0x5393cf8faedae66ca0225391e477819c8a913b6af6a121d2b5ba5bf4308a71ba` |
+
+These vectors are tested in `sdk-maker/test/eip712.test.ts` and match the Solidity `EIP712CrossCheck` forge test exactly.

@@ -1,0 +1,121 @@
+# Official Links
+
+import { Callout } from 'nextra/components'
+
+All official HyperQuote resources and endpoints. Always verify that you are using the correct URLs before connecting your wallet or approving transactions.
+
+<Callout type="error">
+  **Verify you are using official HyperQuote resources.** The only official domain is `hyperquote.xyz`. If a URL does not match the domains listed on this page, do not interact with it. Report suspicious sites to the team via the official Discord.
+</Callout>
+
+## Official App
+
+| Resource | URL |
+|----------|-----|
+| **HyperQuote App** | [https://hyperquote.xyz](https://hyperquote.xyz) |
+| **Spot RFQ (Swap)** | [https://hyperquote.xyz/swap](https://hyperquote.xyz/swap) |
+| **Positions** | [https://hyperquote.xyz/positions](https://hyperquote.xyz/positions) |
+| **Maker Dashboard** | [https://hyperquote.xyz/maker](https://hyperquote.xyz/maker) |
+
+## Official Documentation
+
+| Resource | URL |
+|----------|-----|
+| **Docs Site** | [https://docs.hyperquote.xyz](https://docs.hyperquote.xyz) |
+| **API Reference** | [API Overview](/api/api-overview) |
+| **Contract Addresses** | [Contract Addresses](/smart-contracts/contract-addresses) |
+
+## Official Source Code
+
+| Resource | URL |
+|----------|-----|
+| **GitHub Organization** | [https://github.com/hyperquote](https://github.com/hyperquote) |
+
+## Official Socials
+
+| Platform | Handle / URL |
+|----------|-------------|
+| **Twitter / X** | [@hyperaborz](https://x.com/hyperaborz) |
+| **Discord** | [discord.gg/hyperquote](https://discord.gg/hyperquote) |
+| **Telegram** | [@HyperQuoteBot](https://t.me/HyperQuoteBot) (notifications only) |
+
+## Official Contract Addresses
+
+The canonical contract address list is maintained at [Contract Addresses](/smart-contracts/contract-addresses). Key addresses:
+
+| Contract | Address | Chain |
+|----------|---------|-------|
+| **SpotRFQ** | TBD | HyperEVM (999) |
+| **WHYPE** | `0x5555555555555555555555555555555555555555` | HyperEVM (999) |
+
+Always cross-reference contract addresses against the [Contract Addresses](/smart-contracts/contract-addresses) page or the HyperQuote app before approving token transfers.
+
+## API and Relay Endpoints
+
+| Endpoint | URL | Protocol |
+|----------|-----|----------|
+| **REST API** | `https://hyperquote.xyz/api/v1` | HTTPS |
+| **WebSocket Relay** | `wss://relay.hyperquote.xyz` | WSS |
+| **Block Explorer** | [https://hyperscan.xyz](https://hyperscan.xyz) | HTTPS |
+
+## Ecosystem
+
+| Resource | URL |
+|----------|-----|
+| **Hyperliquid** | [https://hyperliquid.xyz](https://hyperliquid.xyz) |
+| **HyperEVM Explorer** | [https://hyperscan.xyz](https://hyperscan.xyz) |
+| **HyperCore (L1)** | [https://app.hyperliquid.xyz](https://app.hyperliquid.xyz) |
+
+---
+
+## Scam Prevention
+
+<Callout type="warning">
+  Crypto scams are common. Protect yourself by following these rules.
+</Callout>
+
+### Never Trust DMs
+
+The HyperQuote team will **never** contact you via direct message on Discord, Telegram, Twitter, or any other platform to ask for:
+
+- Your private keys or seed phrase
+- Your wallet password
+- Approval transactions or token transfers
+- Connection to a "support" website
+
+If someone DMs you claiming to be from HyperQuote, it is a scam. Report and block them immediately.
+
+### Verify Domains
+
+Before connecting your wallet, verify the URL in your browser's address bar:
+
+- ✅ `hyperquote.xyz` — official
+- ✅ `docs.hyperquote.xyz` — official
+- ❌ `hyperquote-xyz.com` — **scam**
+- ❌ `hyperqu0te.xyz` — **scam**
+- ❌ `hyperquote.io` — **not official**
+
+Look for subtle misspellings, extra characters, or different TLDs. Bookmark the official URLs and always use your bookmarks.
+
+### Verify Contract Addresses
+
+Before approving any token transfer, verify the contract address you are approving against the [Contract Addresses](/smart-contracts/contract-addresses) page:
+
+1. Open the [Contract Addresses](/smart-contracts/contract-addresses) page in this documentation.
+2. Compare the address character-by-character with the address shown in your wallet's approval prompt.
+3. If they do not match exactly, **reject the transaction**.
+4. Optionally, verify the contract on [hyperscan.xyz](https://hyperscan.xyz) to confirm it matches the official deployment.
+
+### Other Safety Practices
+
+- **Revoke unused approvals** — Periodically review and revoke token approvals you no longer need using a tool like [revoke.cash](https://revoke.cash).
+- **Use a hardware wallet** — For significant balances, use a hardware wallet (Ledger, Trezor) rather than a browser-based hot wallet.
+- **Check the GitHub** — If you are running a maker bot or integrating with the SDK, verify you are using code from the official [github.com/hyperquote](https://github.com/hyperquote) organization.
+- **Report suspicious activity** — If you encounter a phishing site or impersonation attempt, report it in the official Discord.
+
+## Related Pages
+
+- [Contract Addresses](/smart-contracts/contract-addresses) — Official deployed contract addresses
+- [Security Model](/smart-contracts/security-model) — Smart contract security architecture
+- [Risk Overview](/risk/risk-overview) — Protocol risk categories and mitigations
+- [Connect Wallet](/getting-started/connect-wallet) — Wallet setup and network configuration

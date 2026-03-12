@@ -1,0 +1,751 @@
+# WebSocket Alerts
+
+import { Callout, Tabs } from 'nextra/components'
+
+The HyperQuote Alert Stream is an authenticated WebSocket service that delivers real-time RFQ alerts to agents and trading bots. Unlike the [Relay WebSocket Protocol](/api/relay-websocket-protocol) (which broadcasts raw RFQs and quotes to all clients), the alert stream applies per-agent subscription filters, enforces private RFQ access control, and includes reliability metadata for ordering and deduplication.
+
+## Connection
+
+### WebSocket URL
+
+```
+Production: wss://alerts.hyperquote.xyz
+Local:      ws://127.0.0.1:8090
+```
+
+The alert stream requires authentication. After opening the WebSocket connection, you must send an `AUTHENTICATE` message within **10 seconds** or the server will close the connection with code `4003`.
+
+### Connection Limits
+
+Each agent is limited to **5 concurrent WebSocket connections**. Attempting a 6th connection returns an error and closes the socket with code `4002`.
+
+### Quick Start
+
+<Tabs items={['Node.js (ws)', 'Browser']}>
+<Tabs.Tab>
+```ts
+import WebSocket from "ws";
+
+const ws = new WebSocket("wss://alerts.hyperquote.xyz");
+
+ws.on("open", () => {
+  // Step 1: Authenticate with your agent API key
+  ws.send(JSON.stringify({
+    type: "AUTHENTICATE",
+    data: { token: "hq_live_abc123..." }
+  }));
+});
+
+ws.on("message", (raw) => {
+  const msg = JSON.parse(raw.toString());
+
+  switch (msg.type) {
+    case "AUTHENTICATED":
+      console.log("Authenticated as", msg.data.agentId);
+      // Step 2: Subscribe to specific alerts (optional)
+      ws.send(JSON.stringify({
+        type: "SUBSCRIBE",
+        data: {
+          eventTypes: ["rfq.created"],
+          visibility: "public"
+        }
+      }));
+      break;
+
+    case "ALERT":
+      console.log(`[seq=${msg.data.sequence}] ${msg.data.eventType}`, msg.data.rfqId);
+      break;
+
+    case "ERROR":
+      console.error("Error:", msg.data.code, msg.data.message);
+      break;
+  }
+});
+```
+</Tabs.Tab>
+<Tabs.Tab>
+```ts
+const ws = new WebSocket("wss://alerts.hyperquote.xyz");
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: "AUTHENTICATE",
+    data: { token: "hq_live_abc123..." }
+  }));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "ALERT") {
+    console.log(`[seq=${msg.data.sequence}] ${msg.data.eventType}`, msg.data.rfqId);
+  }
+};
+```
+</Tabs.Tab>
+</Tabs>
+
+## Authentication
+
+Every connection must authenticate before receiving alerts. Send an `AUTHENTICATE` message with your agent API key:
+
+```json
+{
+  "type": "AUTHENTICATE",
+  "data": {
+    "token": "hq_live_abc123..."
+  }
+}
+```
+
+On success, the server responds with `AUTHENTICATED` and your active subscription filters:
+
+```json
+{
+  "type": "AUTHENTICATED",
+  "data": {
+    "agentId": "clx1abc2d0001...",
+    "wallet": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "roles": ["maker", "monitor"],
+    "subscription": {
+      "tokens": [],
+      "minNotionalUsd": 0,
+      "visibility": "all",
+      "side": "all",
+      "eventTypes": ["rfq.created", "rfq.filled"]
+    }
+  }
+}
+```
+
+The initial subscription is loaded from your stored [alert preferences](#alert-preferences-rest-api). You can override these at any time with a `SUBSCRIBE` message.
+
+### Authentication Errors
+
+| Code | Close Code | Cause |
+|------|-----------|-------|
+| `AUTH_FAILED` | `4001` | Invalid or expired API key |
+| `MAX_CONNECTIONS` | `4002` | Agent already has 5 active connections |
+| `AUTH_TIMEOUT` | `4003` | No `AUTHENTICATE` message within 10 seconds |
+
+<Callout type="warning">
+  Sending any message other than `AUTHENTICATE` before authenticating returns an `AUTH_REQUIRED` error. You cannot subscribe or receive alerts until authenticated.
+</Callout>
+
+## Message Protocol
+
+All messages use the same JSON envelope:
+
+```ts
+interface Message {
+  type: string;
+  data: unknown;
+}
+```
+
+### Client → Server
+
+| Type | Description |
+|------|-------------|
+| `AUTHENTICATE` | Authenticate with an agent API key (required first message) |
+| `SUBSCRIBE` | Update subscription filters (partial updates supported) |
+| `UNSUBSCRIBE` | Pause alert delivery without disconnecting |
+| `PING` | Keepalive ping |
+
+### Server → Client
+
+| Type | Description |
+|------|-------------|
+| `AUTHENTICATED` | Authentication succeeded, returns agent info and active filters |
+| `SUBSCRIBED` | Subscription updated, returns current filter state |
+| `ALERT` | An RFQ event matched your subscription filters |
+| `PONG` | Response to client `PING` |
+| `ERROR` | An error occurred (see error codes below) |
+
+## Subscription Filters
+
+After authenticating, send a `SUBSCRIBE` message to customize which alerts you receive. All fields are optional — omitted fields keep their current value.
+
+```json
+{
+  "type": "SUBSCRIBE",
+  "data": {
+    "tokens": ["0xb88339cb7199b77e23db6e890353e22632ba630f"],
+    "visibility": "public",
+    "eventTypes": ["rfq.created"],
+    "side": "buy"
+  }
+}
+```
+
+The server responds with `SUBSCRIBED` confirming your active filters:
+
+```json
+{
+  "type": "SUBSCRIBED",
+  "data": {
+    "tokens": ["0xb88339cb7199b77e23db6e890353e22632ba630f"],
+    "minNotionalUsd": 0,
+    "visibility": "public",
+    "side": "buy",
+    "eventTypes": ["rfq.created"]
+  }
+}
+```
+
+### Filter Reference
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tokens` | `string[]` | `[]` (all tokens) | Lowercase `0x` addresses to filter on. Empty array means all tokens. Maximum 50 entries. |
+| `eventTypes` | `string[]` | `["rfq.created", "rfq.filled"]` | Which event types to receive. Must be a non-empty subset. |
+| `visibility` | `string` | `"all"` | `"all"`, `"public"`, or `"private"`. Controls which RFQ visibility levels you receive. |
+| `side` | `string` | `"all"` | `"all"`, `"buy"`, or `"sell"`. Only applies when `tokens` is non-empty. |
+| `minNotionalUsd` | `number` | `0` | Minimum notional value in USD. Reserved for future use. |
+
+### Token Filter
+
+The token filter matches against both `tokenIn` and `tokenOut` of each RFQ. If **either** token address appears in your `tokens` array, the alert is delivered.
+
+```
+tokens: ["0xUSDC"]
+
+RFQ: tokenIn=USDC, tokenOut=HYPE  →  Delivered (tokenIn match)
+RFQ: tokenIn=HYPE, tokenOut=USDC  →  Delivered (tokenOut match)
+RFQ: tokenIn=PURR, tokenOut=HYPE  →  Filtered (no match)
+```
+
+An empty `tokens` array acts as a wildcard — all RFQs are delivered regardless of token pair.
+
+Token addresses are normalized to lowercase. You can send mixed-case addresses and duplicates will be deduplicated automatically.
+
+### Side Filter
+
+The `side` filter narrows token matching to a specific direction. It only takes effect when `tokens` is non-empty.
+
+| Side | Behavior | Use Case |
+|------|----------|----------|
+| `"all"` | Match if `tokenIn` OR `tokenOut` is in your tokens list | See all activity for a token |
+| `"buy"` | Match only if `tokenOut` is in your tokens list | Alert when someone wants to sell you a token |
+| `"sell"` | Match only if `tokenIn` is in your tokens list | Alert when someone wants to buy a token from you |
+
+```
+tokens: ["0xHYPE"], side: "buy"
+
+RFQ: tokenIn=USDC, tokenOut=HYPE  →  Delivered (tokenOut=HYPE, buying HYPE)
+RFQ: tokenIn=HYPE, tokenOut=USDC  →  Filtered (tokenIn match only, not tokenOut)
+```
+
+When `tokens` is empty, `side` is ignored.
+
+### Visibility Filter
+
+| Visibility | Public RFQs | Private RFQs |
+|------------|-------------|--------------|
+| `"all"` | Delivered | Delivered (if ACL allows) |
+| `"public"` | Delivered | Filtered |
+| `"private"` | Filtered | Delivered (if ACL allows) |
+
+<Callout type="info">
+  Private RFQ access is enforced server-side regardless of your subscription. Even with `visibility: "all"`, you only receive private RFQ alerts where your agent wallet appears in the RFQ's `allowedMakers` list. This cannot be bypassed by subscription filters.
+</Callout>
+
+### Pausing Alerts
+
+Send `UNSUBSCRIBE` to pause alert delivery without disconnecting. Your subscription filters are preserved.
+
+```json
+{ "type": "UNSUBSCRIBE", "data": {} }
+```
+
+Send `SUBSCRIBE` again (with or without filter changes) to resume.
+
+## Alert Payloads
+
+Every alert includes reliability metadata for ordering and deduplication.
+
+### Common Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `eventType` | `string` | `"rfq.created"` or `"rfq.filled"` |
+| `sequence` | `number` | Monotonically increasing integer. Unique per delivery. Use for ordering and gap detection. |
+| `eventId` | `string` | Deterministic identifier: `<eventType>:<rfqId>`. Stable across reconnects. Use for deduplication. |
+| `rfqId` | `string` | UUID of the RFQ |
+| `timestamp` | `number` | Unix timestamp (seconds) of the event |
+| `visibility` | `string` | `"public"` or `"private"` |
+
+### rfq.created
+
+Delivered when a new RFQ is created and matches your subscription filters.
+
+```json
+{
+  "type": "ALERT",
+  "data": {
+    "eventType": "rfq.created",
+    "sequence": 42,
+    "eventId": "rfq.created:f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "timestamp": 1710200000,
+    "visibility": "public",
+    "rfq": {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "taker": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "tokenIn": {
+        "address": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+        "symbol": "USDC",
+        "decimals": 6
+      },
+      "tokenOut": {
+        "address": "0x5555555555555555555555555555555555555555",
+        "symbol": "HYPE",
+        "decimals": 18
+      },
+      "kind": 0,
+      "amountIn": "1000000000",
+      "amountOut": null,
+      "expiry": 1710203600,
+      "createdAt": 1710200000
+    },
+    "quoteCount": 0
+  }
+}
+```
+
+### rfq.filled
+
+Delivered when an RFQ is filled (settled on-chain).
+
+```json
+{
+  "type": "ALERT",
+  "data": {
+    "eventType": "rfq.filled",
+    "sequence": 43,
+    "eventId": "rfq.filled:f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "rfqId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "timestamp": 1710200120,
+    "visibility": "public",
+    "rfq": {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "taker": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "tokenIn": {
+        "address": "0xb88339cb7199b77e23db6e890353e22632ba630f",
+        "symbol": "USDC",
+        "decimals": 6
+      },
+      "tokenOut": {
+        "address": "0x5555555555555555555555555555555555555555",
+        "symbol": "HYPE",
+        "decimals": 18
+      },
+      "kind": 0,
+      "amountIn": "1000000000",
+      "amountOut": "50000000000000000000",
+      "expiry": 1710203600,
+      "createdAt": 1710200000
+    },
+    "fill": {
+      "txHash": "0x8a3c2f1e4b5d6c7a8e9f0123456789abcdef0123456789abcdef0123456789ab",
+      "filledAt": 1710200120
+    }
+  }
+}
+```
+
+### RFQ Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | RFQ UUID |
+| `taker` | `string` | Wallet that created the RFQ |
+| `tokenIn` | `TokenInfo` | Token the taker is selling |
+| `tokenOut` | `TokenInfo` | Token the taker wants to receive |
+| `kind` | `number` | `0` = EXACT_IN (fixed input amount), `1` = EXACT_OUT (fixed output amount) |
+| `amountIn` | `string \| null` | Input amount in raw token units |
+| `amountOut` | `string \| null` | Output amount in raw token units |
+| `expiry` | `number` | Unix timestamp when the RFQ expires |
+| `createdAt` | `number` | Unix timestamp when the RFQ was created |
+
+### TokenInfo Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | `string` | Token contract address (lowercase) |
+| `symbol` | `string` | Token ticker symbol |
+| `decimals` | `number` | Token decimal places |
+
+## Reliability: Sequence Numbers and Event IDs
+
+Every alert carries two fields designed for reliable consumption.
+
+### sequence
+
+A monotonically increasing integer assigned to each alert delivery. The counter starts at 0 when the alert service starts and increments by 1 for every alert sent to any client.
+
+**Use for ordering and gap detection.** If your client receives sequence 42 followed by sequence 48, it knows 5 alerts were missed (they may have been filtered by your subscription, or lost during a brief disconnect).
+
+```ts
+let lastSequence = 0;
+
+function onAlert(alert) {
+  if (alert.sequence > lastSequence + 1) {
+    console.warn(`Gap detected: expected ${lastSequence + 1}, got ${alert.sequence}`);
+    // Consider refreshing state from the REST API
+  }
+  lastSequence = alert.sequence;
+  processAlert(alert);
+}
+```
+
+<Callout type="info">
+  The sequence counter resets to 0 when the alert service restarts. After a reconnect, reset your local sequence tracking. Sequence numbers are unique per delivery — two clients receiving the same underlying event will see different sequence numbers.
+</Callout>
+
+### eventId
+
+A deterministic string in the format `<eventType>:<rfqId>` that uniquely identifies an RFQ lifecycle event. Unlike `sequence`, the `eventId` is stable across service restarts and reconnections.
+
+**Use for deduplication.** If you reconnect and receive an alert with an `eventId` you have already processed, skip it.
+
+```ts
+const processed = new Set<string>();
+
+function onAlert(alert) {
+  if (processed.has(alert.eventId)) {
+    return; // Already handled
+  }
+  processed.add(alert.eventId);
+  processAlert(alert);
+}
+```
+
+| Field | Resets on restart? | Unique across clients? | Use case |
+|-------|--------------------|----------------------|----------|
+| `sequence` | Yes | No (global counter) | Ordering, gap detection |
+| `eventId` | No (deterministic) | Yes (same for all recipients) | Deduplication |
+
+## Reconnection
+
+Implement auto-reconnect with exponential backoff. After reconnecting, re-authenticate and re-subscribe.
+
+```ts
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS = 30000;
+
+let attempt = 0;
+let lastSequence = 0;
+const processedEvents = new Set<string>();
+
+function connect() {
+  const ws = new WebSocket("wss://alerts.hyperquote.xyz");
+
+  ws.on("open", () => {
+    attempt = 0;
+
+    // Re-authenticate
+    ws.send(JSON.stringify({
+      type: "AUTHENTICATE",
+      data: { token: process.env.HQ_API_KEY }
+    }));
+  });
+
+  ws.on("message", (raw) => {
+    const msg = JSON.parse(raw.toString());
+
+    if (msg.type === "AUTHENTICATED") {
+      // Reset sequence tracking on reconnect
+      lastSequence = 0;
+
+      // Re-subscribe with your filters
+      ws.send(JSON.stringify({
+        type: "SUBSCRIBE",
+        data: { eventTypes: ["rfq.created"], visibility: "public" }
+      }));
+    }
+
+    if (msg.type === "ALERT") {
+      const { eventId, sequence } = msg.data;
+
+      // Deduplicate
+      if (processedEvents.has(eventId)) return;
+      processedEvents.add(eventId);
+
+      // Gap detection
+      if (sequence > lastSequence + 1 && lastSequence > 0) {
+        console.warn(`Missed ${sequence - lastSequence - 1} alerts`);
+      }
+      lastSequence = sequence;
+
+      processAlert(msg.data);
+    }
+  });
+
+  ws.on("close", (code) => {
+    if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+      console.error("Max reconnect attempts reached");
+      process.exit(1);
+    }
+
+    const delay = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
+    attempt++;
+    console.log(`Reconnecting in ${delay}ms (attempt ${attempt})...`);
+    setTimeout(connect, delay);
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
+  });
+}
+
+connect();
+```
+
+### Handling Missed Events
+
+When you detect a sequence gap or reconnect after downtime:
+
+1. **Deduplicate** using `eventId` to avoid processing the same RFQ event twice
+2. **Refresh state** by polling the REST API for active RFQs if gaps are detected
+3. **Reset sequence** tracking after each reconnect (the server's counter may have advanced)
+
+## Keepalive
+
+Send a `PING` message every **30 seconds** to keep the connection alive:
+
+```ts
+const pingInterval = setInterval(() => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "PING", data: {} }));
+  }
+}, 30_000);
+
+ws.on("close", () => clearInterval(pingInterval));
+```
+
+The server also sends WebSocket-level pings. Clients that fail to respond for **90 seconds** are disconnected with code `4004`.
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `AUTH_REQUIRED` | Message sent before authentication |
+| `AUTH_FAILED` | Invalid or expired API key |
+| `AUTH_TIMEOUT` | No authentication within 10 seconds |
+| `MAX_CONNECTIONS` | Agent has exceeded 5 concurrent connections |
+| `INVALID_MESSAGE` | Malformed JSON, missing type, or unknown message type |
+
+### WebSocket Close Codes
+
+| Code | Meaning |
+|------|---------|
+| `4001` | Authentication failed |
+| `4002` | Max connections exceeded |
+| `4003` | Authentication timeout |
+| `4004` | Stale connection (no pong for 90s) |
+| `1001` | Server shutting down |
+
+## Private RFQ Access Control
+
+Private RFQs are only delivered to agents whose wallet address appears in the RFQ's `allowedMakers` list. This is enforced server-side and cannot be overridden by subscription filters.
+
+- If your wallet is in `allowedMakers` and your subscription matches, you receive the alert
+- If your wallet is NOT in `allowedMakers`, the alert is silently dropped regardless of subscription
+- The `allowedMakers` list is never included in alert payloads to prevent information leakage
+
+<Callout type="error">
+  The ACL check is case-insensitive. Your agent wallet and the `allowedMakers` entries are both lowercased before comparison. There is no way to subscribe to all private RFQs — access is strictly per-RFQ.
+</Callout>
+
+## Alert Preferences REST API
+
+You can pre-configure your default subscription filters using the REST API. These are loaded automatically when you authenticate on the WebSocket.
+
+### GET /api/v1/agent/alerts/preferences
+
+Returns your stored alert preferences (or defaults if none are saved).
+
+```bash
+curl https://hyperquote.xyz/api/v1/agent/alerts/preferences \
+  -H "Authorization: Bearer hq_live_abc123..."
+```
+
+**Response:**
+
+```json
+{
+  "agentId": "clx1abc2d0001...",
+  "enabled": true,
+  "tokens": [],
+  "minNotionalUsd": 0,
+  "visibility": "all",
+  "side": "all",
+  "eventTypes": ["rfq.created", "rfq.filled"],
+  "createdAt": "2025-03-10T12:00:00.000Z",
+  "updatedAt": "2025-03-10T12:00:00.000Z"
+}
+```
+
+### PUT /api/v1/agent/alerts/preferences
+
+Update your alert preferences. All fields are optional — omitted fields revert to defaults.
+
+```bash
+curl -X PUT https://hyperquote.xyz/api/v1/agent/alerts/preferences \
+  -H "Authorization: Bearer hq_live_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tokens": ["0xb88339cb7199b77e23db6e890353e22632ba630f"],
+    "visibility": "public",
+    "eventTypes": ["rfq.created"],
+    "side": "buy"
+  }'
+```
+
+### Preference Validation
+
+| Field | Constraint |
+|-------|-----------|
+| `tokens` | Array of `0x[0-9a-fA-F]{40}` addresses. Max 50 entries. Automatically lowercased and deduplicated. |
+| `eventTypes` | Non-empty subset of `["rfq.created", "rfq.filled"]`. Duplicates removed. |
+| `visibility` | One of `"all"`, `"public"`, `"private"` |
+| `side` | One of `"all"`, `"buy"`, `"sell"` |
+| `minNotionalUsd` | Finite non-negative number. `NaN` and `Infinity` are rejected. |
+
+## Example: Minimal Alert Bot
+
+A complete Node.js bot that connects, authenticates, subscribes to public `rfq.created` events, and logs each alert.
+
+```ts
+import WebSocket from "ws";
+
+const API_KEY = process.env.HQ_API_KEY!;
+const WS_URL = process.env.HQ_ALERTS_URL ?? "wss://alerts.hyperquote.xyz";
+
+const MAX_RECONNECT = 10;
+const BASE_DELAY = 1000;
+let attempt = 0;
+let lastSeq = 0;
+const seen = new Set<string>();
+
+function connect() {
+  const ws = new WebSocket(WS_URL);
+
+  ws.on("open", () => {
+    attempt = 0;
+    ws.send(JSON.stringify({
+      type: "AUTHENTICATE",
+      data: { token: API_KEY }
+    }));
+  });
+
+  ws.on("message", (raw) => {
+    const msg = JSON.parse(raw.toString());
+
+    switch (msg.type) {
+      case "AUTHENTICATED":
+        console.log("Authenticated as agent:", msg.data.agentId);
+        lastSeq = 0;
+
+        ws.send(JSON.stringify({
+          type: "SUBSCRIBE",
+          data: {
+            eventTypes: ["rfq.created"],
+            visibility: "public"
+          }
+        }));
+        break;
+
+      case "SUBSCRIBED":
+        console.log("Subscription active:", msg.data);
+        break;
+
+      case "ALERT": {
+        const { eventId, sequence, eventType, rfqId, rfq } = msg.data;
+
+        // Deduplicate
+        if (seen.has(eventId)) break;
+        seen.add(eventId);
+
+        // Gap detection
+        if (lastSeq > 0 && sequence > lastSeq + 1) {
+          console.warn(`Sequence gap: ${lastSeq} → ${sequence}`);
+        }
+        lastSeq = sequence;
+
+        // Process the alert
+        console.log(
+          `[${sequence}] ${eventType} | ${rfqId.slice(0, 8)}...` +
+          ` | ${rfq.tokenIn.symbol} → ${rfq.tokenOut.symbol}` +
+          ` | ${rfq.amountIn ?? rfq.amountOut}`
+        );
+        break;
+      }
+
+      case "ERROR":
+        console.error("Server error:", msg.data.code, msg.data.message);
+        break;
+    }
+  });
+
+  // Keepalive
+  const ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "PING", data: {} }));
+    }
+  }, 30_000);
+
+  ws.on("close", (code) => {
+    clearInterval(ping);
+    console.log(`Disconnected (code ${code})`);
+
+    if (attempt >= MAX_RECONNECT) {
+      console.error("Max reconnect attempts reached");
+      process.exit(1);
+    }
+    const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), 30_000);
+    attempt++;
+    console.log(`Reconnecting in ${delay}ms...`);
+    setTimeout(connect, delay);
+  });
+
+  ws.on("error", (err) => console.error("WS error:", err.message));
+}
+
+connect();
+```
+
+Run with:
+
+```bash
+HQ_API_KEY=hq_live_abc123... npx tsx alert-bot.ts
+```
+
+## Health Check
+
+The alert stream exposes an HTTP health endpoint on the same port:
+
+```bash
+curl https://alerts.hyperquote.xyz/health
+```
+
+```json
+{
+  "status": "ok",
+  "eventSourceConnected": true,
+  "connectedClients": 12,
+  "authenticatedClients": 10,
+  "uniqueAgents": 7,
+  "uptime": 86400
+}
+```
+
+## Related Pages
+
+- [Authentication](/api/authentication) — Agent API key format and verification
+- [Agent Registration](/api/agent-registration) — Register an agent and obtain an API key
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — Real-time quote submission via WebSocket
+- [Feed & Stream](/api/feed-and-stream) — Public SSE feed (no auth required)
+- [RFQ Endpoints](/api/rfq-endpoints) — REST API for RFQ creation and management
+- [Error Codes](/api/error-codes) — Full error reference

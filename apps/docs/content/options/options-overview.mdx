@@ -1,0 +1,79 @@
+# Options Overview
+
+import { Callout } from 'nextra/components'
+
+HyperQuote Options is a permissionless, on-chain options protocol built on HyperEVM. It extends the HyperQuote RFQ system to support covered calls and cash-secured puts with physical settlement, ERC-721 position NFTs, and a commit-reveal settlement oracle.
+
+## Supported Instruments
+
+HyperQuote V1 supports two vanilla option strategies:
+
+| Strategy | Seller Locks | Buyer Pays | Settlement |
+|---|---|---|---|
+| **Covered Call (CC)** | Underlying token (wHYPE) | Premium in stablecoin | Physical delivery |
+| **Cash-Secured Put (CSP)** | Stablecoin collateral | Premium in stablecoin | Physical delivery |
+
+Both instruments are European-style: they can only be settled at expiry, not before.
+
+## Underlying Tokens
+
+In V1, the only supported underlying asset is **wHYPE** (wrapped HYPE). Native HYPE is automatically wrapped to its ERC-20 form for on-chain settlement. The OptionsEngine contract enforces an allowlist of underlying tokens via `allowedUnderlying`, and the contract owner can add new underlyings in future versions.
+
+<Callout type="info">
+If you select native HYPE in the UI, it is automatically wrapped to wHYPE (ERC-20) before being sent to the contract. You can wrap and unwrap freely from the app header.
+</Callout>
+
+## Collateral Tokens
+
+Premiums and put collateral are denominated in stablecoins. V1 supports three collateral tokens:
+
+- **USDC** (6 decimals)
+- **USDH** (18 decimals)
+- **USDT0** (6 decimals)
+
+The contract enforces an allowlist via `allowedCollateral`. The `CollateralMath` library handles decimal scaling between 18-decimal underlyings and 6-decimal or 18-decimal collateral tokens automatically.
+
+## Expiry Constraints
+
+Every option must have a valid expiry timestamp that satisfies three rules:
+
+1. **Time-of-day snap** -- The expiry must fall exactly at **08:00 UTC** on a given day. The contract enforces `expiry % 86400 == 28800`.
+2. **Minimum duration** -- The expiry must be at least **24 hours** in the future from the time of execution.
+3. **Maximum duration** -- The expiry must be no more than **90 days** in the future.
+
+The UI automatically snaps user-selected expiry dates to the nearest valid 08:00 UTC timestamp within these bounds.
+
+## ERC-721 Position NFTs
+
+When a quote is executed, the OptionsEngine mints an ERC-721 NFT (token name: "HyperQuote Option", symbol: "HQOPT") to the **buyer** (maker). This NFT represents the buyer's right to exercise the option at expiry. The NFT is burned when the position is settled or expired.
+
+Each position stores the full deal terms on-chain: seller, buyer, underlying, collateral, strike, quantity, premium, expiry, locked collateral amount, and current state.
+
+## Physical Settlement Model
+
+HyperQuote Options use **physical settlement**, meaning actual tokens change hands at expiry rather than a cash difference:
+
+- **Covered Call (ITM):** The buyer delivers stablecoin equal to strike multiplied by quantity, and receives the locked underlying tokens.
+- **Cash-Secured Put (ITM):** The buyer delivers the underlying tokens, and receives the locked stablecoin collateral.
+- **OTM Expiry:** The seller's collateral is returned in full. No exchange occurs.
+
+Settlement is executed by permissionless keepers who call the `settle` or `expirePosition` functions on the OptionsEngine contract after expiry, using a price provided by the settlement oracle.
+
+## Architecture at a Glance
+
+```
+Taker (seller)                 Relay                  Maker (buyer)
+     |                           |                         |
+     |-- RFQ + EIP-191 sig ----->|                         |
+     |                           |-- broadcast RFQ ------->|
+     |                           |<-- EIP-712 quote -------|
+     |<-- quote broadcast -------|                         |
+     |                           |                         |
+     |--- execute(quote, sig) --------> OptionsEngine      |
+     |                                  - verify sig       |
+     |                                  - mint NFT         |
+     |                                  - transfer premium |
+     |                                  - lock collateral  |
+```
+
+For a detailed walkthrough of the RFQ-to-execution flow, see [Options RFQ Flow](/options/options-rfq-flow). For settlement mechanics, see [Settlement & Expiry](/options/settlement-and-expiry).

@@ -1,0 +1,105 @@
+# Strike & Expiry Rules
+
+import { Callout } from 'nextra/components'
+
+The OptionsEngine enforces strict constraints on strike prices and expiry timestamps to ensure consistency across the protocol. This page covers the formatting requirements and validation logic for both parameters.
+
+## Strike Price Format
+
+Strike prices are represented as unsigned 256-bit integers with **18 decimal places** of precision (1e18 fixed-point). This is the same precision used throughout the protocol for USD-denominated values.
+
+| Human Price | On-Chain Value | Representation |
+|---|---|---|
+| $1.00 | `1000000000000000000` | `1e18` |
+| $25.00 | `25000000000000000000` | `25e18` |
+| $100.50 | `100500000000000000000` | `100.5e18` |
+| $0.01 | `10000000000000000` | `0.01e18` |
+
+The contract requires that the strike price is non-zero:
+
+```solidity
+if (quote.strike == 0) revert ZeroStrike();
+```
+
+<Callout type="info">
+The UI accepts decimal strike prices (e.g., "25.50") and converts them to the 1e18 fixed-point format before constructing the quote. The `parseDecimal(strike, 18)` function handles this conversion.
+</Callout>
+
+### Precision Considerations
+
+Since strikes use 18 decimal places, sub-cent precision is supported. However, the CollateralMath library uses ceiling division when converting `strike * quantity` to collateral token units, which means rounding always favors the protocol (collateral requirements are rounded up, never down).
+
+## Expiry Timestamp Rules
+
+The OptionsEngine validates every expiry timestamp against three rules. All three must pass or the transaction reverts with `InvalidExpiry()`.
+
+### Rule 1: Time-of-Day Snap (08:00 UTC)
+
+Every expiry must fall exactly at **08:00 UTC** (28,800 seconds after midnight). The contract checks:
+
+```solidity
+uint256 public constant EXPIRY_TIME_OF_DAY = 28800; // 08:00 UTC
+uint256 internal constant SECONDS_PER_DAY = 86400;
+
+if (expiry % SECONDS_PER_DAY != EXPIRY_TIME_OF_DAY) revert InvalidExpiry();
+```
+
+This ensures all options for a given date share the same expiry moment, simplifying settlement oracle price publishing and preventing fragmentation across arbitrary timestamps within a day.
+
+### Rule 2: Minimum Duration (24 Hours)
+
+The expiry must be at least 24 hours in the future from the block timestamp at execution time:
+
+```solidity
+uint256 public constant MIN_EXPIRY_DURATION = 24 hours;
+
+if (expiry < block.timestamp + MIN_EXPIRY_DURATION) revert InvalidExpiry();
+```
+
+This guarantees a minimum time window for the settlement oracle to commit and reveal a price, and prevents ultra-short-dated options that could be manipulated.
+
+### Rule 3: Maximum Duration (90 Days)
+
+The expiry must be no more than 90 days in the future:
+
+```solidity
+uint256 public constant MAX_EXPIRY_DURATION = 90 days;
+
+if (expiry > block.timestamp + MAX_EXPIRY_DURATION) revert InvalidExpiry();
+```
+
+This caps the maximum tenor of options, limiting the duration that collateral remains locked and reducing oracle risk for distant expiry dates.
+
+## How the UI Computes Valid Expiries
+
+The HyperQuote UI accepts a number of days (1 to 90) and snaps the expiry to the next valid 08:00 UTC timestamp using the `futureExpiry08UTC` function:
+
+1. The user enters a number of days (e.g., 7).
+2. The function computes a target date by adding that many days to the current time.
+3. It snaps the result to 08:00 UTC on that date.
+4. If the resulting timestamp is less than 24 hours from now, it advances by one day.
+5. The final timestamp is guaranteed to satisfy all three contract validation rules.
+
+The UI displays the computed expiry as a human-readable date string (e.g., "2026-03-17 08:00 UTC") alongside the days input, so the user always knows the exact expiry moment.
+
+## Expiry Grid
+
+Because all expiries snap to 08:00 UTC, the available expiry dates form a discrete grid. For any given moment, the valid expiry range is:
+
+```
+Earliest: tomorrow's 08:00 UTC (or day-after-tomorrow if within 24h of today's 08:00 UTC)
+Latest:   08:00 UTC on the date 90 days from now
+```
+
+<Callout type="warning">
+If you are constructing quotes off-chain (e.g., via the Maker SDK), make sure your expiry timestamps pass all three validation rules. The contract will revert with `InvalidExpiry()` if any rule is violated.
+</Callout>
+
+## Summary
+
+| Parameter | Format | Constraints |
+|---|---|---|
+| **Strike** | `uint256`, 18 decimals (1e18 = $1) | Must be non-zero |
+| **Expiry** | `uint256`, Unix timestamp (seconds) | Must be at 08:00 UTC, 24h min, 90d max |
+| **Quantity** | `uint256`, underlying decimals (18 for wHYPE) | Must be non-zero |
+| **Premium** | `uint256`, collateral decimals (6 or 18) | Must be non-zero |

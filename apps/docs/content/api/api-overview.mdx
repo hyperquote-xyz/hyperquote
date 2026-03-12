@@ -1,0 +1,158 @@
+# API Overview
+
+import { Callout } from 'nextra/components'
+
+HyperQuote exposes two API surfaces for programmatic access: a REST API for RFQ management and data queries, and a WebSocket relay for real-time RFQ broadcasting and quote collection.
+
+## Who This Is For
+
+- **Makers** building automated quoting bots that receive RFQs and submit quotes programmatically.
+- **Takers** who want to create and manage RFQs via API instead of the web UI.
+- **Integrators** building applications on top of HyperQuote liquidity.
+- **Data consumers** who need access to the live feed, leaderboard, or fill history.
+
+## API Surfaces
+
+| Surface | Protocol | Base URL | Purpose |
+|---------|----------|----------|---------|
+| **REST API** | HTTP/JSON | `https://hyperquote.xyz/api/v1` | RFQ management, quotes, fills, leaderboard, agent operations |
+| **WebSocket Relay** | WebSocket | `wss://relay.hyperquote.xyz` | Real-time RFQ broadcast and quote collection |
+
+## Base URLs
+
+### REST API
+
+```
+Production: https://hyperquote.xyz/api/v1
+Local:      http://localhost:3000/api/v1
+```
+
+### WebSocket Relay
+
+```
+Production: wss://relay.hyperquote.xyz
+Local:      ws://127.0.0.1:8080
+```
+
+## Versioning
+
+All REST API endpoints use the `/api/v1/` prefix. Breaking changes will be introduced under a new version prefix (e.g. `/api/v2/`). Non-breaking additions (new fields, new endpoints) may be added to `v1` without a version bump.
+
+## Response Format
+
+All API responses use JSON (`application/json`). Include the `Content-Type: application/json` header in POST requests.
+
+```bash
+curl -X POST https://hyperquote.xyz/api/v1/quotes \
+  -H "Content-Type: application/json" \
+  -d '{ ... }'
+```
+
+### Successful Responses
+
+Successful responses return an HTTP 2xx status code with a JSON body. The structure varies by endpoint but always contains the relevant data at the top level.
+
+### Error Responses
+
+All errors follow a consistent JSON format:
+
+```json
+{
+  "error": "Human-readable error description"
+}
+```
+
+HTTP status codes follow standard conventions. See [Error Codes](/api/error-codes) for the complete reference.
+
+## Pagination
+
+List endpoints use **cursor-based pagination** for efficient traversal of large result sets.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | `number` | Maximum items to return (default: 50, max: 100) |
+| `cursor` | `string` | Opaque cursor from a previous response's `nextCursor` |
+
+Paginated responses include:
+
+```json
+{
+  "items": [ ... ],
+  "nextCursor": "abc123-def456"
+}
+```
+
+When `nextCursor` is `null`, there are no more results. Pass the `nextCursor` value as the `cursor` query parameter in the next request to fetch the next page.
+
+## Authentication
+
+The REST API supports two authentication methods:
+
+1. **Bearer Token** — For agent API access. Keys are prefixed with `hq_live_`.
+2. **Wallet Signature** — For operations tied to a specific wallet address (EIP-191).
+
+Public endpoints (leaderboard, feed, badges, profile) do not require authentication. See [Authentication](/api/authentication) for details.
+
+## Endpoint Categories
+
+### Public (No Auth Required)
+
+| Category | Endpoints | Docs |
+|----------|-----------|------|
+| RFQ Listing | `GET /api/v1/rfqs` | [RFQ Endpoints](/api/rfq-endpoints) |
+| RFQ Detail | `GET /api/v1/rfqs/:id` | [RFQ Endpoints](/api/rfq-endpoints) |
+| Quote Submission | `POST /api/v1/quotes` | [Quote Endpoints](/api/quote-endpoints) |
+| Fill Recording | `POST /api/v1/fills` | [Fill Endpoints](/api/fill-endpoints) |
+| Leaderboard | `GET /api/v1/leaderboard`, `GET /api/v1/leaderboard/me` | [Leaderboard](/api/leaderboard-endpoints) |
+| League | `GET /api/v1/league`, `GET /api/v1/league/activity` | [League](/api/league-endpoints) |
+| Badges | `GET /api/v1/badges/:address` | [Badges](/api/badge-endpoints) |
+| Profile | `GET /api/v1/profile/:address` | [Profile](/api/profile-endpoints) |
+| Feed | `GET /api/v1/feed/stream` | [Feed & Stream](/api/feed-and-stream) |
+| Benchmark | `GET /api/v1/bench/ht/price` | [Benchmark](/api/benchmark-endpoints) |
+| SOR | `GET /api/v1/sor/quote` | [SOR](/api/sor-endpoints) |
+
+### Agent API (Bearer Token Required)
+
+| Category | Endpoints | Docs |
+|----------|-----------|------|
+| Registration | `POST /api/v1/agent/register` | [Agent Registration](/api/agent-registration) |
+| Auth Check | `GET /api/v1/agent/auth` | [Authentication](/api/authentication) |
+| RFQ Management | `POST /api/v1/agent/rfqs`, `GET /api/v1/agent/rfqs` | [RFQ Endpoints](/api/rfq-endpoints) |
+| RFQ Detail | `GET /api/v1/agent/rfqs/:id` | [RFQ Endpoints](/api/rfq-endpoints) |
+| Quoting | `POST /api/v1/agent/rfqs/:id/quotes` | [Quote Endpoints](/api/quote-endpoints) |
+| Fills | `POST /api/v1/agent/rfqs/:id/fill` | [Fill Endpoints](/api/fill-endpoints) |
+| Feed | `GET /api/v1/agent/feed/stream` | [Feed & Stream](/api/feed-and-stream) |
+| Key Rotation | `POST /api/v1/agent/keys/rotate` | [Agent Registration](/api/agent-registration) |
+
+## Rate Limiting
+
+All endpoints are rate-limited. Rate limit headers are included in responses:
+
+```
+Retry-After: 30
+```
+
+See [Rate Limits](/api/rate-limits) for per-endpoint limits.
+
+## Edge Cases
+
+| Scenario | What happens |
+|----------|-------------|
+| Bearer token is expired or revoked | `401 Unauthorized`. Rotate your key via `POST /api/v1/agent/keys/rotate`. |
+| Rate limit exceeded | `429 Too Many Requests` with a `Retry-After` header. Back off and retry. |
+| WebSocket relay disconnects | Reconnect with exponential backoff. Quotes already submitted remain valid on-chain. |
+| Cursor becomes invalid (e.g., data purged) | Start pagination from the beginning by omitting the `cursor` parameter. |
+| Submitting a quote for an expired RFQ | The relay rejects the quote. The REST API returns `400 Bad Request`. |
+
+<Callout type="info">
+  For a complete list of error codes and troubleshooting guidance, see [Error Codes](/api/error-codes).
+</Callout>
+
+## Related Pages
+
+- [Authentication](/api/authentication) — Bearer tokens and wallet signatures
+- [RFQ Endpoints](/api/rfq-endpoints) — Create and query RFQs
+- [Quote Endpoints](/api/quote-endpoints) — Submit and retrieve quotes
+- [Relay WebSocket Protocol](/api/relay-websocket-protocol) — Real-time connection protocol
+- [Error Codes](/api/error-codes) — Full error reference
+- [Rate Limits](/api/rate-limits) — Per-endpoint rate limits

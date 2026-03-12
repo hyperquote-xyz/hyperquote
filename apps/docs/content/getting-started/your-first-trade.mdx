@@ -1,0 +1,159 @@
+# Your First Trade
+
+import { Callout, Steps } from 'nextra/components'
+
+This guide walks through the complete taker flow: requesting a quote, receiving maker responses, comparing prices against on-chain venues, and settling the trade atomically on HyperEVM.
+
+## Who This Is For
+
+- **First-time users** who want a step-by-step walkthrough of how to use HyperQuote.
+- **Traders** evaluating whether RFQ execution is better than AMM swaps for their size.
+- **Developers** who want to understand the end-to-end flow before integrating programmatically.
+
+<Callout>
+Make sure you have already [connected your wallet](/getting-started/connect-wallet) and are on the HyperEVM network before starting.
+</Callout>
+
+## How RFQ Works
+
+In a Request-for-Quote (RFQ) system, you (the taker) broadcast what you want to trade, and professional market makers compete to offer you the best price. Unlike AMMs, you are not trading against a pool curve — you are getting bespoke quotes from active liquidity providers who can price your exact size.
+
+The lifecycle of a trade:
+
+1. **You submit an RFQ** describing the token pair, amount, and direction.
+2. **Makers receive the RFQ** via the relay and respond with signed quotes.
+3. **You compare quotes** against each other and against AMM/DEX benchmark prices.
+4. **You execute the best quote** by calling the on-chain `fill` function with the maker's signature.
+5. **Settlement is atomic** — the contract verifies the signature, transfers tokens in both directions, and the trade is done in a single transaction.
+
+## Step-by-Step Walkthrough
+
+<Steps>
+
+### Select your tokens
+
+Navigate to [hyperquote.xyz/swap](https://hyperquote.xyz/swap). You will see two token selectors: **You Pay** (token in) and **You Receive** (token out). Click each selector to pick the tokens you want to trade.
+
+The token list includes core tokens (HYPE, WHYPE, USDC, USDH) and verified HyperEVM tokens. If your desired token is not listed, you can paste its contract address into the search field.
+
+<Callout type="info">
+If you select native HYPE as the input token, the UI will automatically handle wrapping to WHYPE before settlement, since the on-chain contract operates on ERC-20 tokens.
+</Callout>
+
+### Enter the amount
+
+Type the amount you want to trade. HyperQuote supports two modes, toggled via the tabs above the input fields:
+
+- **Exact In** — you fix the amount you pay; makers quote how much you receive.
+- **Exact Out** — you fix the amount you want to receive; makers quote how much you need to pay.
+
+Choose the mode that matches your intent. Most users start with **Exact In**.
+
+### Configure RFQ options
+
+Below the token inputs you can adjust:
+
+- **TTL (Time-to-Live)** — how long makers have to respond, in seconds. The default is 30 seconds. Shorter TTLs mean faster resolution but may receive fewer quotes.
+- **Visibility** — `Public` broadcasts to all connected makers. `Private` lets you share the RFQ with specific maker addresses only.
+
+### Submit the RFQ
+
+Click **Request Quotes**. Behind the scenes:
+
+1. The UI builds an `RFQRequest` with your parameters and a unique request ID.
+2. If the relay is connected, the request is broadcast over WebSocket to all listening makers.
+3. A countdown timer appears showing the remaining TTL.
+
+Your wallet does **not** sign anything yet — submitting an RFQ is free and off-chain.
+
+### Wait for quotes
+
+As makers respond, quote cards appear in the **Quotes** section below. Each card shows:
+
+- The maker's address (shortened)
+- The quoted amount out (or amount in, for Exact Out)
+- The effective price per token
+- Time until the quote expires (the maker's `deadline`)
+
+Quotes arrive in real-time over the relay WebSocket connection. You can also receive quotes manually via the JSON Exchange panel if you are coordinating with a specific maker off-relay.
+
+### Compare quotes against venues
+
+The **Quote Comparison** panel automatically benchmarks each maker quote against on-chain venue prices. This comparison fetches live pricing from HyperCore and HyperEVM DEX pools and shows:
+
+- Whether the RFQ quote beats, matches, or trails the best on-chain price
+- The price improvement (or cost) in basis points
+- A breakdown by venue (HyperCore order book, HyperEVM DEX aggregator)
+
+Use this information to confirm you are getting a fair or better price through HyperQuote.
+
+### Select and execute the fill
+
+Click the best quote card to select it. The **Execute** panel expands, showing:
+
+- A summary of the trade (tokens, amounts, effective price)
+- The protocol fee (deducted from the input amount)
+- A **Fill** button
+
+When you click **Fill**, the following happens in sequence:
+
+1. **Allowance check** — the UI reads your current ERC-20 allowance for the input token. If it is below the required amount, you are prompted to approve first.
+2. **Approval transaction** (if needed) — your wallet asks you to confirm an `approve` call granting the SpotRFQ contract permission to transfer your input tokens.
+3. **Fill transaction** — the UI calls `fillExactIn` (or `fillExactOut`) on the SpotRFQ contract, passing the quote struct, the maker's signature, and your slippage constraint.
+4. **On-chain settlement** — the contract verifies the maker's signature, checks the nonce has not been used, transfers your input tokens to the maker, transfers the output tokens (minus fee) to you, and emits a `Fill` event.
+
+### Confirm settlement
+
+Once the fill transaction is mined, the UI shows a success state with:
+
+- The transaction hash (linked to the HyperEVM block explorer)
+- The final amounts transferred
+- A link to view your updated balances
+
+The trade is now fully settled on-chain. There is no pending state, no oracle delay, and no claim step — settlement is atomic.
+
+</Steps>
+
+## Key Concepts
+
+### Exact In vs Exact Out
+
+| Mode | You Fix | Maker Quotes | Use Case |
+|------|---------|-------------|----------|
+| Exact In | Amount you pay | Amount you receive | Selling a specific amount of a token |
+| Exact Out | Amount you receive | Amount you must pay | Buying a specific amount of a token |
+
+### Slippage Constraint
+
+When filling an Exact In quote, you set a `minOut` constraint — the minimum amount you will accept. If the on-chain execution would yield less than this, the transaction reverts. For Exact Out, the constraint is `maxIn` — the maximum you are willing to pay.
+
+### Quote Expiry
+
+Each maker quote includes a `deadline` timestamp. If you attempt to fill a quote after its deadline, the contract will revert. The UI disables expired quotes automatically.
+
+### Nonce Protection
+
+Every maker quote includes a nonce managed by the on-chain contract. Once a quote is filled (or the maker cancels all quotes by incrementing their nonce), the same quote cannot be replayed.
+
+<Callout type="warning">
+Quotes are binding commitments from makers. Once a maker signs a quote, the taker can fill it any time before the deadline expires — the maker cannot selectively revoke individual quotes. Makers can only cancel **all** outstanding quotes by calling `cancelAllQuotes` on-chain.
+</Callout>
+
+## Edge Cases and Failure Scenarios
+
+| Scenario | What happens |
+|----------|-------------|
+| No makers respond before TTL expires | The RFQ closes with no quotes. No gas is spent. Submit a new RFQ with a longer TTL or try a different pair. |
+| You click Fill but the quote has expired | The transaction reverts. Your tokens stay in your wallet. Select a different quote or request new ones. |
+| Approval transaction succeeds but fill fails | Your token approval remains active. Retry the fill, or it will apply to your next trade with the same token. |
+| The maker's balance is insufficient at fill time | The fill transaction reverts. Try the next best quote. |
+| You accidentally close the browser during an RFQ | Active quotes remain valid on-chain until their deadline. Reconnect and re-import the quote via JSON exchange to fill it. |
+| Network congestion delays your fill transaction | If the transaction lands after the quote deadline, it reverts. Request fresh quotes. |
+
+## Related Pages
+
+- [Requesting a Quote](/trading/requesting-a-quote) — Detailed RFQ parameters and configuration
+- [Venue Comparison Engine](/trading/venue-comparison-engine) — How benchmark pricing works
+- [Public vs Private RFQs](/trading/public-vs-private-rfqs) — Choosing the right visibility
+- [Exact In vs Exact Out](/trading/exact-in-vs-exact-out) — Deep dive on quoting modes
+- [Connect Wallet](/getting-started/connect-wallet) — Wallet setup and network configuration

@@ -1,0 +1,195 @@
+# Pricing Strategies
+
+import { Callout } from 'nextra/components'
+
+Pricing is the core competitive advantage for a maker. The SDK provides a `PricingEngine` interface and a stub Black-Scholes implementation. Production makers typically replace this with a proprietary model.
+
+## PricingEngine Interface
+
+The SDK defines a pluggable pricing interface:
+
+```ts
+interface PricingEngine {
+  price(rfq: RFQ, market: MarketData, cDec: number): PricingResult;
+}
+```
+
+Where `MarketData` provides the current market snapshot:
+
+```ts
+interface MarketData {
+  spotPrice: bigint;        // current spot price (1e18 = $1)
+  ivBps: number;            // implied volatility (bps, e.g., 8000 = 80%)
+  riskFreeRateBps: number;  // risk-free rate (bps, e.g., 500 = 5%)
+}
+```
+
+And `PricingResult` contains the output:
+
+```ts
+interface PricingResult {
+  premium: bigint;    // premium in collateral base units
+  delta: number;      // BSM delta as a decimal (e.g., 0.45)
+  fairValue: bigint;  // theoretical fair value in collateral units
+  ivUsed: number;     // implied vol actually used (after skew adjustment)
+}
+```
+
+## Reference Pricing: Black-Scholes
+
+The SDK ships with `StubPricingEngine`, a Black-Scholes implementation suitable for development and as a starting point for production:
+
+```ts
+import { StubPricingEngine, MarketData } from "@hyperquote/sdk-maker";
+
+const engine = new StubPricingEngine();
+
+const market: MarketData = {
+  spotPrice: 25_000000000000000000n, // $25.00
+  ivBps: 8000,                       // 80% annualized IV
+  riskFreeRateBps: 500,              // 5% risk-free rate
+};
+
+const result = engine.price(rfq, market, 6); // cDec=6 for USDC
+// result.premium: premium in USDC base units (1e6)
+// result.delta: e.g., -0.42 for a put
+// result.fairValue: theoretical value before spread
+// result.ivUsed: e.g., 0.82 (after skew)
+```
+
+### Black-Scholes Formula
+
+The engine computes the standard Black-Scholes option price:
+
+For calls:
+```
+C = S * N(d1) - K * e^(-rT) * N(d2)
+```
+
+For puts:
+```
+P = K * e^(-rT) * N(-d2) - S * N(-d1)
+```
+
+Where:
+```
+d1 = [ln(S/K) + (r + sigma^2/2) * T] / (sigma * sqrt(T))
+d2 = d1 - sigma * sqrt(T)
+```
+
+- `S` = spot price
+- `K` = strike price
+- `T` = time to expiry in years
+- `r` = risk-free rate
+- `sigma` = implied volatility
+- `N()` = cumulative normal distribution
+
+## Volatility Surface Modeling
+
+The stub engine applies a simple skew model on top of a flat ATM vol:
+
+```ts
+interface VolSurfaceParams {
+  atmVolBps: number;          // base ATM vol (bps), e.g., 8000 = 80%
+  skewBpsPerPctOtm: number;  // vol increase per 1% OTM, e.g., 50 = 0.5%
+  spreadBps: number;          // spread over fair value (bps of notional)
+}
+```
+
+The vol used for pricing is:
+
+```
+iv = atmVol + skewAdj
+```
+
+Where `skewAdj` is proportional to how far the strike is from the spot:
+
+```ts
+const moneyness = (strike - spot) / spot;
+const otmPct = Math.abs(moneyness) * 100;
+const skewAdj = (skewBpsPerPctOtm * otmPct) / 10000;
+const iv = atmVolBps / 10000 + skewAdj;
+```
+
+This means deeper out-of-the-money options get a higher implied vol, reflecting the real-world volatility smile.
+
+### Default Parameters
+
+The SDK's default vol surface:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `atmVolBps` | 8000 | 80% annualized ATM implied vol |
+| `skewBpsPerPctOtm` | 50 | 0.5% vol increase per 1% OTM |
+| `spreadBps` | 200 | 2% of notional added as maker spread |
+
+<Callout type="info">
+  These defaults are intentionally conservative and suitable for development only. Production makers should calibrate their vol surface to real market data, ideally from Deribit or a similar options venue.
+</Callout>
+
+## Spread Configuration
+
+The spread is the maker's edge over fair value. It is applied as a percentage of notional (strike x quantity):
+
+```ts
+const spreadAdj = (spreadBps / 10000) * (strike * qtyUnits);
+const premium = fairValue + spreadAdj;
+```
+
+Key spread considerations:
+
+- **Wider spreads** = more revenue per fill but fewer fills (takers choose the cheapest quote).
+- **Tighter spreads** = more fills but less revenue per trade.
+- **Dynamic spreads** = adjust based on inventory, volatility regime, or time of day.
+
+## Market Data Requirements
+
+To price effectively, makers need:
+
+1. **Spot price** -- The current market price of the underlying (HYPE). Source this from an oracle, CEX API, or on-chain TWAP.
+2. **Implied volatility** -- Historical or implied vol from options markets. The stub engine uses a flat IV input, but production engines should pull from a vol surface.
+3. **Risk-free rate** -- Typically the stablecoin lending rate or a DeFi reference rate. The stub defaults to 5% (500 bps).
+
+### Example: Fetching Spot from Environment
+
+The default maker bot reads spot price from an environment variable:
+
+```ts
+const spotPriceUsd = parseFloat(process.env.HYPE_SPOT_USD ?? "25");
+const market: MarketData = {
+  spotPrice: BigInt(Math.round(spotPriceUsd * 1e18)),
+  ivBps: parseInt(process.env.HYPE_IV_BPS ?? "8000"),
+  riskFreeRateBps: parseInt(process.env.RISK_FREE_RATE_BPS ?? "500"),
+};
+```
+
+Production makers should replace this with a real-time price feed.
+
+## Building a Custom Pricing Engine
+
+Implement the `PricingEngine` interface with your own model:
+
+```ts
+import { PricingEngine, PricingResult, MarketData } from "@hyperquote/sdk-maker";
+import { RFQ } from "@hyperquote/sdk-maker";
+
+class MyPricingEngine implements PricingEngine {
+  price(rfq: RFQ, market: MarketData, cDec: number): PricingResult {
+    // Your proprietary pricing logic here
+    // ...
+    return {
+      premium: computedPremium,
+      delta: computedDelta,
+      fairValue: computedFairValue,
+      ivUsed: volUsed,
+    };
+  }
+}
+```
+
+Then plug it into the maker bot:
+
+```ts
+const pricingEngine = new MyPricingEngine();
+const result = pricingEngine.price(rfq, market, cDec);
+```

@@ -1,0 +1,150 @@
+# Nonce Management
+
+import { Callout } from 'nextra/components'
+
+The nonce system provides replay protection for maker quotes. Each quote includes a `nonce` field that is checked against the maker's on-chain nonce during execution. Nonces also enable bulk invalidation of outstanding quotes.
+
+## On-Chain Nonce
+
+The `OptionsEngine` contract maintains a per-address nonce mapping:
+
+```solidity
+mapping(address => uint256) public nonces;
+```
+
+When executing a quote, the contract checks:
+
+```solidity
+if (quote.nonce < nonces[quote.maker]) revert NonceTooLow();
+```
+
+This means a quote's nonce must be **greater than or equal to** the maker's current on-chain nonce. Quotes with a nonce below the on-chain value are permanently invalidated.
+
+## NonceManager
+
+The SDK provides a `NonceManager` class that tracks the local nonce state and provides monotonically increasing nonces for new quotes.
+
+```ts
+import { NonceManager } from "@hyperquote/sdk-maker";
+import { JsonRpcProvider } from "ethers";
+
+const provider = new JsonRpcProvider("http://127.0.0.1:8545");
+const nonceManager = new NonceManager(
+  "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", // maker address
+  "0x5FbDB2315678afecb367f032d93F642f64180aa3", // engine address
+  provider,
+);
+
+// Initialize from on-chain state
+await nonceManager.init();
+
+// Get the next nonce for a new quote (advances the counter)
+const nonce1 = nonceManager.nextNonce(); // e.g., 0n
+const nonce2 = nonceManager.nextNonce(); // e.g., 1n
+
+// Peek at current nonce without advancing
+const current = nonceManager.currentNonce(); // e.g., 2n
+```
+
+### Initialization
+
+On startup, `NonceManager.init()` reads the maker's current on-chain nonce by calling:
+
+```ts
+const engine = new Contract(engineAddress, ["function nonces(address) view returns (uint256)"], provider);
+const onChainNonce = await engine.nonces(makerAddress);
+```
+
+The local nonce is set to this value. All subsequent calls to `nextNonce()` return the current value and increment by 1.
+
+### Monotonic Increments
+
+Nonces are strictly monotonic and never reused. If a quote expires or is cancelled off-chain, the nonce is NOT decremented. This is by design -- nonce reuse would create a replay attack vector.
+
+```
+init()       -> localNonce = onChainNonce (e.g., 5)
+nextNonce()  -> returns 5, localNonce = 6
+nextNonce()  -> returns 6, localNonce = 7
+nextNonce()  -> returns 7, localNonce = 8
+```
+
+## Quote-Specific Invalidation
+
+To cancel a single outstanding quote without affecting others, call `cancelQuote` on the `OptionsEngine` contract:
+
+```solidity
+function cancelQuote(QuoteLib.Quote calldata quote) external {
+    if (quote.maker != msg.sender) revert InvalidSignature();
+    bytes32 digest = _hashTypedDataV4(QuoteLib.hash(quote));
+    usedQuotes[digest] = true;
+    emit QuoteCancelled(digest, msg.sender);
+}
+```
+
+This marks the specific quote's EIP-712 digest as "used" in the `usedQuotes` mapping, preventing it from being executed. Other quotes with different parameters remain valid.
+
+```ts
+// Cancel a specific quote on-chain
+const engine = new Contract(engineAddress, engineAbi, wallet);
+await engine.cancelQuote(quote);
+```
+
+<Callout type="info">
+  Single-quote cancellation is useful when you want to withdraw a specific price without invalidating all outstanding quotes. It costs a transaction but is precise.
+</Callout>
+
+## Bulk Invalidation via incrementNonce
+
+To invalidate **all** outstanding quotes at once, call `incrementNonce()` on the `OptionsEngine`:
+
+```solidity
+function incrementNonce() external {
+    uint256 newNonce = ++nonces[msg.sender];
+    emit NonceIncremented(msg.sender, newNonce);
+}
+```
+
+This increments the maker's on-chain nonce by 1. Every quote with a nonce less than the new on-chain nonce becomes permanently invalid (the `NonceTooLow` check will reject them).
+
+```ts
+// Bulk invalidate all outstanding quotes
+const engine = new Contract(engineAddress, engineAbi, wallet);
+await engine.incrementNonce();
+
+// Resync the local NonceManager
+await nonceManager.resync();
+```
+
+<Callout type="warning">
+  After calling `incrementNonce()`, you must resync the `NonceManager` by calling `nonceManager.resync()`. Otherwise, the local nonce will be out of sync and new quotes may use nonces that are still below the on-chain value.
+</Callout>
+
+### When to Use Bulk Invalidation
+
+- **Market dislocation** -- A sudden price move makes all outstanding quotes stale.
+- **Inventory breach** -- Risk limits are exceeded and you need to immediately stop all fills.
+- **Key rotation** -- You are migrating to a new signing key and want to cancel all old quotes.
+- **Emergency shutdown** -- Something unexpected occurred and you want a clean slate.
+
+## Nonce Strategy Summary
+
+| Strategy | Mechanism | Scope | Cost |
+|---|---|---|---|
+| Let quotes expire | `deadline` passes | Single quote | Free |
+| Cancel specific quote | `cancelQuote(quote)` | Single quote | 1 tx |
+| Bulk invalidate | `incrementNonce()` | All quotes below new nonce | 1 tx |
+| Off-chain withdrawal | Relay marks quote as withdrawn | Relay only (not on-chain) | Free |
+
+## Offline / Mock Mode
+
+When running in offline mode (no RPC provider), the `NonceManager` is not used. Instead, the maker bot tracks a simple local counter starting from `0n`:
+
+```ts
+let nonce = 0n;
+
+// For each quote:
+quote.nonce = nonce;
+nonce += 1n;
+```
+
+This works for testing and local development where the on-chain state is either fresh or not relevant.

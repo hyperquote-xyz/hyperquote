@@ -1,0 +1,114 @@
+# HyperEVM DEX
+
+import { Callout } from 'nextra/components'
+
+The HyperEVM DEX venue uses the HT.xyz aggregator to fetch competitive DEX quotes from pools deployed on HyperEVM. This provides an AMM-based benchmark alongside the HyperCore order book.
+
+## Architecture
+
+The DEX quote flow is:
+
+1. The browser calls `/api/v1/bench/ht/price` with sell/buy token addresses and the sell amount
+2. The Next.js API route proxies the request to the HT.xyz aggregator API (avoiding CORS issues)
+3. HT.xyz routes through available DEX pools (Uniswap V2/V3 forks, stable pools, etc.) and returns the best output amount
+4. The result is converted into an `AMMEstimate` and returned to the venue comparison engine
+
+## Direct Route Quoting
+
+The primary path attempts a direct quote through HT.xyz:
+
+```ts
+const params = new URLSearchParams({
+  sellToken: resolveSettlementToken(tokenIn).address,
+  buyToken: resolveSettlementToken(tokenOut).address,
+  sellAmount: amountIn.toString(),
+});
+
+const res = await fetch(`/api/v1/bench/ht/price?${params}`, { signal });
+```
+
+<Callout type="info">
+Native HYPE is automatically resolved to wHYPE (wrapped HYPE) before calling HT.xyz, since DEX pools use the ERC-20 wrapped version.
+</Callout>
+
+The HT.xyz `outputAmount` is returned as a human-readable decimal string (e.g. `"1032522.17"`), which is then converted to a raw bigint in the token's decimal precision.
+
+## Multi-Hop Routing
+
+When HT.xyz cannot find a direct route (returns null), the system attempts multi-hop routing through liquid intermediate tokens. See the [Multi-Hop Routing](/venue-comparison/multi-hop-routing) page for full details.
+
+## Binary Search for Partial Fills
+
+When both direct and multi-hop routing fail, and the trade size exceeds $25,000 USD, the system runs a binary search to find the largest amount that HT.xyz can fill. See the [Partial Fills](/venue-comparison/partial-fills) page for the algorithm details.
+
+## Result Types
+
+### Full Fill
+
+When HT.xyz returns a valid output amount for the full requested size:
+
+```ts
+{
+  source: "HyperEVM DEX",
+  amountOut: BigInt(...),
+  priceImpact: 0,          // computed by benchmark layer
+  effectivePrice: humanOut / normalizedIn,
+  poolLiquidity: 0n,
+  route: [tokenIn.symbol, tokenOut.symbol],
+  isDirect: true,
+  hops: 1,
+}
+```
+
+### Multi-Hop Fill
+
+When the direct route fails but a multi-hop route succeeds:
+
+```ts
+{
+  source: "HyperEVM DEX",
+  amountOut: best.amountOut,
+  route: [tokenIn.symbol, best.intermediateSymbol, tokenOut.symbol],
+  isDirect: false,
+  hops: 2,
+}
+```
+
+### Partial Fill
+
+When binary search finds a partial fill, the result is returned as a `VenuePartial` with `filledPct`, `filledIn`, `filledOut`, and `remainingIn` fields.
+
+### Failure
+
+When no route exists at any size, the venue returns:
+
+```ts
+{ ok: false, reason: "no_dex_route", routeLabel: "TOKEN_A -> TOKEN_B" }
+```
+
+## Route Label Display
+
+The UI displays the route taken for each DEX quote:
+
+- Direct: `"USDC -> PURR"`
+- Multi-hop: `"USDH -> USDC -> PURR"`
+
+Route labels are constructed from the token symbols in the route array. Even on failure, the system provides a best-effort label showing the attempted pair.
+
+## Slippage vs Mid-Price
+
+The DEX venue does not independently compute price impact. Instead, the slippage displayed in the UI is always computed by the universal benchmark layer using the HyperCore orderbook mid-price:
+
+```
+slippageVsMid = (referenceOut - actualOut) / referenceOut * 100
+```
+
+This ensures that slippage numbers are directly comparable across all three venues (HyperCore, DEX, RFQ).
+
+## Failure Reasons
+
+| Reason | Meaning |
+|--------|---------|
+| `no_dex_route` | HT.xyz returned null for direct, multi-hop, and binary search |
+| `transient_failure` | Network error or 5xx from HT.xyz; retries exhausted |
+| `aborted` | Request cancelled via AbortSignal |

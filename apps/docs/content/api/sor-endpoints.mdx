@@ -1,0 +1,189 @@
+# SOR Endpoints
+
+import { Callout, Tabs } from 'nextra/components'
+
+The Smart Order Router (SOR) finds optimal swap routes across multiple DEX pool types deployed on HyperEVM. It evaluates routes, splits across pools, and returns explainable quotes with safety validation.
+
+## Get Quote
+
+### `GET /api/v1/sor/quote`
+
+Main entry point for the SOR. Runs the full pipeline: route generation, evaluation, split optimization, and explainability.
+
+#### Query Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `tokenIn` | `string` | Yes | -- | Input token address |
+| `tokenOut` | `string` | Yes | -- | Output token address |
+| `amountIn` | `string` | Yes | -- | Input amount (BigInt string, raw units) |
+| `maxHops` | `number` | No | `2` | Maximum hop count (1 or 2) |
+| `maxRoutes` | `number` | No | `5` | Maximum routes to return |
+| `maxSplit` | `number` | No | `4` | Maximum routes to split across |
+| `slugs` | `string` | No | -- | Comma-separated protocol slugs to limit to |
+| `explain` | `string` | No | `"true"` | Set to `"true"` for full explainability |
+
+#### Example Request
+
+```bash
+curl "https://hyperquote.xyz/api/v1/sor/quote?\
+tokenIn=0xb88339cb...&\
+tokenOut=0x55555555...&\
+amountIn=1000000000"
+```
+
+#### Response (200 OK)
+
+```json
+{
+  "meta": {
+    "timestamp": "2026-03-10T16:00:00.000Z",
+    "asOfBlock": "1234567",
+    "computeTimeMs": 85,
+    "candidatesConsidered": 12,
+    "viableRoutes": 5,
+    "isSplit": false
+  },
+  "summary": {
+    "tokenIn": "0xb88339cb...",
+    "tokenInSymbol": "USDC",
+    "tokenOut": "0x55555555...",
+    "tokenOutSymbol": "WHYPE",
+    "amountIn": "1000000000",
+    "amountOut": "49523000000000000000",
+    "effectivePrice": 49.523,
+    "priceImpactBps": 12
+  },
+  "routes": [
+    {
+      "path": ["0xb88339cb...", "0x55555555..."],
+      "pools": [
+        {
+          "address": "0xPoolAddr...",
+          "protocol": "kittenswap",
+          "poolType": "v2",
+          "fee": 3000
+        }
+      ],
+      "hops": 1,
+      "amountIn": "1000000000",
+      "amountOut": "49523000000000000000",
+      "fractionPct": 100
+    }
+  ],
+  "alternatives": [
+    {
+      "protocol": "hyperswap",
+      "amountOut": "49100000000000000000",
+      "diffBps": -85
+    }
+  ],
+  "warnings": [],
+  "fees": []
+}
+```
+
+#### Response Fields
+
+| Section | Field | Description |
+|---------|-------|-------------|
+| `meta` | `asOfBlock` | Block number at quote time |
+| `meta` | `computeTimeMs` | Total computation time |
+| `meta` | `candidatesConsidered` | Number of route candidates evaluated |
+| `meta` | `isSplit` | Whether the quote splits across multiple routes |
+| `summary` | `amountOut` | Best available output amount |
+| `summary` | `effectivePrice` | Effective price (output / input, adjusted for decimals) |
+| `summary` | `priceImpactBps` | Estimated price impact in basis points |
+| `routes` | `fractionPct` | Percentage of input routed through this path |
+| `alternatives` | `diffBps` | How much worse this alternative is vs. the best route |
+
+<Callout type="warning">
+  If the SOR returns zero routes, the `warnings` array will contain guidance. A common issue is missing pool state data. Try calling `POST /api/v1/sor/pool-state/refresh` first.
+</Callout>
+
+#### Error Responses
+
+| Status | Error |
+|--------|-------|
+| `400` | Missing required params (`tokenIn`, `tokenOut`, `amountIn`) |
+| `400` | Invalid token address format |
+| `400` | `tokenIn` and `tokenOut` must be different |
+| `400` | `amountIn` must be a positive integer |
+| `404` | Token not found in the registry |
+
+## List Pools
+
+### `GET /api/v1/sor/pools`
+
+Returns available liquidity pools tracked by the SOR.
+
+## Scan Pools
+
+### `POST /api/v1/sor/pools/scan`
+
+Triggers a scan for new liquidity pools on HyperEVM.
+
+## Pool State
+
+### `GET /api/v1/sor/pool-state`
+
+Returns cached pool state data (reserves, tick data, etc.).
+
+### `POST /api/v1/sor/pool-state/refresh`
+
+Refreshes pool state from on-chain data. Useful when quotes return zero routes due to stale state.
+
+## List Protocols
+
+### `GET /api/v1/sor/protocols`
+
+Returns the list of DEX protocols registered with the SOR.
+
+#### Response
+
+```json
+{
+  "protocols": [
+    {
+      "slug": "kittenswap",
+      "name": "KittenSwap",
+      "poolType": "v2",
+      "factoryAddress": "0x..."
+    },
+    {
+      "slug": "hyperswap",
+      "name": "HyperSwap",
+      "poolType": "v3",
+      "factoryAddress": "0x..."
+    }
+  ]
+}
+```
+
+### `POST /api/v1/sor/protocols/sync`
+
+Synchronizes protocol registry from the database.
+
+## Health Check
+
+### `GET /api/v1/sor/health`
+
+Returns the SOR service health status and pool state summary.
+
+## Coverage Report
+
+### `GET /api/v1/sor/coverage`
+
+Returns the SOR's token pair coverage -- which pairs have available routes and estimated liquidity.
+
+## Supported Protocols
+
+| Protocol | Pool Type | Description |
+|----------|-----------|-------------|
+| Uniswap V2 forks | Constant product (x*y=k) | Standard AMM pools |
+| Uniswap V3 forks | Concentrated liquidity | Tick-based pools with price ranges |
+| Stable pools | Stable swap | Optimized curves for like-kind assets |
+
+<Callout type="info">
+  The SOR scans HyperEVM for deployed DEX factory contracts and maintains an in-memory pool state cache. Pool states are refreshed periodically. Use the `meta.asOfBlock` field to check quote freshness.
+</Callout>

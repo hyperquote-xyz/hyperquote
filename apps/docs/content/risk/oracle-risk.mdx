@@ -1,0 +1,67 @@
+# Oracle Risk
+
+import { Callout } from 'nextra/components'
+
+Options on HyperQuote use a commit-reveal oracle mechanism for settlement price determination. The settlement price is published by a designated trusted publisher and determines whether options expire in-the-money (ITM) or out-of-the-money (OTM). This introduces oracle-specific risks that are unique to the options product.
+
+## Trusted Publisher Model
+
+The `OptionsEngine` contract designates a single oracle publisher address that is authorized to submit settlement prices. This is a **trusted publisher** model, not a decentralized oracle network.
+
+| Property | Description |
+|----------|-------------|
+| Publisher address | Set by the contract admin |
+| Publish mechanism | On-chain transaction calling the settlement price function |
+| Price format | USD price per unit of underlying asset |
+| Timing | Published daily at or after 08:00 UTC expiry |
+
+<Callout type="warning">
+  The settlement price is determined by a single trusted publisher. If this publisher submits an incorrect price, options will settle at the wrong value. There is no decentralized validation or dispute mechanism in the current design.
+</Callout>
+
+## Publish Failure Risk
+
+If the oracle publisher fails to submit a settlement price within the settlement window, ITM options cannot be settled. Consequences include:
+
+- **Missed settlement** -- If no price is published within the 24-hour settlement window, options expire without settlement. Collateral is returned to the seller.
+- **Keeper inaction** -- Even if a price is published late, keepers may not be monitoring, further delaying settlement.
+- **Position holder loss** -- A holder of an ITM option that cannot be settled due to missing oracle data loses the intrinsic value.
+
+Potential causes of publish failure:
+- Publisher infrastructure downtime
+- HyperEVM network congestion preventing transaction inclusion
+- Publisher key compromise requiring emergency rotation
+- Bugs in the publish automation
+
+## Price Manipulation Risk
+
+Because the settlement price comes from a single publisher, the system is vulnerable to deliberate or accidental price manipulation:
+
+- **Deliberate manipulation** -- A compromised publisher could submit a price that benefits specific positions at the expense of others.
+- **Accidental error** -- A bug in the price feed aggregation could produce an incorrect price (e.g., a stale price, a price from the wrong timestamp, or a price in the wrong denomination).
+- **Frontrunning the publish** -- If the settlement price can be observed before it is submitted on-chain (e.g., from the publisher's pending transaction in the mempool), an attacker could trade options or exercise positions based on advance knowledge of the settlement price.
+
+## Timing Risk
+
+The oracle price is supposed to reflect the market price at a specific moment (the expiry timestamp, 08:00 UTC daily). However, the actual publish transaction may occur minutes or hours later. This creates timing risk:
+
+- The published price may not perfectly reflect the instantaneous price at 08:00 UTC if the data source lags.
+- Between the expiry time and the publish time, the market price may have moved significantly. Participants cannot act on this movement for their expiring options.
+- The choice of price source (e.g., which exchange, which aggregation method) affects the final number and is determined by the publisher, not the protocol.
+
+<Callout type="info">
+  In the commit-reveal oracle design, the publisher first commits a hash of the price, then reveals the actual price in a second transaction. This prevents frontrunning of the settlement price between commit and reveal.
+</Callout>
+
+## Mitigation Strategies
+
+1. **Understand the trust assumption** -- Options trading on HyperQuote requires trusting the designated oracle publisher. If you are not comfortable with this trust model, consider limiting your options exposure.
+2. **Monitor settlement** -- Track the oracle publish schedule and verify that settlement prices are published on time. If the publisher has been unreliable, reduce your options exposure.
+3. **Manage position size** -- Do not take options positions so large that a single oracle failure or manipulation would result in unacceptable losses.
+4. **Verify settlement prices** -- After the oracle publishes, compare the settlement price against independent market data sources to confirm it is reasonable.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Settlement & Expiry](/options/settlement-and-expiry) -- Options settlement lifecycle
+- [Keeper Fees (Options)](/fees/keeper-fees-options) -- Keeper incentive mechanism

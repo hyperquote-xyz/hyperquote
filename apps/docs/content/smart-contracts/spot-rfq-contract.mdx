@@ -1,0 +1,102 @@
+# Spot RFQ Contract
+
+import { Callout } from 'nextra/components'
+
+The Spot RFQ settlement contract handles atomic token swaps on HyperEVM. When a taker accepts an RFQ quote from a maker, the settlement contract verifies the maker's EIP-712 signature and executes both legs of the swap in a single transaction.
+
+## Overview
+
+The spot RFQ contract is a lightweight settlement layer. It does not custody funds or maintain order books. Its sole purpose is to atomically execute a pre-agreed swap between a maker and a taker.
+
+## Key Functions
+
+### `execute()`
+
+Executes a signed spot RFQ quote. The taker calls this function with the maker's signed quote parameters.
+
+```solidity
+function execute(
+  address maker,
+  address taker,
+  address tokenIn,
+  address tokenOut,
+  uint256 amountIn,
+  uint256 amountOut,
+  uint256 expiry,
+  uint256 nonce,
+  bytes calldata signature
+) external;
+```
+
+The function:
+1. Verifies that the EIP-712 signature was produced by the `maker` address
+2. Checks that the quote has not expired (`block.timestamp <= expiry`)
+3. Checks that the nonce is valid (not already used, not below the maker's current nonce)
+4. Transfers `amountIn` of `tokenIn` from the taker to the maker
+5. Transfers `amountOut` of `tokenOut` from the maker to the taker
+
+Both transfers happen atomically. If either transfer fails (insufficient balance, insufficient allowance), the entire transaction reverts.
+
+### `feePips()`
+
+Returns the current protocol fee in basis points (pips). The fee is deducted from the output amount during settlement.
+
+<Callout type="info">
+Protocol fees are configurable by the contract owner. A fee of 0 means no protocol fee is taken.
+</Callout>
+
+## ERC-20 Approval Requirements
+
+Before executing a trade, both parties must approve the settlement contract to transfer their tokens:
+
+**Taker must approve:**
+- `tokenIn` for at least `amountIn`
+
+**Maker must approve:**
+- `tokenOut` for at least `amountOut`
+
+```ts
+// Example: Taker approves USDC for the swap
+await usdcContract.approve(rfqContractAddress, amountIn);
+```
+
+If either approval is insufficient, the `execute()` call will revert with a transfer failure.
+
+## Atomic Swap Settlement
+
+The settlement is atomic: both token transfers execute within a single transaction. There is no intermediate state where one party has transferred tokens but the other has not.
+
+```
+Transaction:
+  1. Verify maker signature (revert if invalid)
+  2. Verify nonce and expiry (revert if stale)
+  3. transferFrom(taker -> maker, tokenIn, amountIn)
+  4. transferFrom(maker -> taker, tokenOut, amountOut)
+  5. Mark nonce as used
+  6. Emit event
+```
+
+If step 3 or step 4 fails, the entire transaction reverts and no tokens move. This eliminates counterparty risk.
+
+## Fee Mechanics
+
+When a protocol fee is configured:
+
+```
+actualAmountOut = amountOut - (amountOut * feePips / 10000)
+feeAmount = amountOut - actualAmountOut
+```
+
+The fee is denominated in `tokenOut` and collected by the contract. The taker receives `actualAmountOut` while the maker sends the full `amountOut`.
+
+## Native HYPE Handling
+
+Native HYPE cannot be used directly in ERC-20 transfers. The UI automatically wraps HYPE to wHYPE before settlement and unwraps wHYPE back to HYPE after settlement when appropriate.
+
+## Nonce Management
+
+Each maker maintains an on-chain nonce. Quotes signed with a nonce lower than the maker's current nonce are rejected. Makers can increment their nonce to bulk-cancel all outstanding quotes.
+
+## Events
+
+The contract emits events for every executed trade, enabling transparent on-chain analytics and indexing.

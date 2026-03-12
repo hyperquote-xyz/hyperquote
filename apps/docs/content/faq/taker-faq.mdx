@@ -1,0 +1,84 @@
+# Taker FAQ
+
+import { Callout } from 'nextra/components'
+
+Common questions from takers about requesting quotes, executing trades, and understanding the HyperQuote RFQ experience.
+
+## How long do I wait for quotes?
+
+After submitting an RFQ, quotes typically arrive within a few seconds. The exact timing depends on:
+
+- **Number of active makers** -- More makers mean more potential responses, and the first quote may arrive faster.
+- **Market conditions** -- During volatile markets, makers may take slightly longer to price their quotes or may not respond at all.
+- **Pair popularity** -- Major pairs (HYPE/USDC) receive faster responses than less commonly traded pairs.
+
+The UI shows a loading state while waiting for quotes and displays each quote as it arrives. You do not need to wait for all quotes before selecting one.
+
+## What happens if no maker responds?
+
+If no maker responds to your RFQ, you will see a "no quotes received" message in the UI. This can happen because:
+
+- No makers are currently online or connected to the relay.
+- The token pair you requested is not supported by any active maker.
+- Your trade size exceeds all makers' risk limits.
+- Market conditions are too volatile for makers to quote confidently.
+
+You are not charged anything for an RFQ that receives no quotes. You can retry, adjust the trade parameters (e.g., reduce the size or try a different pair), or use an alternative venue shown in the venue comparison panel.
+
+## Can I cancel an RFQ?
+
+Once submitted, an RFQ is broadcast to makers and cannot be "cancelled" in the traditional sense. However, since the RFQ is simply a request with no commitment, you can simply ignore any quotes you receive. Quotes expire based on their TTL deadline, and if you do not submit a settlement transaction, no trade occurs.
+
+You are never obligated to execute a quote you receive. The taker has full optionality to accept or reject any quote.
+
+## How is quote quality determined?
+
+The UI ranks quotes by the **net amount** you will receive after the protocol fee deduction. The quote that gives you the most output tokens after fees is ranked first and receives the "best quote" badge.
+
+The venue comparison panel also shows:
+
+- The best AMM route price (from DEX aggregator routing)
+- The HyperCore order book price (if a market exists)
+- The price improvement (in bps) of the best RFQ quote versus these benchmarks
+
+## What is price improvement?
+
+Price improvement occurs when the RFQ execution price is better than the best available price on alternative venues (AMMs, HyperCore). For example, if the best AMM route would give you 490 HYPE for 10,000 USDC, but the RFQ maker offers 495 HYPE (net of fees), you have received 5 HYPE in price improvement.
+
+Price improvement is common for larger trades because RFQ quotes do not suffer from price impact. AMM execution for the same size would push the price unfavorably.
+
+<Callout type="info">
+  Price improvement is displayed in basis points (bps) in the venue comparison panel. Positive improvement means the RFQ quote is better than the benchmark. Negative improvement means the benchmark is better.
+</Callout>
+
+## What if my transaction fails?
+
+A settlement transaction can fail (revert) for several reasons:
+
+- **Quote expired** -- The maker's quote deadline has passed.
+- **Nonce invalidated** -- The maker cancelled their outstanding quotes by incrementing their nonce.
+- **Insufficient balance** -- Either your balance or the maker's balance dropped below the required amount between quote time and execution.
+- **Allowance too low** -- You have not approved the settlement contract to transfer the required tokens.
+
+If a transaction reverts, no tokens are transferred. You lose only the gas cost of the failed transaction. You can request a new quote and try again.
+
+<Callout type="warning">
+  To minimize the chance of failed transactions, execute quotes promptly after receiving them and ensure you have sufficient token approval for the settlement contract.
+</Callout>
+
+## Do I need to approve tokens before trading?
+
+Yes. Before your first trade on a specific token, you need to approve the SpotRFQ settlement contract to transfer that token from your wallet. This is a standard ERC-20 approval transaction that costs a small amount of gas.
+
+The UI will prompt you for approval if needed before you can execute a trade.
+
+## Can I trade native HYPE?
+
+Yes. The UI supports trading with native HYPE. The settlement contract automatically wraps HYPE to WHYPE during the settlement transaction. You do not need to manually wrap your HYPE before trading.
+
+## Related Pages
+
+- [Requesting a Quote](/trading/requesting-a-quote) -- Step-by-step guide
+- [Quote Comparison](/trading/quote-comparison) -- How quotes are ranked
+- [Fee Structure](/fees/fee-structure) -- Understanding fees
+- [Risk Overview](/risk/risk-overview) -- Trading risks to understand

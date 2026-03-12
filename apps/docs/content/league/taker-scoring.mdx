@@ -1,0 +1,123 @@
+# Taker Scoring
+
+import { Callout } from 'nextra/components'
+
+The taker league score rewards active traders who execute meaningful volume and select competitive quotes. The formula is simpler than the maker formula because takers do not have a reliability component -- they either execute a fill or they do not.
+
+## Formula
+
+```
+score = filledNotional * (1 + avgImprovementBps / 120) * privacyFactor
+```
+
+Where:
+
+| Component | Description | Range |
+|-----------|-------------|-------|
+| `filledNotional` | Total USD notional of fills within the ranking period | 0 to unbounded |
+| `avgImprovementBps` | Average price improvement in basis points across all fills | Typically -20 to +50 |
+| `privacyFactor` | Bonus for private fill participation | 1.00 to 1.10 |
+
+## Key Difference from Maker Scoring
+
+The taker formula divides improvement by **120** instead of 100. This means the improvement component has a slightly smaller effect on taker scores compared to maker scores:
+
+| avgImprovementBps | Maker Multiplier | Taker Multiplier |
+|-------------------|-----------------|-----------------|
+| +30 bps | 1 + 30/100 = 1.30 | 1 + 30/120 = 1.25 |
+| +15 bps | 1 + 15/100 = 1.15 | 1 + 15/120 = 1.125 |
+| 0 bps | 1.00 | 1.00 |
+| -10 bps | 1 - 10/100 = 0.90 | 1 - 10/120 = 0.917 |
+
+This design reflects the fact that takers select from quotes provided by makers. The maker has more direct control over the improvement offered, so the maker's score is more sensitive to that factor.
+
+<Callout type="info">
+  Takers are not penalized for reliability because there is no "taker cancellation" in the protocol. A taker either executes a quote or lets it expire. Only submitted and settled transactions count toward the taker's score.
+</Callout>
+
+## Component Details
+
+### Filled Notional
+
+The sum of USD notional values for all fills where this taker submitted the settlement transaction during the ranking period. Only confirmed on-chain settlements count.
+
+### Average Improvement (bps)
+
+The volume-weighted average of price improvement across all fills in the period, measured against the best benchmark from alternative venues:
+
+```
+avgImprovementBps = sum(improvementBps_i * notional_i) / sum(notional_i)
+```
+
+A taker who consistently selects the best available quote (which often provides price improvement over AMM routes) will accumulate a positive average. A taker who accepts suboptimal quotes will have a lower or negative average.
+
+### Privacy Factor
+
+Same formula as for makers:
+
+```
+privacyFactor = 1.00 + (privateFillNotional / totalFillNotional) * 0.10
+```
+
+Only fills with notional \>= $50,000 qualify as private. The factor ranges from 1.00 (no private fills) to 1.10 (all fills are private).
+
+## Worked Examples
+
+### Example 1: Active Taker with Good Quote Selection
+
+A taker fills $500,000 in notional over a 30-day period with an average improvement of +12 bps and no private fills.
+
+```
+filledNotional     = 500,000
+avgImprovementBps  = 12
+privacyFactor      = 1.00
+
+score = 500,000 * (1 + 12/120) * 1.00
+      = 500,000 * 1.10
+      = 550,000
+```
+
+### Example 2: Large Private Taker
+
+A taker fills $1,500,000 in notional, with +5 bps average improvement and 60% private volume.
+
+```
+filledNotional     = 1,500,000
+avgImprovementBps  = 5
+privacyFactor      = 1.00 + 0.60 * 0.10 = 1.06
+
+score = 1,500,000 * (1 + 5/120) * 1.06
+      = 1,500,000 * 1.0417 * 1.06
+      = 1,656,270
+```
+
+### Example 3: Small Taker with Negative Improvement
+
+A taker fills $50,000 in notional with -8 bps average improvement (accepted quotes worse than benchmark) and no private fills.
+
+```
+filledNotional     = 50,000
+avgImprovementBps  = -8
+privacyFactor      = 1.00
+
+score = 50,000 * (1 + (-8)/120) * 1.00
+      = 50,000 * 0.9333
+      = 46,667
+```
+
+The negative improvement reduces the effective score below the raw notional.
+
+<Callout type="warning">
+  Accepting quotes that are worse than available benchmark prices reduces your league score. The venue comparison panel in the UI helps you identify the best available execution, which will maximize both your effective price and your league ranking.
+</Callout>
+
+## Score Comparison
+
+A taker with $500,000 in volume and +12 bps improvement scores 550,000. A taker with $600,000 in volume but 0 bps improvement scores 600,000. Volume is the dominant factor, but improvement provides meaningful differentiation at similar volume levels.
+
+## Related Pages
+
+- [League Overview](/league/league-overview) -- Introduction to the Liquidity League
+- [Maker Scoring](/league/maker-scoring) -- Maker league score formula
+- [Ranking Periods](/league/ranking-periods) -- Time window details
+- [Quote Comparison](/trading/quote-comparison) -- How takers compare quotes in the UI

@@ -1,0 +1,82 @@
+# Points FAQ
+
+import { Callout } from 'nextra/components'
+
+Common questions about the HyperQuote points program.
+
+## When are points awarded?
+
+Points are awarded immediately after a filled trade's settlement transaction is confirmed on-chain. Both the maker and the taker receive points for the same fill. There is no delay or batch processing -- the point calculation runs as part of the post-settlement indexing pipeline.
+
+## Can points be lost or taken away?
+
+No. Once points are awarded, they are permanent. There is no mechanism to revoke, burn, or reduce previously earned points. However, future point earnings can be reduced by pair-repeat decay if you trade the same pair repeatedly.
+
+## How does the leaderboard update?
+
+The leaderboard updates in near-real-time after each confirmed settlement. When a new fill is indexed, the point totals for both the maker and taker addresses are recalculated, and the leaderboard rankings are refreshed. During periods of high activity, there may be a few seconds of delay.
+
+## What counts as a "fill"?
+
+A fill is any successfully settled trade on-chain through the HyperQuote settlement contracts. This includes:
+
+- **Spot RFQ fills** -- A taker submits a maker's signed quote to the `RFQSettlement` contract and the transaction succeeds.
+- **Options RFQ fills** -- A taker submits a maker's signed option quote to the `OptionsEngine` contract and the transaction succeeds.
+
+Failed transactions, reverted settlements, and expired quotes do not count as fills and do not earn points.
+
+## Do both makers and takers earn points?
+
+Yes. Every fill awards points to both the maker address (the signer of the EIP-712 quote) and the taker address (the sender of the settlement transaction). The base formula is the same for both, though multipliers may differ based on each party's individual behavior (e.g., the maker's reliability factor in league scoring, or the taker's venue selection in improvement calculation).
+
+## How is the USD notional calculated?
+
+The USD notional value of a trade is computed from the input token amount and its USD price at the time the settlement transaction is mined. For stablecoin inputs (USDC, USDH, USDT0), the price is treated as $1.00. For non-stablecoin inputs (HYPE, WHYPE, etc.), the system uses the best available price reference.
+
+## Do options trades earn points differently than spot trades?
+
+Options trades use the same base formula and multiplier system as spot trades. The notional value for an options fill is based on the premium paid (for the initial fill) or the settlement value (for keeper settlements). The same NFT boosts and anti-gaming guards apply.
+
+## Can I use multiple wallets to earn more points?
+
+Each wallet earns points independently based on its own trading activity. Using multiple wallets does not bypass any anti-gaming guards, since pair-repeat decay is tracked per address. There is no bonus for consolidating activity into a single wallet, but there is also no penalty for using multiple wallets.
+
+<Callout type="warning">
+  NFT boosts only apply to the wallet that directly holds the eligible NFT. If you trade from a wallet that does not hold the NFT, you will not receive the boost, even if another wallet you control holds it.
+</Callout>
+
+## How do NFT boosts interact with multipliers?
+
+NFT boosts are applied as the final step, after all other multipliers have been computed and the product has been clamped:
+
+```
+finalPoints = basePoints * clamp(multiplierProduct, 0.50, 2.00) * nftBoost
+```
+
+The NFT boost is multiplicative with the clamped multiplier product. If you hold both eligible collections (2.00x boost) and achieve the maximum multiplier product (2.00x), your total scaling is 4.00x on base points.
+
+## What happens if no benchmark price is available?
+
+If there is no valid benchmark from alternative venues (AMM, HyperCore) at the time of your fill, the improvement multiplier defaults to 0.90x instead of 1.00x. This is a conservative penalty to discourage trading on pairs where price quality cannot be independently verified. See [Anti-Gaming Guards](/points/anti-gaming-guards).
+
+## Do cancelled quotes affect points?
+
+Cancelled quotes do not directly affect points, since points are only awarded on fills. However, a maker's cancel rate affects their reliability factor, which impacts league scoring (see [Maker Scoring](/league/maker-scoring)). The reliability factor does not directly affect point multipliers.
+
+## Is there a minimum trade size to earn points?
+
+There is no hard minimum. Any filled trade earns points according to the base formula. However, very small trades (e.g., $10) earn negligible base points:
+
+```
+basePoints = (10 / 1000) ^ 0.9 = 0.01 ^ 0.9 = 0.013 points
+```
+
+The gas cost of settling such a small trade would far exceed the value of the points earned.
+
+## Related Pages
+
+- [Points Overview](/points/points-overview) -- Introduction to the points program
+- [Base Points Formula](/points/base-points-formula) -- Base calculation details
+- [Multipliers](/points/multipliers) -- All multiplier factors
+- [NFT Boosts](/points/nft-boosts) -- NFT collection boosts
+- [Anti-Gaming Guards](/points/anti-gaming-guards) -- Anti-manipulation mechanisms

@@ -1,0 +1,108 @@
+# Position Management
+
+import { Callout } from 'nextra/components'
+
+The Positions page (`/positions`) provides a real-time view of all your HyperQuote Options positions. It reads position data directly from the OptionsEngine contract via multicall polling and organizes positions by lifecycle state.
+
+## Position Lifecycle States
+
+Every position passes through a defined set of lifecycle states, derived from the on-chain `PositionState` enum and the current block time:
+
+| Lifecycle | On-Chain State | Condition | Description |
+|---|---|---|---|
+| `active` | `Active` (0) | `expiry > now` | Option is live, collateral locked, not yet expired |
+| `pending_expiry` | `Active` (0) | `expiry <= now` | Expiry passed but keeper has not yet settled or expired the position |
+| `expired` | `Expired` (2) | -- | OTM position finalized, collateral returned to seller |
+| `settled` | `Settled` (1) | -- | ITM position finalized, physical delivery completed |
+
+<Callout type="info">
+The `pending_expiry` state is a UI-derived state, not an on-chain enum value. It represents positions where the expiry timestamp has passed but a keeper has not yet called `settle` or `expirePosition`. These positions still appear in the active table with a distinct badge.
+</Callout>
+
+## Positions Interface Layout
+
+The Positions page is composed of several sub-components:
+
+### Summary Strip
+
+A horizontal strip at the top showing aggregate statistics across all your positions:
+
+| Metric | Description |
+|---|---|
+| **Active Count** | Number of positions in `active` or `pending_expiry` state |
+| **Total Premium Collected** | Sum of all premiums received across all positions (lifetime) |
+| **Total Collateral Locked** | Sum of collateral locked across active and pending positions |
+
+### Active Positions Table
+
+Displays positions in `active` and `pending_expiry` states. Each row shows:
+
+- **Strategy** -- "Covered Call" or "Cash-Secured Put"
+- **Strike** -- Strike price in USD
+- **Quantity** -- Amount of underlying
+- **Premium** -- Premium collected
+- **Collateral Locked** -- Amount locked in the contract
+- **Expiry** -- Date and time (always 08:00 UTC)
+- **Moneyness** -- ITM, ATM, or OTM badge (requires a spot price feed)
+- **Role** -- Whether you are the seller or buyer for this position
+
+Positions in `pending_expiry` are displayed in the active table with a muted indicator, since the collateral has not yet been released and the outcome has not been finalized on-chain.
+
+### Expired Positions Section
+
+Positions in `expired` and `settled` states are displayed in a collapsible section below the active table. Each row includes an outcome label:
+
+| Outcome | Condition | Meaning |
+|---|---|---|
+| **Kept Premium** | OTM or ATM expiry | Seller's collateral returned, premium retained |
+| **Sold at Strike** | Covered Call ITM settlement | Seller sold underlying at strike price |
+| **Bought at Strike** | Cash-Secured Put ITM settlement | Seller bought underlying at strike price |
+
+## Moneyness Calculation
+
+Moneyness is computed client-side by comparing the current spot price to the position's strike price:
+
+- **Covered Call:** ITM if `spot > strike`, OTM if `spot < strike`
+- **Cash-Secured Put:** ITM if `spot < strike`, OTM if `spot > strike`
+- **ATM:** If the spot price is within 0.1% of the strike price
+
+If no spot price is available, moneyness displays as unknown.
+
+## On-Chain Data Reading
+
+The Positions page reads data directly from the OptionsEngine contract using the `getPosition(positionId)` view function. The `usePositions` hook:
+
+1. Scans position IDs starting from 1 up to `nextPositionId`.
+2. Filters for positions where the connected wallet is either the `seller` or `buyer`.
+3. Enriches each position with display values, lifecycle state, and moneyness.
+4. Polls on an interval to detect state changes (e.g., keeper settlement).
+
+The position struct returned from the contract contains:
+
+```solidity
+struct Position {
+    address seller;
+    address buyer;
+    address underlying;
+    address collateral;
+    bool isCall;
+    uint256 strike;
+    uint256 quantity;
+    uint256 premium;
+    uint256 expiry;
+    uint256 collateralLocked;
+    PositionState state;  // 0=Active, 1=Settled, 2=Expired
+}
+```
+
+## Keeper Transparency
+
+Settlement is automated by permissionless keepers. A note on the positions page indicates that settlement is handled by keepers, so users understand that `pending_expiry` positions will be finalized without manual action. The keeper earns a small fee (default 10 bps of notional) for performing the settlement transaction.
+
+<Callout type="warning">
+If the settlement oracle has not yet published a price for an expired position's underlying/expiry pair, keepers cannot finalize the position. It will remain in `pending_expiry` until the oracle price is available.
+</Callout>
+
+## Wallet Connection
+
+The Positions page requires a connected wallet. Without a wallet connection, it displays a prompt to connect. Once connected, it filters the global position list to show only positions associated with the connected address (as either seller or buyer).

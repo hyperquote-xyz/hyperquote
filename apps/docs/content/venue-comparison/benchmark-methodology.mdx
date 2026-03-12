@@ -1,0 +1,131 @@
+# Benchmark Methodology
+
+import { Callout } from 'nextra/components'
+
+HyperQuote uses a universal mid-price benchmark to compute price impact and slippage across all venues. This ensures that slippage numbers displayed for HyperCore, HyperEVM DEX, and RFQ are directly comparable.
+
+## Mid-Price Source
+
+The benchmark mid-price comes from the HyperCore L2 orderbook:
+
+```
+midPrice = (bestBid + bestAsk) / 2
+```
+
+For stablecoins (USDC, USDH, USDT0, etc.), the price is anchored at $1.00 without an orderbook lookup.
+
+The mid-price is fetched via the same 2-second-cached proxy path used by the HyperCore orderbook walk simulation. This means the benchmark and the HyperCore estimate always use the same underlying data.
+
+## MidPriceRef Computation
+
+The `getMidPriceRef` function resolves both token prices and computes ideal reference amounts:
+
+```ts
+interface MidPriceRef {
+  priceIn: number;       // USD mid-price of tokenIn
+  priceOut: number;      // USD mid-price of tokenOut
+  referenceOut: bigint;  // ideal output at mid-price (tokenOut decimals)
+  referenceIn: bigint;   // ideal input at mid-price (tokenIn decimals)
+  fetchedAt: number;     // timestamp for staleness detection
+}
+```
+
+The exchange rate is computed as:
+
+```
+rate = priceIn / priceOut
+```
+
+### Exact-In Reference
+
+For a given `amountIn`, the ideal output at mid-price is:
+
+```ts
+const normalizedIn = Number(amountIn) / 10 ** tokenIn.decimals;
+const idealOut = normalizedIn * rate;
+referenceOut = BigInt(Math.floor(idealOut * 10 ** tokenOut.decimals));
+```
+
+The floor rounding is conservative (slightly lower ideal output), which means measured slippage is slightly understated rather than overstated.
+
+### Exact-Out Reference
+
+For a given `amountOut`, the ideal input at mid-price is:
+
+```ts
+const normalizedOut = Number(amountOut) / 10 ** tokenOut.decimals;
+const idealIn = normalizedOut / rate;
+referenceIn = BigInt(Math.ceil(idealIn * 10 ** tokenIn.decimals));
+```
+
+The ceiling rounding is conservative in the other direction (slightly higher ideal input).
+
+## Price Impact Formulas
+
+### Exact-In Impact
+
+Measures how much less output you receive compared to the mid-price ideal:
+
+```
+impact = (referenceOut - actualOut) / referenceOut * 100
+```
+
+A positive value means worse execution (got less than mid implies). The result is clamped to \>= 0%.
+
+### Exact-Out Impact
+
+Measures how much more input you pay compared to the mid-price ideal:
+
+```
+impact = (actualIn - referenceIn) / referenceIn * 100
+```
+
+A positive value means worse execution (paid more than mid implies). Also clamped to \>= 0%.
+
+<Callout type="info">
+Impact is clamped to zero rather than showing negative values. If a venue beats the mid-price (due to a stale cache or favorable market movement), the UI displays 0.00% rather than a misleading negative slippage.
+</Callout>
+
+## How Each Venue Uses the Benchmark
+
+### HyperCore Spot
+
+HyperCore has its own slippage calculation from the orderbook walk simulation. The benchmark is used as a fallback when the simulation's own slippage value is zero:
+
+```ts
+const slippageVsMid = est.priceImpact > 0
+  ? est.priceImpact
+  : (midRef ? impactExactIn(midRef.referenceOut, est.amountOut) : null);
+```
+
+This gives the most accurate HyperCore slippage while still providing a benchmark-based value when the simulation cannot compute one.
+
+### HyperEVM DEX
+
+The DEX venue always uses the benchmark for slippage since HT.xyz does not return its own impact metric:
+
+```ts
+const slippageVsMid = midRef && midRef.referenceOut > 0n
+  ? impactExactIn(midRef.referenceOut, est.amountOut)
+  : null;
+```
+
+### RFQ Quotes
+
+RFQ quotes from makers are compared against the same benchmark, allowing takers to see exactly how much price improvement (or cost) the RFQ quote provides relative to the theoretical mid-price.
+
+## Baseline API Endpoints
+
+The benchmark system is also exposed via REST endpoints for programmatic access:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/v1/rfq/baseline` | Returns the mid-price reference for a token pair |
+| `GET /api/v1/rfq/performance` | Computes RFQ performance vs the baseline for a specific trade |
+| `GET /api/v1/rfq/performance-summary` | Aggregate RFQ performance metrics over time |
+
+## Limitations
+
+- The benchmark requires both tokens to have a HyperCore spot market or be a recognized stablecoin. If either mid-price is unavailable, slippage comparisons are `null`.
+- The 2-second cache means the benchmark can be slightly stale in fast-moving markets. This is an acceptable tradeoff for reducing API load.
+- Cross-pair accuracy depends on USD as the common denominator. For token-to-token pairs, any error in either USD price compounds.

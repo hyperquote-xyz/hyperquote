@@ -1,0 +1,72 @@
+# Liquidity Risk
+
+import { Callout } from 'nextra/components'
+
+HyperQuote is an RFQ protocol, which means liquidity is provided by active makers who choose when and what to quote. Unlike an AMM with permanently deposited liquidity, there is no guarantee that any maker will respond to a given RFQ. This introduces liquidity risk that users should understand.
+
+## No Guaranteed Quotes
+
+When a taker submits an RFQ, it is broadcast to all connected makers (or a private subset). Each maker independently decides whether to respond with a quote. There are several reasons a taker might receive zero quotes:
+
+- **No active makers** -- If no makers are currently connected to the relay, no quotes will be generated.
+- **Unsupported pair** -- Makers may not hold inventory in the requested tokens and will skip the RFQ.
+- **Size too large** -- The requested trade size may exceed all makers' risk limits.
+- **Market conditions** -- During extreme volatility, makers may withdraw from quoting to manage risk.
+- **Maker downtime** -- Makers may take their bots offline for maintenance, upgrades, or rebalancing.
+
+<Callout type="info">
+  Receiving zero quotes does not cost the taker anything. No gas is spent, and no funds are at risk. The taker can retry, adjust the trade parameters, or use an alternative venue.
+</Callout>
+
+## Market Conditions
+
+Liquidity on HyperQuote correlates with broader market conditions:
+
+| Condition | Effect on Liquidity |
+|-----------|-------------------|
+| Normal markets | Multiple makers actively quoting, competitive spreads |
+| High volatility | Makers may widen spreads or reduce quoting frequency |
+| Extreme events | Makers may stop quoting entirely until conditions stabilize |
+| Low volatility | Tight spreads, high maker participation |
+| Off-hours | Fewer makers active, potentially wider spreads |
+
+During periods of extreme market stress (e.g., rapid price drops, exchange outages, or systemic DeFi events), all makers may simultaneously stop quoting. The protocol cannot force makers to provide liquidity.
+
+## Thin Pairs
+
+Some token pairs may have limited maker coverage. Factors that affect pair depth:
+
+- **Token recognition** -- Major tokens (HYPE, USDC, USDH) have the most maker coverage. Newer or less common tokens may have fewer makers willing to quote.
+- **Maker inventory** -- Makers can only quote pairs for which they hold sufficient inventory. Pairs requiring rare tokens will have fewer potential quoters.
+- **Pricing difficulty** -- Pairs that are hard to price (e.g., low-float tokens without reliable price feeds) may be avoided by risk-conscious makers.
+
+## Venue Comparison as Fallback
+
+The HyperQuote UI includes a venue comparison engine that simultaneously queries AMM DEXes and HyperCore alongside the RFQ. If no RFQ quotes are available, the venue comparison still shows alternative execution routes.
+
+This means that even when RFQ liquidity is unavailable, the taker has visibility into alternative options. However, the venue comparison is informational -- executing on an alternative venue requires a separate transaction through that venue's interface or router contract.
+
+<Callout type="warning">
+  The venue comparison shows the best routes available at query time. If no RFQ quotes and no viable AMM routes are found, the pair may genuinely lack on-chain liquidity across all venues.
+</Callout>
+
+## Options Liquidity Considerations
+
+Options RFQs have additional liquidity constraints:
+
+- **Strike and expiry specificity** -- Each option RFQ specifies a strike price and expiry date. A maker may be willing to quote HYPE options generally but not at the specific strike/expiry requested.
+- **Collateral requirements** -- Option sellers must lock collateral at fill time. If a taker wants to sell a covered call, they need to hold the underlying. If they want to sell a cash-secured put, they need the strike price in stablecoins.
+- **Directional risk** -- In V1, makers are always the option buyer. A maker who already has significant directional exposure may decline to take on more.
+
+## Mitigation Strategies
+
+1. **Use the venue comparison** -- Always check alternative execution venues before concluding that a trade cannot be executed.
+2. **Adjust timing** -- If no quotes are received, try again during more active market hours.
+3. **Split large orders** -- Breaking a very large order into smaller pieces may improve the chances of receiving quotes from makers with limited risk appetite.
+4. **Use private routing** -- For large trades, private RFQ routing to specific trusted makers can sometimes yield quotes that would not appear in a public broadcast.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Quote Expiry Risk](/risk/quote-expiry-risk) -- Risks related to quote timing
+- [Volatility Risk](/risk/volatility-risk) -- Market movement risks

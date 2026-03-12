@@ -1,0 +1,77 @@
+# Smart Contract Risk
+
+import { Callout } from 'nextra/components'
+
+Smart contract risk encompasses all potential vulnerabilities, bugs, or unintended behaviors in the deployed settlement contracts on HyperEVM. Because blockchain transactions are irreversible and HyperQuote's contracts are immutable, a smart contract vulnerability could result in permanent loss of funds.
+
+## Immutable Deployment
+
+HyperQuote's settlement contracts (`RFQSettlement` and `OptionsEngine`) are deployed as non-upgradeable contracts. Once deployed, the bytecode cannot be modified, replaced, or patched.
+
+**Benefits:**
+- No risk of admin-initiated malicious upgrades
+- Users can verify the exact code that governs their trades
+- No proxy pattern complexity or storage collision risks
+
+**Risks:**
+- If a bug is discovered, it cannot be patched in the live contract
+- Migration to a new contract requires all users to re-approve and re-trust the new deployment
+- Emergency shutdown is limited to what was designed into the contract at deployment time
+
+## Admin Key Risk
+
+Certain contract parameters are configurable by an admin address:
+
+| Parameter | Contract | Admin Capability |
+|-----------|----------|-----------------|
+| `feePips` | RFQSettlement | Adjust protocol fee percentage |
+| `keeperBps` | OptionsEngine | Adjust keeper fee percentage (max 50 bps) |
+| `maxKeeperFee` | OptionsEngine | Adjust keeper fee cap |
+| Oracle publisher | OptionsEngine | Set the trusted oracle address |
+
+If the admin private key is compromised, an attacker could:
+- Set fees to their maximum allowed values
+- Change the oracle publisher to a malicious address (affecting options settlement prices)
+- Disrupt protocol economics
+
+<Callout type="warning">
+  The admin key has limited power by design -- it cannot drain user funds, modify settlement logic, or bypass signature verification. However, admin actions can affect fee rates and oracle trust, which indirectly impact users.
+</Callout>
+
+## ERC-721 Transfer Risk
+
+Options positions are represented as ERC-721 NFTs. Standard ERC-721 transfer risks apply:
+
+- Transferring a position NFT to an incorrect address results in loss of the position.
+- Transferring a position NFT to a contract that does not implement `onERC721Received` may result in the NFT being locked permanently.
+- Position NFTs carry settlement rights. Transferring a position means transferring the right to receive (or obligation to deliver) at settlement.
+
+## Reentrancy
+
+The settlement contracts execute token transfers as part of the settlement flow. While the contracts use standard reentrancy protections (checks-effects-interactions pattern, reentrancy guards), the risk of reentrancy attacks exists whenever external token contracts are called.
+
+A malicious ERC-20 token with a callback in its `transfer` or `transferFrom` function could potentially exploit reentrancy if the settlement contract's guards are insufficient. This risk primarily applies to exotic or untrusted tokens, not to well-known tokens like USDC, USDH, or WHYPE.
+
+## Audit Status
+
+<Callout type="info">
+  Users should verify the current audit status of HyperQuote's contracts before trading with significant capital. Audit reports, if available, are linked from the official resources page.
+</Callout>
+
+Regardless of audit status, no audit guarantees the absence of bugs. Audits reduce risk by having experienced reviewers examine the code, but novel attack vectors or complex interaction patterns can escape review.
+
+## Mitigation Recommendations
+
+For users concerned about smart contract risk:
+
+1. **Start with small amounts** -- Test the protocol with small trades before committing significant capital.
+2. **Verify contract addresses** -- Always verify you are interacting with the official contract addresses listed in the documentation.
+3. **Limit token approvals** -- Approve only the amounts needed for each trade, rather than granting unlimited approvals.
+4. **Monitor announcements** -- Follow official channels for any security disclosures or migration notices.
+5. **Diversify exposure** -- Do not commit all capital to a single protocol or contract.
+
+## Related Pages
+
+- [Risk Overview](/risk/risk-overview) -- High-level risk summary
+- [Contract Architecture](/smart-contracts/contract-architecture) -- How the contracts are structured
+- [Contract Addresses](/links/contract-addresses) -- Official deployed addresses

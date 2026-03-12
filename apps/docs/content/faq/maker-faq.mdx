@@ -1,0 +1,94 @@
+# Maker FAQ
+
+import { Callout } from 'nextra/components'
+
+Common questions from makers about running a quoting operation, managing risk, and participating in the HyperQuote liquidity network.
+
+## How do I start as a maker?
+
+To become a maker on HyperQuote:
+
+1. **Set up a wallet** -- Create an Ethereum wallet on HyperEVM with sufficient token inventory for the pairs you want to quote.
+2. **Connect to the relay** -- Establish a WebSocket connection to the HyperQuote relay endpoint. The relay broadcasts RFQ requests in real-time.
+3. **Implement a pricing engine** -- Build or configure a pricing model that computes quotes based on incoming RFQ parameters (token pair, size, market conditions).
+4. **Sign and submit quotes** -- When you want to fill an RFQ, sign an EIP-712 typed data quote with your wallet's private key and send it back through the relay.
+
+See [Maker SDK Quickstart](/makers/maker-sdk-quickstart) for a step-by-step guide.
+
+## Do I need to run a server?
+
+Yes. Making on HyperQuote requires a persistent process that maintains a WebSocket connection to the relay, receives RFQ broadcasts, computes pricing, and submits signed quotes in real-time. This is typically a server or cloud instance running a maker bot.
+
+The latency requirements are moderate -- you have several seconds to respond to an RFQ -- so a standard cloud VM or even a well-connected home server is sufficient. You do not need co-location or sub-millisecond infrastructure.
+
+## Is there a minimum capital requirement?
+
+There is no protocol-enforced minimum. You need enough token inventory to cover the `amountOut` of the trades you want to fill, plus enough HYPE for gas costs. In practice, the minimum depends on the pairs and sizes you want to quote.
+
+For example, if you want to quote on HYPE/USDC trades up to $10,000, you need at least $10,000 worth of HYPE (to fill buy orders) and $10,000 of USDC (to fill sell orders), plus margin for multiple concurrent quotes.
+
+## How does quote signing work?
+
+Maker quotes are signed using EIP-712 typed data signatures. When you generate a quote, you sign a structured message that includes:
+
+- Token pair (input and output tokens)
+- Amounts (`amountIn` and `amountOut`)
+- Taker address (the intended recipient)
+- Deadline (Unix timestamp after which the quote expires)
+- Nonce (for replay protection)
+
+The signature cryptographically binds all these parameters to your wallet address. The settlement contract verifies the signature on-chain before executing the trade. This means your quote cannot be altered, replayed, or attributed to a different maker.
+
+See [EIP-712 Signing](/makers/eip712-signing) for implementation details.
+
+<Callout type="info">
+  The SDK handles EIP-712 signing automatically. You provide the quote parameters and your private key (or signer), and the SDK produces the correctly formatted signature.
+</Callout>
+
+## Can I selectively quote?
+
+Yes. Selective quoting is a core feature of the RFQ model. You can:
+
+- **Filter by pair** -- Only respond to RFQs for token pairs you want to trade.
+- **Filter by size** -- Skip RFQs that are too large or too small for your risk limits.
+- **Filter by direction** -- Quote only buys or only sells based on your inventory position.
+- **Filter by taker** -- Skip RFQs from specific addresses (if you have reason to).
+- **Set risk limits** -- The SDK supports notional tracking and configurable limits, automatically skipping RFQs that would exceed your risk parameters.
+- **Adjust dynamically** -- Change your quoting parameters at any time without any on-chain transaction.
+
+You are never obligated to respond to any RFQ. If you skip an RFQ, no penalty is applied (though frequent cancellation of submitted quotes does affect your reliability factor).
+
+## What happens if I cancel a quote?
+
+Cancelling quotes works by calling `incrementNonce()` on the settlement contract. This invalidates all quotes signed with the previous nonce, including any that takers have not yet executed.
+
+Cancellation is immediate and on-chain. However, there are costs:
+
+- **Gas cost** -- The `incrementNonce()` transaction costs gas.
+- **Reliability impact** -- Your reliability factor (used in league scoring) decreases with higher cancel rates. See [Maker Scoring](/league/maker-scoring).
+- **Taker experience** -- Takers who attempt to execute a cancelled quote will experience a reverted transaction and may be less likely to route future RFQs to you.
+
+<Callout type="warning">
+  Nonce incrementation cancels ALL outstanding quotes, not just specific ones. If you have multiple quotes outstanding and only want to cancel one, you currently cannot do so selectively. All quotes signed with the old nonce become invalid.
+</Callout>
+
+## How do I manage risk?
+
+The maker SDK provides built-in risk management tools:
+
+- **Notional tracking** -- Monitor your total notional exposure per token.
+- **Configurable limits** -- Set maximum notional and position count limits that are checked before any quote is sent.
+- **Pluggable pricing** -- Implement the `PricingEngine` interface with your own volatility model, hedging logic, or external data feeds.
+
+Beyond the SDK, makers should maintain their own monitoring dashboards, P&L tracking, and alerting systems appropriate to their operation's scale.
+
+## Do I earn fees or just spread?
+
+Makers earn revenue through **spread** -- the difference between the price they quote and their cost basis (fair value, hedging cost, etc.). The protocol fee (`feePips`) is deducted from the taker's received amount, not from the maker's payment. The maker receives the full `amountIn` from the taker on every spot fill.
+
+## Related Pages
+
+- [Maker Overview](/makers/maker-overview) -- Comprehensive maker guide
+- [Maker SDK Quickstart](/makers/maker-sdk-quickstart) -- Get started quickly
+- [EIP-712 Signing](/makers/eip712-signing) -- Signing implementation
+- [Maker Scoring](/league/maker-scoring) -- League ranking formula

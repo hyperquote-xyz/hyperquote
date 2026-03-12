@@ -1,0 +1,109 @@
+# Connect Wallet
+
+import { Callout, Steps } from 'nextra/components'
+
+HyperQuote runs on HyperEVM, a purpose-built EVM chain with native HYPE as the gas token. Before you can request quotes or provide liquidity, you need to connect a wallet and configure it for the HyperEVM network.
+
+## Supported Wallets
+
+HyperQuote supports any wallet that exposes the standard EIP-1193 provider interface:
+
+| Wallet | Connection Method | Notes |
+|--------|-------------------|-------|
+| **MetaMask** | Injected provider | Most common; browser extension or mobile |
+| **WalletConnect** | QR code / deep link | Requires a WalletConnect project ID in the app config |
+| **Rabby, Coinbase Wallet, Frame** | Injected provider | Any browser-extension wallet that injects `window.ethereum` |
+
+<Callout type="info">
+WalletConnect is only available when the app is configured with a `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`. If you are running locally without one, MetaMask and other injected wallets will still work.
+</Callout>
+
+## Add the HyperEVM Network
+
+<Steps>
+
+### Open your wallet's network settings
+
+In MetaMask, click the network dropdown at the top of the extension and select **Add a network manually**. Other wallets have a similar flow under Settings > Networks.
+
+### Enter the HyperEVM chain details
+
+Use the following parameters:
+
+| Field | Value |
+|-------|-------|
+| Network Name | `HyperEVM` |
+| Chain ID | `999999` |
+| RPC URL | `https://rpc.hyperevm.io` |
+| Currency Symbol | `HYPE` |
+| Block Explorer | `https://explorer.hyperevm.io` |
+
+<Callout>
+HyperQuote will automatically prompt MetaMask to add the HyperEVM chain when you click **Connect Wallet** if it is not already configured. You can also add it manually using the details above.
+</Callout>
+
+### Save and switch to HyperEVM
+
+Click **Save** in your wallet. Make sure HyperEVM is selected as the active network before interacting with HyperQuote.
+
+</Steps>
+
+## Connect to HyperQuote
+
+<Steps>
+
+### Navigate to the app
+
+Open [hyperquote.xyz](https://hyperquote.xyz) in a browser where your wallet extension is installed.
+
+### Click Connect Wallet
+
+The **Connect Wallet** button is in the top-right corner of the header. A modal will appear listing the available connectors (injected wallet, WalletConnect).
+
+### Approve the connection
+
+Your wallet will prompt you to approve the connection to the HyperQuote dApp. Confirm to proceed. Once connected, your address and HYPE balance are displayed in the header.
+
+### Verify the correct chain
+
+If your wallet is on a different network, HyperQuote will show a **Switch Network** prompt. Click it to switch to HyperEVM automatically, or switch manually in your wallet settings.
+
+</Steps>
+
+## Token Approvals
+
+Before you can fill a quote (as a taker) or have your collateral locked (as a maker), the RFQ smart contract needs permission to transfer tokens on your behalf. This is the standard ERC-20 `approve` flow.
+
+<Steps>
+
+### Initiate a trade
+
+When you attempt to execute a fill for the first time with a given token, the UI will detect that your allowance for that token is zero (or below the required amount).
+
+### Approve the contract
+
+The UI will prompt you to send an `approve` transaction, granting the HyperQuote RFQ contract permission to spend the specific token up to the required amount. Your wallet will ask you to confirm this transaction.
+
+### Wait for confirmation
+
+The approval transaction must be confirmed on-chain before the fill can proceed. Once confirmed, the UI automatically advances to the fill step.
+
+### Fill the quote
+
+With the approval in place, you can now execute the fill transaction. Future trades with the same token will not require a new approval unless your allowance is exhausted.
+
+</Steps>
+
+<Callout type="warning">
+Always verify the contract address in your wallet's approval pop-up matches the official HyperQuote RFQ contract. Never approve unlimited amounts to unverified contracts.
+</Callout>
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Wallet not detected | Ensure MetaMask or another injected wallet is installed and unlocked. Refresh the page. |
+| Wrong chain ID | Switch to HyperEVM (chain ID `999999`) in your wallet's network settings. |
+| RPC errors | Check that your wallet's RPC URL for HyperEVM is `https://rpc.hyperevm.io`. |
+| WalletConnect not showing | The app requires `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` to be set. Self-hosters need to obtain a project ID from [WalletConnect Cloud](https://cloud.walletconnect.com). |
+| Approval stuck pending | The network may be congested. Wait for the transaction to confirm or speed it up via your wallet. |
