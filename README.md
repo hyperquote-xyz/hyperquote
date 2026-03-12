@@ -1,4 +1,6 @@
-# HyperQuote v3
+# HyperQuote
+
+> Request-for-Quote liquidity protocol for size-aware spot execution.
 
 Monorepo for the HyperQuote protocol: spot RFQ, options, maker SDK, and market terminal.
 
