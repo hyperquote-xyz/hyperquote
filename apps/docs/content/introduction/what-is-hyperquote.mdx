@@ -8,12 +8,58 @@ HyperQuote is a permissionless Request-for-Quote (RFQ) protocol built on [HyperE
 HyperQuote is live on HyperEVM mainnet. Start trading at [hyperquote.xyz/swap](https://hyperquote.xyz/swap).
 </Callout>
 
+## RFQ Lifecycle
+
+```
+Trader submits RFQ
+       ↓
+HyperQuote relay broadcasts request
+       ↓
+Market makers return signed quotes
+       ↓
+Trader compares RFQ vs on-chain venues
+       ↓
+Best quote selected
+       ↓
+HyperEvmRfq settles atomically on HyperEVM
+```
+
+## Key Properties
+
+- **Competitive pricing** — multiple makers quote every trade
+- **Atomic settlement** — executed on HyperEVM in a single transaction
+- **Non-custodial** — funds remain in user wallets until settlement
+- **Size-aware execution** — optimized for large spot trades
+
 ## Who This Is For
 
 - **Traders** executing spot swaps above a few hundred dollars who want better pricing than AMMs.
 - **Institutions and desks** that need predictable execution on size without moving the market.
 - **Market makers** looking for a selective, per-trade quoting model instead of passive LP exposure.
 - **Developers** building on HyperEVM who want programmatic access to competitive liquidity via the API and SDK.
+
+## Maker Quickstart
+
+Market makers integrate with HyperQuote by responding to RFQ requests broadcast by the relay and returning a signed quote.
+
+1. Subscribe to RFQ requests
+2. Evaluate the trade request
+3. Return a signed EIP-712 quote
+4. The taker executes the best quote on-chain
+
+```json
+{
+  "kind": "EXACT_IN",
+  "maker": "0xMakerAddress",
+  "taker": "0xTakerAddress",
+  "tokenIn": "USDC",
+  "tokenOut": "HYPE",
+  "amountIn": "50000000000",
+  "amountOut": "42130000000000000000",
+  "expiry": 1710000000,
+  "nonce": 7
+}
+```
 
 ## Protocol Summary
 
