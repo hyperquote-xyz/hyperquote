@@ -86,11 +86,9 @@ export function useQuoteValidator(
         }
       }
 
-      // Taker restriction
-      if (
-        quote.taker !== "0x0000000000000000000000000000000000000000" &&
-        quote.taker.toLowerCase() !== address.toLowerCase()
-      ) {
+      // Taker restriction — reject any quote not addressed to the connected wallet
+      // (includes address(0) open quotes, which the standard UI flow never creates)
+      if (quote.taker.toLowerCase() !== address.toLowerCase()) {
         setResult({ status: "structural_mismatch", message: "Quote restricted to a different taker" });
         return;
       }

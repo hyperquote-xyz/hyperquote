@@ -7,9 +7,28 @@
 export const RFQ_CONTRACT_ADDRESS = (process.env
   .NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS || "0x0") as `0x${string}`;
 
-// NOTE: Signing uses raw hash from getQuoteHash() — no client-side EIP-712 domain/types needed.
-// The contract computes the EIP-712 typed data hash internally via _hashTypedDataV4.
-// Makers sign the raw bytes returned by getQuoteHash() using signMessage({ raw }).
+// EIP-712 domain for the HyperEvmRfq contract.
+// Must match the contract's EIP712("HyperQuote", "1") constructor args.
+export const RFQ_EIP712_DOMAIN = {
+  name: "HyperQuote" as const,
+  version: "1" as const,
+};
+
+// EIP-712 typed data types for the Quote struct.
+// Field names and types must exactly match the contract's QUOTE_TYPEHASH.
+export const RFQ_QUOTE_TYPES = {
+  Quote: [
+    { name: "kind", type: "uint8" },
+    { name: "maker", type: "address" },
+    { name: "taker", type: "address" },
+    { name: "tokenIn", type: "address" },
+    { name: "tokenOut", type: "address" },
+    { name: "amountIn", type: "uint256" },
+    { name: "amountOut", type: "uint256" },
+    { name: "expiry", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+  ],
+} as const;
 
 // Contract ABI (only the functions we need)
 export const RFQ_ABI = [

@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useAccount, useWalletClient, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { hexToBytes } from "viem";
 import {
   QuoteKind,
   RFQRequest,
@@ -21,8 +20,9 @@ import {
   RFQ_CONTRACT_ADDRESS,
   RFQ_ABI,
   ERC20_ABI,
+  RFQ_EIP712_DOMAIN,
+  RFQ_QUOTE_TYPES,
 } from "@/config/contracts";
-// hyperEVM chain config not needed here — signing uses getQuoteHash from contract
 import {
   generateRequestId,
   calculateExpiry,
@@ -237,6 +237,12 @@ export function useTakerRFQ() {
         const json = JSON.parse(jsonString) as RFQQuoteJSON;
         const quote = quoteFromJSON(json);
 
+        // Reject quotes addressed to a different taker
+        if (address && quote.taker.toLowerCase() !== address.toLowerCase()) {
+          console.warn(`[HyperQuote] Ignoring quote addressed to ${quote.taker} (connected wallet: ${address})`);
+          return null;
+        }
+
         // Reject quotes for cancelled/expired tracked requests
         const tracked = trackedRequests.find(
           (t) => t.request.id === quote.requestId
@@ -261,7 +267,7 @@ export function useTakerRFQ() {
         return null;
       }
     },
-    [trackedRequests]
+    [address, trackedRequests]
   );
 
   /**
@@ -476,13 +482,12 @@ export function useTakerRFQ() {
 /**
  * Hook for maker RFQ operations
  *
- * SIGNING: Uses raw hash signing, NOT EIP-712 typed data.
- *   1. Call on-chain getQuoteHash(quoteStruct) to get the bytes32 hash
- *   2. Sign the raw bytes with walletClient.signMessage({ message: { raw } })
- *   3. No additional hashing, no EIP-191 prefix, no EIP-712 domain/types
+ * SIGNING: Uses EIP-712 signTypedData — the standard approach.
+ *   The contract verifies via ECDSA.recover(eip712Hash, sig), so the maker
+ *   must sign using signTypedData with the same domain and types.
  */
 export function useMakerRFQ() {
-  const { address } = useAccount();
+  const { address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const [pendingRequests, setPendingRequests] = useState<RFQRequest[]>([]);
 
@@ -531,8 +536,8 @@ export function useMakerRFQ() {
    *
    * Signing flow:
    *   1. Build the quote struct (same field order as contract)
-   *   2. Call getQuoteHash on-chain to get the bytes32 hash
-   *   3. Sign the raw hash bytes with the wallet (no EIP-712, no re-hashing)
+   *   2. Sign via EIP-712 signTypedData with the HyperQuote domain
+   *   3. Contract verifies via ECDSA.recover(_hashTypedDataV4(structHash), sig)
    */
   const createQuote = useCallback(
     async (
@@ -572,20 +577,26 @@ export function useMakerRFQ() {
           nonce: currentNonce,
         };
 
-        // Step 1: Get the quote hash from the contract
-        const { readContract } = await import("wagmi/actions");
-        const { wagmiConfig } = await import("@/lib/wagmi");
-
-        const quoteHash = await readContract(wagmiConfig, {
-          address: RFQ_CONTRACT_ADDRESS,
-          abi: RFQ_ABI,
-          functionName: "getQuoteHash",
-          args: [quoteStruct],
-        }) as `0x${string}`;
-
-        // Step 2: Sign the raw hash bytes — NO EIP-712, NO re-hashing, NO prefix
-        const signature = await walletClient.signMessage({
-          message: { raw: hexToBytes(quoteHash) },
+        // Sign via EIP-712 signTypedData — matches contract's ECDSA.recover(eip712Hash, sig)
+        const signature = await walletClient.signTypedData({
+          domain: {
+            ...RFQ_EIP712_DOMAIN,
+            chainId,
+            verifyingContract: RFQ_CONTRACT_ADDRESS,
+          },
+          types: RFQ_QUOTE_TYPES,
+          primaryType: "Quote" as const,
+          message: {
+            kind: quoteStruct.kind,
+            maker: quoteStruct.maker,
+            taker: quoteStruct.taker,
+            tokenIn: quoteStruct.tokenIn,
+            tokenOut: quoteStruct.tokenOut,
+            amountIn: quoteStruct.amountIn,
+            amountOut: quoteStruct.amountOut,
+            expiry: quoteStruct.expiry,
+            nonce: quoteStruct.nonce,
+          },
         });
 
         const quote: RFQQuote = {
@@ -609,7 +620,7 @@ export function useMakerRFQ() {
         return null;
       }
     },
-    [address, makerNonce, walletClient, refetchNonce]
+    [address, chainId, makerNonce, walletClient, refetchNonce]
   );
 
   /**
