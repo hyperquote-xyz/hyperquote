@@ -4,12 +4,10 @@ import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } fro
 import { Button } from "@/components/ui/button";
 import { formatAddress } from "@/lib/utils";
 import { hyperEVM } from "@/config/chains";
-import { Wallet, LogOut, AlertTriangle, ArrowDownUp, BookOpen, Bell } from "lucide-react";
+import { Wallet, LogOut, AlertTriangle, ArrowDownUp, Bell } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { WrapModal } from "@/components/WrapModal";
-
-const DOCS_URL = process.env.NEXT_PUBLIC_DOCS_URL || "http://localhost:3001";
 
 export function Header() {
   const { address, isConnected } = useAccount();
@@ -79,25 +77,6 @@ export function Header() {
           >
             Points
           </Link>
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            Docs
-          </a>
-          <a
-            href="https://t.me/hyperquote"
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Subscribe to real-time RFQ alerts"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
-          >
-            <Bell className="h-3.5 w-3.5" />
-            Alerts
-          </a>
           {enableOptions && (
             <Link
               href="/options"
@@ -124,8 +103,33 @@ export function Header() {
           )}
         </nav>
 
-        {/* Wallet */}
+        {/* Right side: socials + wallet */}
         <div className="flex items-center gap-3">
+          {/* Social links */}
+          <div className="hidden sm:flex items-center gap-2">
+            <a
+              href="https://t.me/hyperquote"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Subscribe to RFQ alerts on Telegram"
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <Bell className="h-3.5 w-3.5" />
+              Alerts
+            </a>
+            <a
+              href="https://x.com/hyperquote_xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            >
+              <span className="text-sm leading-none">&#120143;</span>
+              @hyperquote_xyz
+            </a>
+          </div>
+
+          <div className="hidden sm:block w-px h-6 bg-border/50" />
+
           {isWrongNetwork && (
             <Button
               variant="destructive"
@@ -140,6 +144,14 @@ export function Header() {
 
           {isConnected ? (
             <div className="flex items-center gap-2">
+              <a
+                href="https://docs.hyperquote.trade/agents"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              >
+                Agents
+              </a>
               <WrapModal
                 trigger={
                   <Button variant="outline" size="sm" className="gap-1.5">

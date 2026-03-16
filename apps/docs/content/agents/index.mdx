@@ -1,0 +1,140 @@
+# HyperQuote for AI Trading Agents
+
+import { Callout, Steps } from 'nextra/components'
+
+HyperQuote is RFQ execution infrastructure for size-aware spot trading on HyperEVM. Agents can listen for RFQs, price them, respond with signed quotes, and settle atomically onchain via the `HyperEvmRfq` settlement contract.
+
+## Architecture
+
+The RFQ lifecycle follows a simple request-response-settle pattern:
+
+```
+Taker  ──  creates RFQ  ──▶  Relay  ──  broadcasts  ──▶  Agent
+                                                            │
+                                                      prices + signs
+                                                            │
+Taker  ◀──  selects quote  ◀──  Relay  ◀──  submits quote ─┘
+  │
+  └──  calls fillExactIn / fillExactOut onchain  ──▶  HyperEvmRfq
+```
+
+### Components
+
+| Component | Role |
+|---|---|
+| **RFQ Contract** (`HyperEvmRfq`) | Onchain settlement. Verifies the maker's EIP-712 signature, enforces taker binding, transfers tokens atomically. Source: [`contracts/spot-rfq/src/HyperEvmRfq.sol`](https://github.com/hyperquote-xyz/hyperquote/blob/main/contracts/spot-rfq/src/HyperEvmRfq.sol) |
+| **Relay** | WebSocket server that broadcasts RFQs to connected makers/agents and routes signed quotes back to takers. |
+| **WebSocket Alerts** | Real-time event stream for new RFQs, quote updates, and fill notifications. |
+| **Telegram Alerts** | Optional public feed at [@hyperquote](https://t.me/hyperquote) for monitoring RFQ activity. |
+
+## Integration Paths
+
+### RFQ Listener
+
+Agents subscribe to new RFQs via WebSocket:
+
+```
+wss://alerts.hyperquote.xyz
+```
+
+Event type: `rfq.created`
+
+Fields received:
+
+| Field | Description |
+|---|---|
+| `pair` | Token pair (e.g. HYPE/USDC) |
+| `size` | Requested trade size |
+| `expiry` | Quote expiry timestamp |
+| `taker` | Address of the requesting taker |
+
+### Quote Provider
+
+Agents construct a `Quote` struct and sign it using EIP-712 typed data signing.
+
+**Quote fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `uint8` | `0` = EXACT_IN, `1` = EXACT_OUT |
+| `maker` | `address` | Agent's signing address |
+| `taker` | `address` | Must match the requesting taker (address(0) is rejected) |
+| `tokenIn` | `address` | Token the taker sends |
+| `tokenOut` | `address` | Token the taker receives |
+| `amountIn` | `uint256` | Amount of tokenIn |
+| `amountOut` | `uint256` | Amount of tokenOut |
+| `expiry` | `uint256` | Unix timestamp when the quote expires |
+| `nonce` | `uint256` | Maker's current nonce from the contract |
+
+EIP-712 domain:
+
+```
+name: "HyperQuote"
+version: "1"
+chainId: <HyperEVM chain ID>
+verifyingContract: <HyperEvmRfq address>
+```
+
+<Callout type="warning">
+  Quotes must be taker-bound. The contract rejects quotes with `taker = address(0)`. Always set `taker` to the address from the RFQ request.
+</Callout>
+
+### RFQ Executor
+
+Takers execute quotes onchain by calling the settlement contract directly. The agent does not need to take any action at settlement time -- the maker's pre-signed quote and token approval are sufficient.
+
+```solidity
+fillExactIn(Quote calldata quote, bytes calldata makerSig, uint256 minOut)
+fillExactOut(Quote calldata quote, bytes calldata makerSig, uint256 maxIn)
+```
+
+The contract verifies the maker's EIP-712 signature, checks that `msg.sender` matches `quote.taker`, and executes atomic token transfers via `SafeERC20`.
+
+<Callout type="info">
+  Agents must ensure they have granted token approval to the `HyperEvmRfq` contract for `tokenOut` before their quotes can be filled.
+</Callout>
+
+## Example Agent Workflow
+
+<Steps>
+
+### Subscribe to RFQ alerts
+
+Connect to the WebSocket endpoint and listen for `rfq.created` events.
+
+### Evaluate trade opportunity
+
+Filter by token pair, size, and any internal risk limits.
+
+### Calculate price
+
+Run your pricing model to determine `amountIn` / `amountOut`.
+
+### Sign quote (EIP-712)
+
+Build the `Quote` struct and sign it with your agent's private key using EIP-712 typed data.
+
+### Submit quote via relay
+
+Send the signed quote back through the relay WebSocket.
+
+### Wait for taker selection
+
+The taker reviews competing quotes and selects one.
+
+### Settlement executes onchain
+
+The taker calls `fillExactIn` or `fillExactOut`. Tokens transfer atomically. The agent receives `tokenIn` (minus protocol fee) and sends `tokenOut`.
+
+</Steps>
+
+## Resources
+
+| Resource | Link |
+|---|---|
+| GitHub | [github.com/hyperquote-xyz/hyperquote](https://github.com/hyperquote-xyz/hyperquote) |
+| RFQ Contract Source | [`contracts/spot-rfq/src/HyperEvmRfq.sol`](https://github.com/hyperquote-xyz/hyperquote/blob/main/contracts/spot-rfq/src/HyperEvmRfq.sol) |
+| WebSocket Alerts | [API Reference](/api/websocket-alerts) |
+| Telegram RFQ Feed | [t.me/hyperquote](https://t.me/hyperquote) |
+| Maker SDK Quickstart | [SDK Quickstart](/makers/maker-sdk-quickstart) |
+| EIP-712 Signing Guide | [EIP-712 Signing](/makers/eip712-signing) |

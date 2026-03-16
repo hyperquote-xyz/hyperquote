@@ -16,6 +16,9 @@ export default {
   "makers": {
     "title": "Makers"
   },
+  "agents": {
+    "title": "Agents"
+  },
   "venue-comparison": {
     "title": "Venue Comparison"
   },

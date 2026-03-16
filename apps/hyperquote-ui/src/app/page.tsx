@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Users } from "lucide-react";
+import { ArrowRight, Users, Zap } from "lucide-react";
 import SpotLanding from "@/components/landing/SpotLanding";
 import OptionsLanding from "@/components/landing/OptionsLanding";
 
@@ -61,6 +61,25 @@ export default function HomePage() {
                 </Button>
               </Link>
             </div>
+
+            {/* Agent integration callout */}
+            <a
+              href="https://docs.hyperquote.trade/agents"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex flex-col sm:flex-row items-center gap-2 sm:gap-3 px-5 py-3 rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm hover:border-primary/30 hover:bg-card/50 transition-all duration-200"
+            >
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Zap className="h-3.5 w-3.5 text-primary" />
+                <span className="font-medium text-foreground/90">Build trading agents on HyperQuote</span>
+              </span>
+              <span className="text-xs text-muted-foreground/70 sm:border-l sm:border-border/40 sm:pl-3">
+                Listen for RFQs, quote trades, and settle onchain.
+              </span>
+              <span className="text-xs font-medium text-primary group-hover:underline">
+                Agent Integration&nbsp;&rarr;
+              </span>
+            </a>
 
             {/* Live pill (non-clickable) */}
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium">
