@@ -47,5 +47,8 @@
     "check:all": "npm run lint:all && npm run typecheck:all && npm run build:all",
     "dev:all": "trap 'kill 0' EXIT; npm run dev:relay & npm run dev:terminal-api & npm run dev:ui & wait",
     "clean": "rm -rf apps/hyperquote-ui/.next apps/docs/.next packages/sdk-maker/dist packages/sdk-agent/dist services/relay/dist services/alert-stream/dist services/terminal-api/dist services/terminal-ingest/dist services/telegram-bot/dist"
+  },
+  "dependencies": {
+    "next": "^16.1.6"
   }
 }

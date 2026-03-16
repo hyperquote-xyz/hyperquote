@@ -3,6 +3,8 @@ import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Providers } from "@/components/Providers";
 import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -37,6 +39,19 @@ export default function RootLayout({
             <div className="fixed inset-0 animated-gradient -z-10" />
             <div className="fixed inset-0 grid-pattern -z-10 opacity-30" />
 
+            {/* Top banner */}
+            <div className="bg-primary/10 border-b border-primary/20">
+              <div className="container mx-auto px-4 py-2 text-center">
+                <Link
+                  href="/swap"
+                  className="text-xs sm:text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+                >
+                  HyperQuote is live on HyperEVM — request liquidity before you
+                  swap &rarr;
+                </Link>
+              </div>
+            </div>
+
             {/* Header */}
             <Header />
 
@@ -44,30 +59,7 @@ export default function RootLayout({
             <main className="flex-1">{children}</main>
 
             {/* Footer */}
-            <footer className="border-t border-border/40 py-6 mt-auto">
-              <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-                <p>
-                  HyperQuote — Permissionless RFQ on HyperEVM •{" "}
-                  <a
-                    href={process.env.NEXT_PUBLIC_DOCS_URL || "http://localhost:3001"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    Docs
-                  </a>
-                  {" "}•{" "}
-                  <a
-                    href="https://hyperliquid.xyz"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    Powered by Hyperliquid
-                  </a>
-                </p>
-              </div>
-            </footer>
+            <Footer />
           </div>
         </Providers>
       </body>
