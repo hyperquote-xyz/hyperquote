@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {TestSetup} from "./helpers/TestSetup.sol";
-import {QuoteLib} from "../contracts/libraries/QuoteLib.sol";
-import {OptionsEngine} from "../contracts/OptionsEngine.sol";
-import {CollateralMath} from "../contracts/libraries/CollateralMath.sol";
+import {QuoteLib} from "../src/libraries/QuoteLib.sol";
+import {OptionsEngine} from "../src/OptionsEngine.sol";
+import {CollateralMath} from "../src/libraries/CollateralMath.sol";
 
 /// @dev V1 roles: maker = buyer, taker = seller. Strike & price at 18 decimals.
 ///      Settlement: anyone can call settle() (keeper model), no upper time bound.

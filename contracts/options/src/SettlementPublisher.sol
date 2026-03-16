@@ -28,6 +28,9 @@ contract SettlementPublisher is ISettlementOracle, Ownable {
     /// @notice Maximum time after commit in which a reveal must occur.
     uint256 public constant REVEAL_WINDOW = 24 hours;
 
+    /// @notice Minimum delay after expiry before emergency publication is allowed.
+    uint256 public constant EMERGENCY_DELAY = 48 hours;
+
     // ---------------------------------------------------------------
     // State
     // ---------------------------------------------------------------
@@ -65,6 +68,7 @@ contract SettlementPublisher is ISettlementOracle, Ownable {
     error CommitHashMismatch();
     error ExpiryNotPassed();
     error CommitAfterExpiry();
+    error TooEarlyForEmergency();
 
     // ---------------------------------------------------------------
     // Modifiers
@@ -131,6 +135,27 @@ contract SettlementPublisher is ISettlementOracle, Ownable {
 
         // Clean up commitment to free storage
         delete commitTimestamps[commitHash];
+
+        emit SettlementPricePublished(asset, expiry, price, msg.sender);
+    }
+
+    // ---------------------------------------------------------------
+    // Emergency
+    // ---------------------------------------------------------------
+
+    /// @notice Emergency price publication by the owner, bypassing commit-reveal.
+    /// @dev Only available EMERGENCY_DELAY (48h) after expiry and only if no price
+    ///      has been published yet. This prevents permanent fund-lock in OptionsEngine
+    ///      when all publishers fail to commit before expiry.
+    /// @param asset The underlying asset address.
+    /// @param expiry The expiry timestamp.
+    /// @param price The settlement price (USD, 18 decimals — 1e18 = $1.00).
+    function emergencyPublish(address asset, uint256 expiry, uint256 price) external onlyOwner {
+        if (_settled[asset][expiry]) revert AlreadySettled();
+        if (block.timestamp < expiry + EMERGENCY_DELAY) revert TooEarlyForEmergency();
+
+        _prices[asset][expiry] = price;
+        _settled[asset][expiry] = true;
 
         emit SettlementPricePublished(asset, expiry, price, msg.sender);
     }

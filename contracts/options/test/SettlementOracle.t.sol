@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {SettlementPublisher} from "../contracts/SettlementPublisher.sol";
-import {ISettlementOracle} from "../contracts/interfaces/ISettlementOracle.sol";
+import {SettlementPublisher} from "../src/SettlementPublisher.sol";
+import {ISettlementOracle} from "../src/interfaces/ISettlementOracle.sol";
 
 contract SettlementOracleTest is Test {
     SettlementPublisher public oracle;

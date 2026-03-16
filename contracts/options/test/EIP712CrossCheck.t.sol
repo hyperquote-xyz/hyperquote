@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {OptionsEngine} from "../contracts/OptionsEngine.sol";
-import {SettlementPublisher} from "../contracts/SettlementPublisher.sol";
-import {QuoteLib} from "../contracts/libraries/QuoteLib.sol";
+import {OptionsEngine} from "../src/OptionsEngine.sol";
+import {SettlementPublisher} from "../src/SettlementPublisher.sol";
+import {QuoteLib} from "../src/libraries/QuoteLib.sol";
 
 /**
  * @notice Generates known EIP-712 test vectors for cross-verification with the TS SDK.

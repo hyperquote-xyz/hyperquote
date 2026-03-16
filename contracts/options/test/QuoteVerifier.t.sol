@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {TestSetup} from "./helpers/TestSetup.sol";
-import {QuoteLib} from "../contracts/libraries/QuoteLib.sol";
-import {OptionsEngine} from "../contracts/OptionsEngine.sol";
-import {CollateralMath} from "../contracts/libraries/CollateralMath.sol";
+import {QuoteLib} from "../src/libraries/QuoteLib.sol";
+import {OptionsEngine} from "../src/OptionsEngine.sol";
+import {CollateralMath} from "../src/libraries/CollateralMath.sol";
 
 /// @dev V1 roles: maker = buyer, taker = seller. isMakerSeller must be false.
 ///      Strike is 18 decimals (1e18 = $1). Premium is in collateral decimals.
@@ -242,7 +242,7 @@ contract QuoteVerifierTest is TestSetup {
         QuoteLib.Quote memory q = _buildCSPQuote(25e18, 1 ether, 1e6);
 
         vm.prank(taker);
-        vm.expectRevert(OptionsEngine.InvalidSignature.selector);
+        vm.expectRevert(OptionsEngine.NotMaker.selector);
         engine.cancelQuote(q);
     }
 

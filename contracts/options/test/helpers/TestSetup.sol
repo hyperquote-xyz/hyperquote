@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {OptionsEngine} from "../../contracts/OptionsEngine.sol";
-import {SettlementPublisher} from "../../contracts/SettlementPublisher.sol";
-import {QuoteLib} from "../../contracts/libraries/QuoteLib.sol";
+import {OptionsEngine} from "../../src/OptionsEngine.sol";
+import {SettlementPublisher} from "../../src/SettlementPublisher.sol";
+import {QuoteLib} from "../../src/libraries/QuoteLib.sol";
 import {MockERC20} from "./MockERC20.sol";
 
 /// @notice Shared test setup for HyperQuote Options tests.

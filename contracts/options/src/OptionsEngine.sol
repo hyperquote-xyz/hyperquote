@@ -33,6 +33,8 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     uint256 public constant EXPIRY_TIME_OF_DAY = 28800; // 08:00 UTC
     uint256 internal constant SECONDS_PER_DAY = 86400;
     uint16 public constant MAX_KEEPER_BPS = 50;
+    uint256 public constant SETTLEMENT_GRACE_PERIOD = 30 days;
+    uint256 public constant ORACLE_TIMELOCK_DELAY = 48 hours;
 
     // ---------------------------------------------------------------
     // Types
@@ -71,6 +73,8 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     uint256 public nextPositionId = 1;
     uint16 public keeperBps = 10; // default 10 bps (0.10%)
     mapping(address => uint256) public maxKeeperFee; // per collateral token
+    address public pendingOracle; // two-step oracle update
+    uint256 public oracleProposedAt; // timestamp of proposeOracle call
 
     // ---------------------------------------------------------------
     // Events
@@ -95,6 +99,8 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     event KeeperBpsUpdated(uint16 newBps);
     event MaxKeeperFeeUpdated(address indexed token, uint256 newMaxFee);
     event KeeperFeePaid(uint256 indexed positionId, address indexed keeper, uint256 fee);
+    event OracleProposed(address indexed newOracle, uint256 acceptableAt);
+    event EmergencyRelease(uint256 indexed positionId, uint256 collateralReturned, address indexed returnedTo);
 
     // ---------------------------------------------------------------
     // Errors
@@ -121,6 +127,12 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     error ZeroAddress();
     error KeeperBpsTooHigh();
     error MaxKeeperFeeTooHigh();
+    error NotMaker();
+    error TooEarlyForEmergency();
+    error OraclePriceAvailable();
+    error NoOracleProposed();
+    error OracleTimelockNotElapsed();
+    error NonTransferable();
 
     // ---------------------------------------------------------------
     // Constructor
@@ -139,20 +151,41 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     // Admin
     // ---------------------------------------------------------------
 
+    /// @notice Whitelist or de-list a collateral token.
+    /// @dev WARNING: Fee-on-transfer and rebasing tokens MUST NOT be whitelisted.
+    ///      The contract stores exact collateral amounts and assumes transfers deliver
+    ///      the full requested value. Fee-on-transfer tokens will cause accounting
+    ///      mismatches that can lock funds or cause settlement failures.
     function setAllowedCollateral(address token, bool allowed) external onlyOwner {
         allowedCollateral[token] = allowed;
         emit CollateralTokenUpdated(token, allowed);
     }
 
+    /// @notice Whitelist or de-list an underlying token.
+    /// @dev WARNING: Fee-on-transfer and rebasing tokens MUST NOT be whitelisted.
+    ///      See setAllowedCollateral for details.
     function setAllowedUnderlying(address token, bool allowed) external onlyOwner {
         allowedUnderlying[token] = allowed;
         emit UnderlyingTokenUpdated(token, allowed);
     }
 
-    function setOracle(address newOracle) external onlyOwner {
+    /// @notice Propose a new oracle address. Takes effect after ORACLE_TIMELOCK_DELAY.
+    /// @param newOracle The proposed oracle address.
+    function proposeOracle(address newOracle) external onlyOwner {
         if (newOracle == address(0)) revert ZeroAddress();
-        oracle = ISettlementOracle(newOracle);
-        emit OracleUpdated(newOracle);
+        pendingOracle = newOracle;
+        oracleProposedAt = block.timestamp;
+        emit OracleProposed(newOracle, block.timestamp + ORACLE_TIMELOCK_DELAY);
+    }
+
+    /// @notice Accept the pending oracle after the timelock delay has elapsed.
+    function acceptOracle() external onlyOwner {
+        if (pendingOracle == address(0)) revert NoOracleProposed();
+        if (block.timestamp < oracleProposedAt + ORACLE_TIMELOCK_DELAY) revert OracleTimelockNotElapsed();
+        oracle = ISettlementOracle(pendingOracle);
+        emit OracleUpdated(pendingOracle);
+        pendingOracle = address(0);
+        oracleProposedAt = 0;
     }
 
     function pause() external onlyOwner {
@@ -211,7 +244,7 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
     // ---------------------------------------------------------------
 
     function cancelQuote(QuoteLib.Quote calldata quote) external {
-        if (quote.maker != msg.sender) revert InvalidSignature();
+        if (quote.maker != msg.sender) revert NotMaker();
         bytes32 digest = _hashTypedDataV4(QuoteLib.hash(quote));
         usedQuotes[digest] = true;
         emit QuoteCancelled(digest, msg.sender);
@@ -267,9 +300,13 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
         emit PositionSettled(positionId, msg.sender, settlementPrice, underlyingXfer, collateralXfer);
     }
 
-    /// @notice Release collateral for an OTM/ATM position after the settlement window.
+    /// @notice Release collateral for an OTM/ATM position after the settlement window,
+    ///         or force-release any position after the grace period.
     /// @dev Requires oracle price to exist and position to be OTM or ATM.
-    ///      ITM positions can never be expired — they must be settled instead.
+    ///      ITM positions cannot normally be expired — they must be settled.
+    ///      However, after SETTLEMENT_GRACE_PERIOD the OTM/ATM check is bypassed,
+    ///      allowing the seller to recover collateral from positions that cannot be
+    ///      settled (e.g. buyer non-cooperation or prolonged inaction).
     function expirePosition(uint256 positionId) external nonReentrant {
         Position storage pos = _positions[positionId];
         if (pos.state != PositionState.Active) revert PositionNotActive();
@@ -279,13 +316,18 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
         (uint256 settlementPrice, bool settled) = oracle.getSettlementPrice(pos.underlying, pos.expiry);
         if (!settled) revert OraclePriceNotAvailable();
 
-        // Verify OTM or ATM — ITM positions cannot be expired
-        if (pos.isCall) {
-            // Call is ITM when S > K → only allow expire when S <= K (OTM/ATM)
-            if (settlementPrice > pos.strike) revert PositionNotOTM();
-        } else {
-            // Put is ITM when S < K → only allow expire when S >= K (OTM/ATM)
-            if (settlementPrice < pos.strike) revert PositionNotOTM();
+        // After the grace period, any position can be expired regardless of ITM/OTM.
+        // This prevents permanent fund-lock when the buyer cannot cooperate with settlement.
+        bool pastGrace = block.timestamp > pos.expiry + SETTLEMENT_GRACE_PERIOD;
+        if (!pastGrace) {
+            // Verify OTM or ATM — ITM positions cannot be expired before grace period
+            if (pos.isCall) {
+                // Call is ITM when S > K → only allow expire when S <= K (OTM/ATM)
+                if (settlementPrice > pos.strike) revert PositionNotOTM();
+            } else {
+                // Put is ITM when S < K → only allow expire when S >= K (OTM/ATM)
+                if (settlementPrice < pos.strike) revert PositionNotOTM();
+            }
         }
 
         pos.state = PositionState.Expired;
@@ -302,6 +344,39 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
         _burn(positionId);
 
         emit PositionExpired(positionId, collateralReturned, seller);
+    }
+
+    // ---------------------------------------------------------------
+    // Emergency Release
+    // ---------------------------------------------------------------
+
+    /// @notice Emergency escape hatch for positions stuck due to oracle failure.
+    /// @dev Callable by anyone if no oracle price exists SETTLEMENT_GRACE_PERIOD after expiry.
+    ///      Returns locked collateral to the seller and burns the position NFT.
+    ///      This prevents permanent fund-lock when the oracle fails to publish a price.
+    function emergencyRelease(uint256 positionId) external nonReentrant {
+        Position storage pos = _positions[positionId];
+        if (pos.state != PositionState.Active) revert PositionNotActive();
+        if (block.timestamp < pos.expiry + SETTLEMENT_GRACE_PERIOD) revert TooEarlyForEmergency();
+
+        // Only available when oracle has NOT published a price
+        (, bool settled) = oracle.getSettlementPrice(pos.underlying, pos.expiry);
+        if (settled) revert OraclePriceAvailable();
+
+        pos.state = PositionState.Expired;
+
+        uint256 collateralReturned = pos.collateralLocked;
+        address seller = pos.seller;
+
+        if (pos.isCall) {
+            IERC20(pos.underlying).safeTransfer(seller, collateralReturned);
+        } else {
+            IERC20(pos.collateral).safeTransfer(seller, collateralReturned);
+        }
+
+        _burn(positionId);
+
+        emit EmergencyRelease(positionId, collateralReturned, seller);
     }
 
     // ---------------------------------------------------------------
@@ -493,5 +568,19 @@ contract OptionsEngine is ERC721, EIP712, Ownable, Pausable, ReentrancyGuard {
             return abi.decode(data, (uint8));
         }
         return 18;
+    }
+
+    // ---------------------------------------------------------------
+    // Internal — Soulbound NFT
+    // ---------------------------------------------------------------
+
+    /// @dev Positions are soulbound — transfers between non-zero addresses are blocked.
+    ///      Only mint (from == address(0)) and burn (to == address(0)) are allowed.
+    ///      This prevents misleading secondary markets where the NFT holder has no
+    ///      settlement rights (settlement uses stored pos.buyer, not ownerOf).
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        address from = super._update(to, tokenId, auth);
+        if (from != address(0) && to != address(0)) revert NonTransferable();
+        return from;
     }
 }
