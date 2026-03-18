@@ -8,6 +8,7 @@ import { Wallet, LogOut, AlertTriangle, ArrowDownUp, Bell } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 import { WrapModal } from "@/components/WrapModal";
+import { HyperQuoteLogo } from "@/components/HyperQuoteLogo";
 
 export function Header() {
   const { address, isConnected } = useAccount();
@@ -36,9 +37,7 @@ export function Header() {
         <Link href="/" className="flex items-center gap-3 group">
           <div className="relative">
             <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full group-hover:bg-primary/30 transition-colors" />
-            <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-lg shadow-primary/25">
-              <span className="text-primary-foreground font-bold text-lg">H</span>
-            </div>
+            <HyperQuoteLogo size={36} className="relative shadow-lg shadow-primary/25" />
           </div>
           <span className="font-semibold text-xl tracking-tight">
             Hyper<span className="text-primary">Quote</span>

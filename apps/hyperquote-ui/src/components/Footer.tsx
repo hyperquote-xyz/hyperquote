@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HyperQuoteLogo } from "@/components/HyperQuoteLogo";
 
 const FOOTER_LINKS = [
   { label: "App", href: "https://app.hyperquote.xyz" },
@@ -15,12 +16,18 @@ export function Footer() {
         <div className="flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
           {/* Left — brand */}
           <div className="text-center md:text-left">
-            <Link href="/" className="font-semibold text-lg tracking-tight">
-              Hyper<span className="text-primary">Quote</span>
+            <Link href="/" className="inline-flex items-center gap-3">
+              <HyperQuoteLogo size={48} />
+              <div>
+                <span className="font-semibold text-lg tracking-tight block">
+                  Hyper<span className="text-primary">Quote</span>
+                </span>
+                <p className="text-xs text-muted-foreground mt-0.5 max-w-xs">
+                  Request-for-Quote liquidity protocol for size-aware spot
+                  execution.
+                </p>
+              </div>
             </Link>
-            <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-              Request-for-Quote liquidity protocol for size-aware spot execution.
-            </p>
           </div>
 
           {/* Right — links */}

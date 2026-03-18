@@ -1,0 +1,55 @@
+<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- HyperQuote Twitter Profile Picture — V4D (Bottom Flows, Top Ends)
+       400×400 — Twitter crops to circle, so content is centered with safe area.
+       No rounded rect container — full bleed background for circular crop. -->
+
+  <!-- Full background -->
+  <rect width="400" height="400" fill="#0F1722"/>
+
+  <!-- Subtle center glow -->
+  <radialGradient id="tw-glow" cx="52%" cy="52%" r="38%">
+    <stop offset="0%" stop-color="#2BB8A4" stop-opacity="0.12"/>
+    <stop offset="100%" stop-color="#2BB8A4" stop-opacity="0"/>
+  </radialGradient>
+  <circle cx="208" cy="208" r="160" fill="url(#tw-glow)"/>
+
+  <!-- Top ribbon gradient — fades (competing quote) -->
+  <linearGradient id="tw-top" x1="148" y1="110" x2="322" y2="62">
+    <stop offset="0%" stop-color="#40E8C8" stop-opacity="0.35"/>
+    <stop offset="50%" stop-color="#40E8C8" stop-opacity="0.7"/>
+    <stop offset="100%" stop-color="#40E8C8"/>
+  </linearGradient>
+
+  <!-- Bottom ribbon gradient — full flow (winning quote) -->
+  <linearGradient id="tw-bot" x1="78" y1="234" x2="322" y2="328">
+    <stop offset="0%" stop-color="#40E8C8"/>
+    <stop offset="50%" stop-color="#34D9B8"/>
+    <stop offset="100%" stop-color="#2BB8A4"/>
+  </linearGradient>
+
+  <!-- Top ribbon — tapers to sharp point (competing quote) -->
+  <path
+    d="M148 188
+       C 187 185, 218 164, 242 133
+       C 266 103, 288 76, 322 76
+       L 322 112
+       C 288 112, 266 136, 242 162
+       C 218 190, 187 201, 156 200
+       Z"
+    fill="url(#tw-top)"
+  />
+
+  <!-- Bottom ribbon — full flow (winning quote delivers liquidity) -->
+  <path
+    d="M78 196
+       C 117 196, 148 203, 180 209
+       C 203 214, 218 229, 242 260
+       C 266 292, 288 322, 322 322
+       L 322 358
+       C 288 358, 266 331, 242 300
+       C 218 268, 203 238, 180 228
+       C 148 218, 117 210, 78 210
+       Z"
+    fill="url(#tw-bot)"
+  />
+</svg>
