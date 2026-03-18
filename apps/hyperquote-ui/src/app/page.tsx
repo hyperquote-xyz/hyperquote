@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Users, Zap } from "lucide-react";
 import SpotLanding from "@/components/landing/SpotLanding";
@@ -20,6 +21,22 @@ export default function HomePage() {
       <section className="relative pt-16 pb-6 md:pt-24 md:pb-10 overflow-hidden">
         {/* Hero spotlight — radial glow centered above headline */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(0,255,200,0.08)_0%,rgba(0,255,200,0.04)_30%,transparent_65%)] -z-10 pointer-events-none" />
+
+        {/* Hypurr NFT — right side, deeper overlap (hidden on mobile) */}
+        <div className="absolute right-[-20px] top-1/2 -translate-y-1/2 z-[1] pointer-events-none hidden lg:block">
+          <Image
+            src="/badges/hypurr123.png"
+            alt=""
+            width={500}
+            height={500}
+            className="rounded-[32px] opacity-70 drop-shadow-[0_0_60px_rgba(43,184,164,0.15)]"
+            style={{
+              maskImage: "linear-gradient(to left, black 35%, transparent 88%)",
+              WebkitMaskImage: "linear-gradient(to left, black 35%, transparent 88%)",
+            }}
+            priority
+          />
+        </div>
 
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center space-y-8">
