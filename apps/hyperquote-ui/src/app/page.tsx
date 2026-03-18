@@ -22,17 +22,17 @@ export default function HomePage() {
         {/* Hero spotlight — radial glow centered above headline */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(0,255,200,0.08)_0%,rgba(0,255,200,0.04)_30%,transparent_65%)] -z-10 pointer-events-none" />
 
-        {/* Hypurr NFT — right side, deeper overlap (hidden on mobile) */}
-        <div className="absolute right-[-20px] top-1/2 -translate-y-1/2 z-[1] pointer-events-none hidden lg:block">
+        {/* Hypurr NFT — stretched to full hero height, right side (hidden on mobile) */}
+        <div className="absolute right-[-20px] top-0 bottom-0 z-[1] pointer-events-none hidden lg:block">
           <Image
             src="/badges/hypurr123.png"
             alt=""
             width={500}
-            height={500}
-            className="rounded-[32px] opacity-70 drop-shadow-[0_0_60px_rgba(43,184,164,0.15)]"
+            height={700}
+            className="h-full w-auto object-cover opacity-70 drop-shadow-[0_0_60px_rgba(43,184,164,0.15)]"
             style={{
-              maskImage: "linear-gradient(to left, black 35%, transparent 88%)",
-              WebkitMaskImage: "linear-gradient(to left, black 35%, transparent 88%)",
+              maskImage: "linear-gradient(to left, black 30%, transparent 85%)",
+              WebkitMaskImage: "linear-gradient(to left, black 30%, transparent 85%)",
             }}
             priority
           />
