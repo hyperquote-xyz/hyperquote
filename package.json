@@ -55,6 +55,6 @@
     "@mdx-js/mdx": "3.0.1"
   },
   "dependencies": {
-    "next": "15.1.9"
+    "next": "15.1.11"
   }
 }
