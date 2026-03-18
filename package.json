@@ -5,6 +5,7 @@
   "workspaces": [
     "apps/hyperquote-ui",
     "apps/docs",
+    "apps/landing",
     "packages/sdk-maker",
     "packages/sdk-agent",
     "services/relay",
@@ -52,5 +53,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@mdx-js/mdx": "3.0.1"
+  },
+  "dependencies": {
+    "next": "15.1.9"
   }
 }
