@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 const FOOTER_LINKS = [
-  { label: "App", href: "https://app.hyperquote.trade" },
-  { label: "Docs", href: "https://docs.hyperquote.trade" },
+  { label: "App", href: "https://app.hyperquote.xyz" },
+  { label: "Docs", href: "https://docs.hyperquote.xyz" },
   { label: "GitHub", href: "https://github.com/hyperquote-xyz/hyperquote" },
   { label: "Telegram", href: "https://t.me/hyperquote" },
   { label: "X", href: "https://x.com/hyperquote_xyz" },

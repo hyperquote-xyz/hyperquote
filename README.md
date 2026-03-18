@@ -8,8 +8,8 @@ HyperQuote lets takers request competitive quotes directly from professional mak
 
 | | |
 |---|---|
-| **App** | [app.hyperquote.trade](https://app.hyperquote.trade) |
-| **Docs** | [docs.hyperquote.trade](https://docs.hyperquote.trade) |
+| **App** | [app.hyperquote.xyz](https://app.hyperquote.xyz) |
+| **Docs** | [docs.hyperquote.xyz](https://docs.hyperquote.xyz) |
 | **Telegram** | [t.me/hyperquote](https://t.me/hyperquote) |
 | **GitHub** | [github.com/hyperquote-xyz/hyperquote](https://github.com/hyperquote-xyz/hyperquote) |
 

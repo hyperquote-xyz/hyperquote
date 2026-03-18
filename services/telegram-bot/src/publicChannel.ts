@@ -23,7 +23,7 @@ import { formatTokenAmount } from "./tokenMap.js";
 // ---------------------------------------------------------------------------
 
 const NEXTJS_URL = process.env.NEXTJS_URL ?? "http://localhost:3000";
-const APP_URL = process.env.HYPERQUOTE_APP_URL ?? "https://app.hyperquote.trade";
+const APP_URL = process.env.HYPERQUOTE_APP_URL ?? "https://app.hyperquote.xyz";
 const CHANNEL_ID = process.env.TELEGRAM_PUBLIC_CHANNEL_ID ?? "";
 const MIN_NOTIONAL_USD = parseFloat(
   process.env.TELEGRAM_PUBLIC_MIN_NOTIONAL_USD ?? "0"
@@ -378,7 +378,7 @@ function formatPublicChannelMessage(rfq: FeedRfqData): string {
 
   const direction = isExactIn ? "Exact In" : "Exact Out";
   const ttl = fmtTtl(rfq.expiry);
-  const deepLink = `https://app.hyperquote.trade/rfq/${rfq.id}`;
+  const deepLink = `https://app.hyperquote.xyz/rfq/${rfq.id}`;
 
   const lines = [
     `🔔 <b>NEW RFQ</b>`,
@@ -403,7 +403,7 @@ function formatFillMessage(
     ? fmtAmount(rfq.amountIn, rfq.tokenIn)
     : fmtAmount(rfq.amountOut, rfq.tokenOut);
 
-  const deepLink = `https://app.hyperquote.trade/rfq/${rfq.id}`;
+  const deepLink = `https://app.hyperquote.xyz/rfq/${rfq.id}`;
 
   const lines = [
     `✅ <b>RFQ FILLED</b>`,

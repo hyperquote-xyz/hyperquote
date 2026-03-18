@@ -145,7 +145,7 @@ export function Header() {
           {isConnected ? (
             <div className="flex items-center gap-2">
               <a
-                href="https://docs.hyperquote.trade/agents"
+                href="https://docs.hyperquote.xyz/agents"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"

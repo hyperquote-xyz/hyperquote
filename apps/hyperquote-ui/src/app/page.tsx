@@ -64,7 +64,7 @@ export default function HomePage() {
 
             {/* Agent integration callout */}
             <a
-              href="https://docs.hyperquote.trade/agents"
+              href="https://docs.hyperquote.xyz/agents"
               target="_blank"
               rel="noopener noreferrer"
               className="group inline-flex flex-col sm:flex-row items-center gap-2 sm:gap-3 px-5 py-3 rounded-xl border border-border/40 bg-card/30 backdrop-blur-sm hover:border-primary/30 hover:bg-card/50 transition-all duration-200"
