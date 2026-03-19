@@ -48,6 +48,7 @@ import {
 } from "@/types";
 import { DEFAULT_TOKENS, getTokenByAddress } from "@/config/tokens";
 import { resolveSettlementToken, isNativeHype } from "@/lib/native-wrap";
+import { validateLaunchPair, isSameTokenPair } from "@/lib/pairValidation";
 import { useWrapUnwrap } from "@/hooks/useWrapUnwrap";
 import { WrapModal } from "@/components/WrapModal";
 import {
@@ -88,12 +89,8 @@ function clampTTL(seconds: number): number {
 // Token pair helpers
 // ---------------------------------------------------------------------------
 /** True when both tokens resolve to the same settlement address (HYPE ↔ WHYPE = same pair). */
-function isSamePair(a: Token | null, b: Token | null): boolean {
-  if (!a || !b) return false;
-  const addrA = resolveSettlementToken(a).address.toLowerCase();
-  const addrB = resolveSettlementToken(b).address.toLowerCase();
-  return addrA === addrB;
-}
+// Pair validation is centralized in src/lib/pairValidation.ts
+// isSameTokenPair and validateLaunchPair imported above
 
 // ---------------------------------------------------------------------------
 // Address validation helper for private RFQ recipients
@@ -318,7 +315,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
     amountIn: venueAmountIn,
     rfqId: selectedRfqId,
     pollIntervalMs: hasActiveRFQ ? VENUE_POLL_MS : 0,
-    enabled: hasActiveRFQ && !isSamePair(venueTokenIn, venueTokenOut),
+    enabled: hasActiveRFQ && !isSameTokenPair(venueTokenIn, venueTokenOut),
   });
   // Convenience accessors for downstream components
   const hlEstimate = venueResult?.hypercore.ok === true ? venueResult.hypercore.estimate : null;
@@ -450,23 +447,19 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
       walletConnected: !!address,
     });
 
-    if (!tokenIn || !tokenOut) {
+    // Centralized pair validation
+    const pairCheck = validateLaunchPair(tokenIn, tokenOut);
+    if (!pairCheck.valid) {
       toast({
-        title: "Select tokens",
-        description: "Please select both input and output tokens",
+        title: "Invalid pair",
+        description: pairCheck.message ?? "Please select a valid token pair",
         variant: "destructive",
       });
       return;
     }
 
-    if (isSamePair(tokenIn, tokenOut)) {
-      toast({
-        title: "Invalid pair",
-        description: "Input and output tokens must be different",
-        variant: "destructive",
-      });
-      return;
-    }
+    // TypeScript narrowing: validateLaunchPair guarantees both are non-null if valid
+    if (!tokenIn || !tokenOut) return;
 
     const kind =
       mode === "EXACT_IN" ? QuoteKind.EXACT_IN : QuoteKind.EXACT_OUT;
@@ -903,6 +896,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
                   selectedToken={tokenIn}
                   onSelect={setTokenIn}
                   excludeToken={tokenOut}
+                  mode="rfq"
                 />
                 <Input
                   type="text"
@@ -1018,6 +1012,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
                   selectedToken={tokenOut}
                   onSelect={setTokenOut}
                   excludeToken={tokenIn}
+                  mode="rfq"
                 />
                 <Input
                   type="text"
@@ -1228,24 +1223,42 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
               );
             })()}
 
+            {/* Inline pair validation message */}
+            {tokenIn && tokenOut && (() => {
+              const v = validateLaunchPair(tokenIn, tokenOut);
+              if (v.valid || !v.message) return null;
+              return (
+                <div className="flex items-center gap-1.5 text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {v.message}
+                </div>
+              );
+            })()}
+
             {/* Request Button */}
             <Button
               size="lg"
               className="w-full"
               onClick={handleCreateRequest}
-              disabled={!isConnected || (!amountIn && !amountOut)}
+              disabled={
+                !isConnected ||
+                (!amountIn && !amountOut) ||
+                !validateLaunchPair(tokenIn, tokenOut).valid
+              }
             >
               {!isConnected
-                ? "Connect Wallet"
+                ? "Connect wallet"
                 : !tokenIn || !tokenOut
-                  ? "Select Tokens"
-                  : mode === "EXACT_IN" && !amountIn
-                    ? "Enter Amount"
-                    : mode === "EXACT_OUT" && !amountOut
-                      ? "Enter Amount"
-                      : visibility === "private"
-                        ? `Create Private Request${effectiveRecipients.length > 0 ? ` (${effectiveRecipients.length})` : ""}`
-                        : "Request Quote"}
+                  ? "Select tokens"
+                  : isSameTokenPair(tokenIn, tokenOut)
+                    ? "Select two different tokens"
+                    : mode === "EXACT_IN" && !amountIn
+                      ? "Enter amount"
+                      : mode === "EXACT_OUT" && !amountOut
+                        ? "Enter amount"
+                        : visibility === "private"
+                          ? `Create private request${effectiveRecipients.length > 0 ? ` (${effectiveRecipients.length})` : ""}`
+                          : "Request quote"}
             </Button>
           </CardContent>
         </Card>

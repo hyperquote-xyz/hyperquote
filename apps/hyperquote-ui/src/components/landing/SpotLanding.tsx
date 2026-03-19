@@ -17,8 +17,13 @@ import { ReadOnlyFeed } from "@/components/maker/ReadOnlyFeed";
 import { useMakerRelay } from "@/lib/makerRelay";
 
 // ---------------------------------------------------------------------------
-// Supported tokens — curated launch set (local logos in /public/tokens/)
+// Supported tokens — derived from centralized approved token registry
 // ---------------------------------------------------------------------------
+
+import {
+  APPROVED_LAUNCH_ASSETS,
+  APPROVED_STABLE_ASSETS,
+} from "@/config/approvedTokens";
 
 interface LaunchToken {
   symbol: string;
@@ -26,19 +31,15 @@ interface LaunchToken {
   file: string;
 }
 
-const CORE_LAUNCH_TOKENS: LaunchToken[] = [
-  { symbol: "HYPE", file: "HYPE.png" },
-  { symbol: "kHYPE", file: "KHYPE.png" },
-  { symbol: "PURR", file: "PURR.png" },
-  { symbol: "KNTQ", file: "KNTQ.png" },
-  { symbol: "HPL", file: "HPL.png" },
-];
+const CORE_LAUNCH_TOKENS: LaunchToken[] = APPROVED_LAUNCH_ASSETS.map((t) => ({
+  symbol: t.symbol,
+  file: t.localLogo,
+}));
 
-const STABLE_LAUNCH_TOKENS: LaunchToken[] = [
-  { symbol: "USDC", file: "USDC.png" },
-  { symbol: "USD₮0", file: "USDT0.png" },
-  { symbol: "USDH", file: "USDH.png" },
-];
+const STABLE_LAUNCH_TOKENS: LaunchToken[] = APPROVED_STABLE_ASSETS.map((t) => ({
+  symbol: t.symbol,
+  file: t.localLogo,
+}));
 
 function TokenPill({ token }: { token: LaunchToken }) {
   const [failed, setFailed] = useState(false);

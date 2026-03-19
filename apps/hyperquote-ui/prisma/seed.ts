@@ -780,6 +780,210 @@ async function main() {
   }
   console.log(`  → ${TOKENS.length} tokens seeded\n`);
 
+  // ── Dummy FeedFills (drives /league API) ──
+  console.log("📊 Seeding FeedFill records...");
+
+  const WALLETS = {
+    // Makers
+    M1: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045",
+    M2: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+    M3: "0x6b175474e89094c44da98b954eedeac495271d0f",
+    M4: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    M5: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+    // Takers
+    T1: "0xbe0eb53f46cd790cd13851d5eff43d12404d33e8",
+    T2: "0xf977814e90da44bfa03b6295a0616a897441acec",
+    T3: "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",
+    T4: "0x28c6c06298d514db089934071355e5743bf21d60",
+    T5: "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+  };
+
+  const TOKEN_IN = "0xb88339cb7199b77e23db6e890353e22632ba630f"; // USDC
+  const TOKEN_OUT = "0x0000000000000000000000000000000000000000"; // HYPE
+
+  const now = Date.now();
+  const DAY = 86_400_000;
+
+  interface FeedFillSeed {
+    maker: string;
+    taker: string;
+    notionalUsd: number;
+    improvementBps: number;
+    isPrivate: boolean;
+    daysAgo: number;
+  }
+
+  const FEED_FILL_DEFS: FeedFillSeed[] = [
+    // M1 fills — whale maker, consistently good
+    { maker: WALLETS.M1, taker: WALLETS.T1, notionalUsd: 2_500_000, improvementBps: 5, isPrivate: true, daysAgo: 1 },
+    { maker: WALLETS.M1, taker: WALLETS.T2, notionalUsd: 1_800_000, improvementBps: 4, isPrivate: false, daysAgo: 2 },
+    { maker: WALLETS.M1, taker: WALLETS.T3, notionalUsd: 3_200_000, improvementBps: 6, isPrivate: true, daysAgo: 3 },
+    { maker: WALLETS.M1, taker: WALLETS.T4, notionalUsd: 500_000, improvementBps: 3, isPrivate: false, daysAgo: 5 },
+    { maker: WALLETS.M1, taker: WALLETS.T5, notionalUsd: 4_500_000, improvementBps: 5, isPrivate: true, daysAgo: 7 },
+    // M2 fills — high volume, lower improvement
+    { maker: WALLETS.M2, taker: WALLETS.T1, notionalUsd: 1_200_000, improvementBps: 1, isPrivate: false, daysAgo: 1 },
+    { maker: WALLETS.M2, taker: WALLETS.T2, notionalUsd: 2_000_000, improvementBps: 0, isPrivate: false, daysAgo: 2 },
+    { maker: WALLETS.M2, taker: WALLETS.T3, notionalUsd: 800_000, improvementBps: 1, isPrivate: false, daysAgo: 4 },
+    { maker: WALLETS.M2, taker: WALLETS.T5, notionalUsd: 5_000_000, improvementBps: 0, isPrivate: false, daysAgo: 6 },
+    // M3 fills — mid-size, good improvement, private heavy
+    { maker: WALLETS.M3, taker: WALLETS.T1, notionalUsd: 750_000, improvementBps: 3, isPrivate: true, daysAgo: 1 },
+    { maker: WALLETS.M3, taker: WALLETS.T4, notionalUsd: 500_000, improvementBps: 2, isPrivate: true, daysAgo: 3 },
+    { maker: WALLETS.M3, taker: WALLETS.T2, notionalUsd: 1_050_000, improvementBps: 2, isPrivate: false, daysAgo: 5 },
+    // M4 fills — reliable, steady
+    { maker: WALLETS.M4, taker: WALLETS.T3, notionalUsd: 400_000, improvementBps: 3, isPrivate: false, daysAgo: 2 },
+    { maker: WALLETS.M4, taker: WALLETS.T1, notionalUsd: 600_000, improvementBps: 4, isPrivate: true, daysAgo: 4 },
+    { maker: WALLETS.M4, taker: WALLETS.T5, notionalUsd: 800_000, improvementBps: 2, isPrivate: true, daysAgo: 6 },
+    // M5 fills — same as M4 (tie scenario)
+    { maker: WALLETS.M5, taker: WALLETS.T2, notionalUsd: 400_000, improvementBps: 3, isPrivate: false, daysAgo: 2 },
+    { maker: WALLETS.M5, taker: WALLETS.T4, notionalUsd: 600_000, improvementBps: 4, isPrivate: true, daysAgo: 4 },
+    { maker: WALLETS.M5, taker: WALLETS.T3, notionalUsd: 800_000, improvementBps: 2, isPrivate: true, daysAgo: 7 },
+    // Extra fills for taker diversity
+    { maker: WALLETS.M1, taker: WALLETS.T1, notionalUsd: 150_000, improvementBps: 2, isPrivate: false, daysAgo: 10 },
+    { maker: WALLETS.M2, taker: WALLETS.T4, notionalUsd: 75_000, improvementBps: 1, isPrivate: false, daysAgo: 14 },
+    { maker: WALLETS.M3, taker: WALLETS.T5, notionalUsd: 25_000, improvementBps: 5, isPrivate: true, daysAgo: 20 },
+    { maker: WALLETS.M4, taker: WALLETS.T2, notionalUsd: 300_000, improvementBps: 3, isPrivate: false, daysAgo: 25 },
+    { maker: WALLETS.M5, taker: WALLETS.T1, notionalUsd: 1_000_000, improvementBps: 4, isPrivate: true, daysAgo: 28 },
+  ];
+
+  // Delete existing seed data (idempotent re-runs)
+  await prisma.feedFill.deleteMany({});
+  await prisma.fill.deleteMany({});
+  await prisma.feedRfq.deleteMany({});
+
+  for (let i = 0; i < FEED_FILL_DEFS.length; i++) {
+    const d = FEED_FILL_DEFS[i];
+    const idx = (i + 1).toString().padStart(3, "0");
+    const filledAt = new Date(now - d.daysAgo * DAY);
+    const txHash = `0x${idx.repeat(21).slice(0, 64)}`;
+
+    await prisma.feedFill.create({
+      data: {
+        rfqId: `seed-rfq-${idx}`,
+        txHash,
+        filledAt,
+        maker: d.maker,
+        taker: d.taker,
+        tokenIn: TOKEN_IN,
+        tokenOut: TOKEN_OUT,
+        amountIn: (d.notionalUsd * 1e6).toString(),
+        amountOut: ((d.notionalUsd / 25) * 1e18).toString(),
+        notionalUsd: d.notionalUsd,
+        isPrivate: d.isPrivate,
+        benchmarkSource: "sor",
+        benchmarkOut: (((d.notionalUsd / 25) * (1 - d.improvementBps / 10000)) * 1e18).toString(),
+        improvementBps: d.improvementBps,
+        benchmarkAvailable: true,
+      },
+    });
+    console.log(`  ✓ FeedFill ${idx}: ${d.maker.slice(0, 8)}→${d.taker.slice(0, 8)} $${(d.notionalUsd / 1e6).toFixed(2)}M`);
+  }
+  console.log(`  → ${FEED_FILL_DEFS.length} FeedFill records seeded\n`);
+
+  // ── Dummy Fill records (drives /leaderboard/points API) ──
+  console.log("📊 Seeding Fill records...");
+
+  for (let i = 0; i < FEED_FILL_DEFS.length; i++) {
+    const d = FEED_FILL_DEFS[i];
+    const idx = (i + 1).toString().padStart(3, "0");
+    const timestamp = new Date(now - d.daysAgo * DAY);
+    const txHash = `0xf${idx.repeat(21).slice(0, 63)}`;
+
+    // Simple points formula: notional / 100 * (1 + improvementBps/10)
+    const basePoints = (d.notionalUsd / 100) * (1 + d.improvementBps / 10);
+
+    await prisma.fill.create({
+      data: {
+        txHash,
+        rfqId: `seed-rfq-${idx}`,
+        timestamp,
+        taker: d.taker,
+        maker: d.maker,
+        tokenIn: TOKEN_IN,
+        tokenOut: TOKEN_OUT,
+        amountIn: (d.notionalUsd * 1e6).toString(),
+        amountOut: ((d.notionalUsd / 25) * 1e18).toString(),
+        amountInUsd: d.notionalUsd,
+        baselineOut: (((d.notionalUsd / 25) * (1 - d.improvementBps / 10000)) * 1e18).toString(),
+        improvementBps: d.improvementBps,
+        takerPoints: basePoints * 0.4,
+        makerPoints: basePoints * 0.6,
+      },
+    });
+    console.log(`  ✓ Fill ${idx}: $${(d.notionalUsd / 1e6).toFixed(2)}M → maker=${Math.round(basePoints * 0.6)}pts taker=${Math.round(basePoints * 0.4)}pts`);
+  }
+  console.log(`  → ${FEED_FILL_DEFS.length} Fill records seeded\n`);
+
+  // ── Dummy FeedRfq records (drives /feed page + cancel rates) ──
+  console.log("📊 Seeding FeedRfq records...");
+
+  const USDC_TOKEN_JSON = JSON.stringify({ address: TOKEN_IN, symbol: "USDC", decimals: 6 });
+  const HYPE_TOKEN_JSON = JSON.stringify({ address: TOKEN_OUT, symbol: "HYPE", decimals: 18 });
+
+  type RfqStatus = "OPEN" | "QUOTED" | "FILLED" | "EXPIRED" | "KILLED";
+
+  interface FeedRfqSeed {
+    taker: string;
+    status: RfqStatus;
+    amountUsd: number;
+    quoteCount: number;
+    secsAgo: number;
+    ttlSecs: number;
+  }
+
+  const FEED_RFQ_DEFS: FeedRfqSeed[] = [
+    // Open RFQs
+    { taker: WALLETS.T1, status: "OPEN", amountUsd: 250_000, quoteCount: 3, secsAgo: 5, ttlSecs: 45 },
+    { taker: WALLETS.T2, status: "OPEN", amountUsd: 50_000, quoteCount: 1, secsAgo: 12, ttlSecs: 60 },
+    { taker: WALLETS.T3, status: "OPEN", amountUsd: 500_000, quoteCount: 5, secsAgo: 8, ttlSecs: 120 },
+    { taker: WALLETS.T4, status: "OPEN", amountUsd: 100_000, quoteCount: 2, secsAgo: 20, ttlSecs: 90 },
+    { taker: WALLETS.T5, status: "OPEN", amountUsd: 25_000, quoteCount: 0, secsAgo: 3, ttlSecs: 30 },
+    // Quoted
+    { taker: WALLETS.T1, status: "QUOTED", amountUsd: 75_000, quoteCount: 4, secsAgo: 30, ttlSecs: 60 },
+    { taker: WALLETS.T3, status: "QUOTED", amountUsd: 2_500_000, quoteCount: 6, secsAgo: 10, ttlSecs: 120 },
+    // Filled
+    { taker: WALLETS.T1, status: "FILLED", amountUsd: 1_000_000, quoteCount: 7, secsAgo: 60, ttlSecs: 90 },
+    { taker: WALLETS.T2, status: "FILLED", amountUsd: 750_000, quoteCount: 5, secsAgo: 120, ttlSecs: 60 },
+    { taker: WALLETS.T3, status: "FILLED", amountUsd: 5_000_000, quoteCount: 9, secsAgo: 300, ttlSecs: 120 },
+    { taker: WALLETS.T4, status: "FILLED", amountUsd: 500_000, quoteCount: 3, secsAgo: 180, ttlSecs: 90 },
+    { taker: WALLETS.T5, status: "FILLED", amountUsd: 50_000, quoteCount: 4, secsAgo: 900, ttlSecs: 45 },
+    // Expired
+    { taker: WALLETS.T1, status: "EXPIRED", amountUsd: 75_000, quoteCount: 0, secsAgo: 400, ttlSecs: 60 },
+    { taker: WALLETS.T2, status: "EXPIRED", amountUsd: 150_000, quoteCount: 2, secsAgo: 500, ttlSecs: 90 },
+    { taker: WALLETS.T4, status: "EXPIRED", amountUsd: 250_000, quoteCount: 1, secsAgo: 700, ttlSecs: 120 },
+    // Killed (drives cancel rate for taker addresses)
+    { taker: WALLETS.T3, status: "KILLED", amountUsd: 1_000_000, quoteCount: 5, secsAgo: 200, ttlSecs: 90 },
+    { taker: WALLETS.T5, status: "KILLED", amountUsd: 50_000, quoteCount: 1, secsAgo: 150, ttlSecs: 45 },
+  ];
+
+  for (let i = 0; i < FEED_RFQ_DEFS.length; i++) {
+    const d = FEED_RFQ_DEFS[i];
+    const idx = (i + 1).toString().padStart(3, "0");
+    const createdAt = new Date(now - d.secsAgo * 1000);
+    const expiry = Math.floor(now / 1000) + (d.ttlSecs - d.secsAgo);
+    const rawAmount = (d.amountUsd * 1e6).toString();
+
+    await prisma.feedRfq.create({
+      data: {
+        id: `seed-feed-rfq-${idx}`,
+        taker: d.taker,
+        tokenIn: TOKEN_IN,
+        tokenOut: TOKEN_OUT,
+        tokenInJson: USDC_TOKEN_JSON,
+        tokenOutJson: HYPE_TOKEN_JSON,
+        kind: 0,
+        amountIn: rawAmount,
+        expiry,
+        status: d.status,
+        quoteCount: d.quoteCount,
+        visibility: "public",
+        fillTxHash: d.status === "FILLED" ? `0xe${idx.repeat(21).slice(0, 63)}` : null,
+        createdAt,
+      },
+    });
+    console.log(`  ✓ FeedRfq ${idx}: ${d.status.padEnd(7)} $${(d.amountUsd / 1e3).toFixed(0)}K from ${d.taker.slice(0, 8)}`);
+  }
+  console.log(`  → ${FEED_RFQ_DEFS.length} FeedRfq records seeded\n`);
+
   // ── Summary ──
   const protocolCount = await prisma.protocolRegistry.count();
   const connectorCount = await prisma.protocolConnector.count();
@@ -787,11 +991,18 @@ async function main() {
   const poolCount = await prisma.pool.count();
   const ammCount = await prisma.protocolRegistry.count({ where: { kind: "AMM" } });
 
+  const feedFillCount = await prisma.feedFill.count();
+  const fillCount = await prisma.fill.count();
+  const feedRfqCount = await prisma.feedRfq.count();
+
   console.log("📊 Database summary:");
   console.log(`  Protocols:  ${protocolCount} total (${ammCount} AMM, ${protocolCount - ammCount} other)`);
   console.log(`  Connectors: ${connectorCount}`);
   console.log(`  Tokens:     ${tokenCount}`);
   console.log(`  Pools:      ${poolCount} (populated by Phase 3 discovery)`);
+  console.log(`  FeedFills:  ${feedFillCount} (league data)`);
+  console.log(`  Fills:      ${fillCount} (points/leaderboard data)`);
+  console.log(`  FeedRfqs:   ${feedRfqCount} (feed + cancel rates)`);
   console.log("\n✅ Seed complete.");
 }
 

@@ -21,11 +21,18 @@ import {
   cn,
   safeSymbol,
 } from "@/lib/utils";
-import { ArrowDown, Info } from "lucide-react";
+import { ArrowDown, Info, AlertTriangle } from "lucide-react";
+import { TokenBadge } from "./TokenBadge";
+import { computeBps, type BenchmarkData } from "@/hooks/useBenchmark";
+
+/** Stable symbols for tighter deviation thresholds (mirrors USD_STABLES in lib/hyperliquid). */
+const STABLES = new Set(["USDC", "USD₮0", "USDH", "USDT", "USDT0", "DAI", "FEUSD"]);
 
 interface QuoteBuilderProps {
   request: RFQRequest;
   feePips: number;
+  /** On-chain baseline data for BPS comparison. Optional — non-blocking. */
+  benchmark?: BenchmarkData;
   /** Called whenever valid amounts change */
   onAmountsChange: (amounts: {
     amountIn: bigint;
@@ -41,11 +48,11 @@ const EXPIRY_OPTIONS = [
   { value: "120", label: "2 min" },
 ];
 
-export function QuoteBuilder({ request, feePips, onAmountsChange }: QuoteBuilderProps) {
+export function QuoteBuilder({ request, feePips, benchmark, onAmountsChange }: QuoteBuilderProps) {
   const isExactIn = request.kind === QuoteKind.EXACT_IN;
 
-  // Input mode: "price" auto-computes amounts, "direct" enters the floating amount manually
-  const [inputMode, setInputMode] = useState<"price" | "direct">("price");
+  // Input mode: "direct" (Quote by Amount) is default — most makers think in amounts
+  const [inputMode, setInputMode] = useState<"price" | "direct">("direct");
   const [priceStr, setPriceStr] = useState("");
   const [directStr, setDirectStr] = useState("");
   const [expirySec, setExpirySec] = useState("60");
@@ -178,25 +185,30 @@ export function QuoteBuilder({ request, feePips, onAmountsChange }: QuoteBuilder
       )}
 
       {/* Expiry */}
-      <div className="flex items-center gap-3">
-        <Label className="text-xs text-muted-foreground shrink-0">Quote Expiry</Label>
-        <Select value={expirySec} onValueChange={setExpirySec}>
-          <SelectTrigger className="w-[90px] h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {EXPIRY_OPTIONS.filter((o) => parseInt(o.value) <= maxExpiry || parseInt(o.value) === 30).map(
-              (o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              )
-            )}
-          </SelectContent>
-        </Select>
-        {actualExpiry < parseInt(expirySec) && (
-          <span className="text-[10px] text-warning">capped to {actualExpiry}s</span>
-        )}
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <Label className="text-xs text-muted-foreground shrink-0">Quote Expiry</Label>
+          <Select value={expirySec} onValueChange={setExpirySec}>
+            <SelectTrigger className="w-[90px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXPIRY_OPTIONS.filter((o) => parseInt(o.value) <= maxExpiry || parseInt(o.value) === 30).map(
+                (o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                )
+              )}
+            </SelectContent>
+          </Select>
+          {actualExpiry < parseInt(expirySec) && (
+            <span className="text-[10px] text-warning">capped to {actualExpiry}s</span>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground/70">
+          Shorter expiry reduces adverse selection risk
+        </p>
       </div>
 
       {/* ── Preview ── */}
@@ -241,6 +253,20 @@ export function QuoteBuilder({ request, feePips, onAmountsChange }: QuoteBuilder
             </span>
           </div>
 
+          {/* Effective price */}
+          {isExactIn && computed.amountIn > 0n && computed.amountOut > 0n && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground">Effective price</span>
+              <span className="font-mono">
+                {(
+                  (Number(computed.amountOut) / 10 ** request.tokenOut.decimals) /
+                  (Number(computed.amountIn) / 10 ** request.tokenIn.decimals)
+                ).toFixed(6)}{" "}
+                <span className="text-muted-foreground">{safeSymbol(request.tokenOut)}/{safeSymbol(request.tokenIn)}</span>
+              </span>
+            </div>
+          )}
+
           {/* Maker receives/pays */}
           <div className="flex justify-between items-center text-xs">
             <span className="text-muted-foreground">Maker receives (net)</span>
@@ -257,6 +283,45 @@ export function QuoteBuilder({ request, feePips, onAmountsChange }: QuoteBuilder
               {safeSymbol(request.tokenOut)}
             </span>
           </div>
+
+          {/* BPS vs on-chain baseline */}
+          {isExactIn && benchmark?.ammOutput && computed.amountOut > 0n && (() => {
+            try {
+              const baselineOut = BigInt(benchmark.ammOutput!);
+              const bps = computeBps(computed.amountOut, baselineOut);
+              if (bps === null) return null;
+              return (
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-muted-foreground">Your quote vs on-chain</span>
+                  <span className={cn("font-mono font-medium", bps >= 0 ? "text-primary" : "text-warning")}>
+                    {bps >= 0 ? "+" : ""}{bps} bps
+                  </span>
+                </div>
+              );
+            } catch { return null; }
+          })()}
+
+          {/* Price deviation warning — 100 bps for stable/stable, 300 bps otherwise */}
+          {isExactIn && benchmark?.ammOutput && computed.amountOut > 0n && (() => {
+            try {
+              const baselineOut = BigInt(benchmark.ammOutput!);
+              const bps = computeBps(computed.amountOut, baselineOut);
+              if (bps === null) return null;
+              const isStablePair =
+                STABLES.has(safeSymbol(request.tokenIn)) &&
+                STABLES.has(safeSymbol(request.tokenOut));
+              const threshold = isStablePair ? 100 : 300;
+              if (Math.abs(bps) > threshold) {
+                return (
+                  <div className="flex items-center gap-1.5 text-xs text-warning bg-warning/10 rounded px-2 py-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    Quote deviates significantly from market
+                  </div>
+                );
+              }
+              return null;
+            } catch { return null; }
+          })()}
 
           {/* Constraint warning */}
           {!computed.constraintOk && (

@@ -12,19 +12,99 @@ import type { ConnectionStatus } from "@/lib/makerRelay";
 
 const MAX_FEED_SIZE = 50;
 
+export interface FeedFilters {
+  /** Minimum RFQ size in USD. null = no minimum. */
+  minSizeUsd: number | null;
+  /** Token symbols to show. Empty = show all. */
+  tokenWatchlist: string[];
+}
+
 interface ReadOnlyFeedProps {
   requests: RFQRequest[];
   relayStatus: ConnectionStatus;
+  /** Optional local filters (applied client-side only). */
+  filters?: FeedFilters;
+  /** Called when user clicks "Clear" on the active filter summary. */
+  onClearFilters?: () => void;
 }
 
-export function ReadOnlyFeed({ requests, relayStatus }: ReadOnlyFeedProps) {
+/**
+ * Rough USD estimate for a raw token amount.
+ * Uses the fixed token (amountIn for EXACT_IN, amountOut for EXACT_OUT).
+ * Stable tokens (USDC/USDT/USDH etc, 6 dec) → amount / 10^6.
+ * Everything else → null (skip size filter for non-stable).
+ */
+function estimateUsd(request: RFQRequest): number | null {
+  const isExactIn = request.kind === QuoteKind.EXACT_IN;
+  const token = isExactIn ? request.tokenIn : request.tokenOut;
+  const amount = isExactIn ? request.amountIn : request.amountOut;
+  if (!amount) return null;
+
+  const sym = safeSymbol(token).toUpperCase();
+  // Treat stablecoins as 1:1 USD
+  if (["USDC", "USDT", "USDH", "USD₮0", "FEUSD", "FEUSDС"].includes(sym)) {
+    return Number(amount) / 10 ** token.decimals;
+  }
+  // For non-stables we can't estimate without a price feed — skip size filter
+  return null;
+}
+
+export function ReadOnlyFeed({ requests, relayStatus, filters, onClearFilters }: ReadOnlyFeedProps) {
   const visible = useMemo(() => {
     const now = Math.floor(Date.now() / 1000);
+
+    // Normalize watchlist for matching
+    const watchlist = (filters?.tokenWatchlist ?? [])
+      .map((s) => s.toUpperCase())
+      .filter(Boolean);
+    const hasWatchlist = watchlist.length > 0;
+    const minUsd = filters?.minSizeUsd ?? null;
+
     return requests
-      .filter((r) => r.visibility === "public" && r.expiry > now)
+      .filter((r) => {
+        // Base: public + not expired
+        if (r.visibility !== "public" || r.expiry <= now) return false;
+
+        // Token watchlist filter: at least one side must match
+        if (hasWatchlist) {
+          const inSym = safeSymbol(r.tokenIn).toUpperCase();
+          const outSym = safeSymbol(r.tokenOut).toUpperCase();
+          if (!watchlist.includes(inSym) && !watchlist.includes(outSym)) {
+            return false;
+          }
+        }
+
+        // Min size filter (USD estimate for stablecoins only)
+        if (minUsd != null && minUsd > 0) {
+          const usd = estimateUsd(r);
+          // If we can estimate and it's below min, filter out.
+          // If we can't estimate (non-stable), show it (don't hide unknowns).
+          if (usd !== null && usd < minUsd) return false;
+        }
+
+        return true;
+      })
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, MAX_FEED_SIZE);
-  }, [requests]);
+  }, [requests, filters?.minSizeUsd, filters?.tokenWatchlist]);
+
+  // Derive whether any filters are active
+  const hasActiveFilters =
+    (filters?.minSizeUsd != null && filters.minSizeUsd > 0) ||
+    (filters?.tokenWatchlist ?? []).filter(Boolean).length > 0;
+
+  const filterSummary = useMemo(() => {
+    if (!hasActiveFilters) return null;
+    const parts: string[] = [];
+    if (filters?.minSizeUsd != null && filters.minSizeUsd > 0) {
+      parts.push(`≥ $${filters.minSizeUsd.toLocaleString()}`);
+    }
+    const wl = (filters?.tokenWatchlist ?? []).filter(Boolean);
+    if (wl.length > 0) {
+      parts.push(wl.join(", "));
+    }
+    return parts.join(" • ");
+  }, [hasActiveFilters, filters?.minSizeUsd, filters?.tokenWatchlist]);
 
   return (
     <Card>
@@ -38,12 +118,33 @@ export function ReadOnlyFeed({ requests, relayStatus }: ReadOnlyFeedProps) {
         </div>
       </CardHeader>
       <CardContent>
+        {/* Active filter summary bar */}
+        {filterSummary && (
+          <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/15 text-xs">
+            <span className="text-muted-foreground">
+              Filtering:{" "}
+              <span className="text-foreground font-medium">{filterSummary}</span>
+            </span>
+            {onClearFilters && (
+              <button
+                type="button"
+                onClick={onClearFilters}
+                className="text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {visible.length > 0 ? (
           <div className="space-y-2">
             {visible.map((r) => (
               <ReadOnlyRow key={r.id} request={r} />
             ))}
           </div>
+        ) : hasActiveFilters ? (
+          <FilteredEmptyState onClear={onClearFilters} />
         ) : (
           <EmptyState relayStatus={relayStatus} />
         )}
@@ -206,7 +307,34 @@ function ReadOnlyRow({ request }: { request: RFQRequest }) {
 }
 
 // ---------------------------------------------------------------------------
-// Empty state
+// Empty state — filters active but no matches
+// ---------------------------------------------------------------------------
+
+function FilteredEmptyState({ onClear }: { onClear?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <Inbox className="h-10 w-10 text-muted-foreground/40 mb-3" />
+      <p className="text-sm text-muted-foreground font-medium">
+        No RFQs match your current filters
+      </p>
+      <p className="text-xs text-muted-foreground/60 mt-1">
+        Try adjusting or clearing your filters
+      </p>
+      {onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="mt-3 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+        >
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty state — no filters, no data
 // ---------------------------------------------------------------------------
 
 function EmptyState({ relayStatus }: { relayStatus: ConnectionStatus }) {

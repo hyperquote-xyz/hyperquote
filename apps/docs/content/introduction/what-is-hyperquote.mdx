@@ -67,6 +67,55 @@ HyperQuote operates an off-chain relay that broadcasts trade requests to a netwo
 
 The core product is **Spot RFQ** — swap any supported ERC-20 token pair on HyperEVM with competitive quotes from multiple makers, settled atomically in a single transaction.
 
+## Complete Trade Example
+
+This example demonstrates the full lifecycle of a trade executed through HyperQuote.
+
+**Trader wants to swap:** 50,000 USDC → HYPE
+
+### 1. Trader submits RFQ
+
+```json
+{
+  "kind": "EXACT_IN",
+  "taker": "0xTakerAddress",
+  "tokenIn": "USDC",
+  "tokenOut": "HYPE",
+  "amountIn": "50000000000",
+  "expiry": 1710000000
+}
+```
+
+### 2. Makers return signed quotes
+
+Example responses:
+
+- **Maker A** → 420.1 HYPE
+- **Maker B** → 421.3 HYPE
+- **Maker C** → 418.7 HYPE
+
+### 3. Trader selects best quote
+
+Maker B provides the best execution and the trader selects this quote.
+
+### 4. On-chain settlement
+
+The taker submits the transaction to the HyperQuote RFQ contract:
+
+```solidity
+HyperEvmRfq.fillExactIn(
+  quote,
+  makerSignature,
+  minOut
+)
+```
+
+### 5. Final balances
+
+- **Trader receives:** 421.3 HYPE
+- **Maker receives:** 50,000 USDC
+- **Protocol fee:** 2.5 bps
+
 ## RFQ vs AMM vs CLOB
 
 Traditional DeFi liquidity comes from two models, each with fundamental trade-offs:

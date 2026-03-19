@@ -2,9 +2,10 @@
 
 import { useState, useCallback, memo } from "react";
 import { cn } from "@/lib/utils";
+import { APPROVED_LAUNCH_ASSETS } from "@/config/approvedTokens";
 
 // ---------------------------------------------------------------------------
-// Token filter definitions — matches homepage CORE_LAUNCH_TOKENS
+// Token filter definitions — derived from approved token registry
 // ---------------------------------------------------------------------------
 
 export interface FilterToken {
@@ -16,13 +17,19 @@ export interface FilterToken {
   matchSymbols: string[];
 }
 
-export const FILTER_TOKENS: FilterToken[] = [
-  { symbol: "HYPE", file: "HYPE.png", matchSymbols: ["HYPE", "WHYPE"] },
-  { symbol: "kHYPE", file: "KHYPE.png", matchSymbols: ["KHYPE", "kHYPE"] },
-  { symbol: "PURR", file: "PURR.png", matchSymbols: ["PURR"] },
-  { symbol: "KNTQ", file: "KNTQ.png", matchSymbols: ["KNTQ"] },
-  { symbol: "HPL", file: "HPL.png", matchSymbols: ["HPL"] },
-];
+/** Build match symbols for a given approved token symbol. */
+function matchSymbolsFor(symbol: string): string[] {
+  const upper = symbol.toUpperCase();
+  if (upper === "HYPE") return ["HYPE", "WHYPE"];
+  if (upper === "KHYPE" || symbol === "kHYPE") return ["KHYPE", "kHYPE"];
+  return [symbol];
+}
+
+export const FILTER_TOKENS: FilterToken[] = APPROVED_LAUNCH_ASSETS.map((t) => ({
+  symbol: t.symbol,
+  file: t.localLogo,
+  matchSymbols: matchSymbolsFor(t.symbol),
+}));
 
 /** All symbols for the default "all selected" state */
 export const ALL_FILTER_SYMBOLS = new Set(FILTER_TOKENS.map((t) => t.symbol));

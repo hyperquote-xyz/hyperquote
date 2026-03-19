@@ -13,8 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { QuoteBuilder } from "./QuoteBuilder";
+import { TokenBadge } from "./TokenBadge";
 import { useQuoteExpiry } from "@/hooks/useCountdown";
 import { useMakerRFQ } from "@/hooks/useRFQ";
+import { useBenchmark } from "@/hooks/useBenchmark";
 import { QuoteKind, RFQRequest, RFQQuote, quoteToJSON } from "@/types";
 import { formatAmount, formatAddress, cn, safeSymbol } from "@/lib/utils";
 import { TakerBadge } from "@/components/TakerBadge";
@@ -29,7 +31,12 @@ import {
   Send,
   Wallet,
   Loader2,
+  ExternalLink,
+  BarChart3,
 } from "lucide-react";
+
+const EXPLORER_URL =
+  process.env.NEXT_PUBLIC_BLOCK_EXPLORER_URL ?? "https://explorer.hyperevm.io";
 
 type QuoteStatus = "idle" | "signing" | "signed" | "sending" | "sent" | "error";
 
@@ -65,6 +72,7 @@ export function ResponseDrawer({
   }>({ amountIn: 0n, amountOut: 0n, quoteExpiry: 0, isValid: false });
 
   const { formattedTime, isExpired, isUrgent } = useQuoteExpiry(request?.expiry);
+  const benchmark = useBenchmark(open ? request : null);
 
   // Reset on open/close
   const handleOpenChange = (val: boolean) => {
@@ -145,18 +153,38 @@ export function ResponseDrawer({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            Respond to RFQ
-            <Badge
-              variant={request.visibility === "public" ? "default" : "secondary"}
-              className="text-[10px] px-1.5 py-0 gap-1"
-            >
-              {request.visibility === "public" ? (
-                <><Globe className="h-2.5 w-2.5" /> Public</>
-              ) : (
-                <><Lock className="h-2.5 w-2.5" /> Private</>
+          <DialogTitle className="text-base">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                variant={request.visibility === "public" ? "default" : "secondary"}
+                className="text-[10px] px-1.5 py-0 gap-1"
+              >
+                {request.visibility === "public" ? (
+                  <><Globe className="h-2.5 w-2.5" /> Public RFQ</>
+                ) : (
+                  <><Lock className="h-2.5 w-2.5" /> Private RFQ</>
+                )}
+              </Badge>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {isExactIn ? "Exact In" : "Exact Out"}
+              </Badge>
+            </div>
+            {/* Size summary */}
+            <div className="flex items-center gap-2 mt-2 text-sm font-normal">
+              <TokenBadge token={request.tokenIn} size="sm" />
+              {request.amountIn && (
+                <span className="font-mono text-xs">
+                  {formatAmount(request.amountIn, request.tokenIn.decimals, 4)}
+                </span>
               )}
-            </Badge>
+              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <TokenBadge token={request.tokenOut} size="sm" />
+              {request.amountOut && (
+                <span className="font-mono text-xs">
+                  {formatAmount(request.amountOut, request.tokenOut.decimals, 4)}
+                </span>
+              )}
+            </div>
           </DialogTitle>
           <DialogDescription>
             Sign an off-chain quote. The taker executes the fill on-chain.
@@ -166,11 +194,20 @@ export function ResponseDrawer({
         <div className="space-y-5 pt-2">
           {/* ── Section A: Request Summary ── */}
           <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3">
-            {/* ID + TTL */}
+            {/* ID (copyable) + TTL */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-muted-foreground">
+              <button
+                type="button"
+                title={request.id}
+                onClick={() => {
+                  navigator.clipboard.writeText(request.id);
+                  toast({ title: "Copied", description: "RFQ ID copied" });
+                }}
+                className="text-xs font-mono text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+              >
                 {request.id.slice(0, 12)}…
-              </span>
+                <Copy className="h-2.5 w-2.5" />
+              </button>
               <div
                 className={cn(
                   "flex items-center gap-1.5 text-sm font-mono",
@@ -182,17 +219,20 @@ export function ResponseDrawer({
               </div>
             </div>
 
-            {/* Trade */}
+            {/* Trade — with token badges */}
             <div className="flex items-center gap-3">
               <div>
                 <div className="text-[10px] text-muted-foreground uppercase">
                   {isExactIn ? "Pays (Fixed)" : "Pays"}
                 </div>
-                <div className="font-mono text-sm font-medium">
-                  {request.amountIn
-                    ? formatAmount(request.amountIn, request.tokenIn.decimals, 4)
-                    : "?"}{" "}
-                  {safeSymbol(request.tokenIn)}
+                <div className="flex items-center gap-1.5">
+                  <TokenBadge token={request.tokenIn} size="sm" showSymbol={false} />
+                  <span className="font-mono text-sm font-medium">
+                    {request.amountIn
+                      ? formatAmount(request.amountIn, request.tokenIn.decimals, 4)
+                      : "?"}{" "}
+                    {safeSymbol(request.tokenIn)}
+                  </span>
                 </div>
               </div>
               <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -200,22 +240,34 @@ export function ResponseDrawer({
                 <div className="text-[10px] text-muted-foreground uppercase">
                   {isExactIn ? "Receives" : "Receives (Fixed)"}
                 </div>
-                <div className="font-mono text-sm font-medium">
-                  {request.amountOut
-                    ? formatAmount(request.amountOut, request.tokenOut.decimals, 4)
-                    : "?"}{" "}
-                  {safeSymbol(request.tokenOut)}
+                <div className="flex items-center gap-1.5">
+                  <TokenBadge token={request.tokenOut} size="sm" showSymbol={false} />
+                  <span className="font-mono text-sm font-medium">
+                    {request.amountOut
+                      ? formatAmount(request.amountOut, request.tokenOut.decimals, 4)
+                      : "?"}{" "}
+                    {safeSymbol(request.tokenOut)}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Taker + Mode */}
+            {/* Taker — with explorer link */}
             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-              <span>Taker: <span className="font-mono">{formatAddress(request.taker, 6)}</span></span>
+              <span className="inline-flex items-center gap-1">
+                Taker:{" "}
+                <a
+                  href={`${EXPLORER_URL}/address/${request.taker}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={request.taker}
+                  className="font-mono hover:text-foreground transition-colors inline-flex items-center gap-0.5"
+                >
+                  {formatAddress(request.taker, 6)}
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              </span>
               <TakerBadge address={request.taker} />
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                {isExactIn ? "Exact In" : "Exact Out"}
-              </Badge>
             </div>
 
             {/* Expiry warning */}
@@ -233,11 +285,62 @@ export function ResponseDrawer({
             )}
           </div>
 
+          {/* ── Section A2: Market Benchmark Panel ── */}
+          {!isExpired && (
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <BarChart3 className="h-3 w-3" />
+                On-chain Baseline
+              </div>
+              {benchmark.loading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Fetching on-chain baseline…
+                </div>
+              ) : benchmark.ammOutput ? (
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Best on-chain route</span>
+                    <span className="font-mono">
+                      {(() => {
+                        try {
+                          return formatAmount(BigInt(benchmark.ammOutput!), request.tokenOut.decimals, 4);
+                        } catch { return benchmark.ammOutput; }
+                      })()}{" "}
+                      {safeSymbol(request.tokenOut)}
+                    </span>
+                  </div>
+                  {benchmark.ammPrice != null && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Eff. price</span>
+                      <span className="font-mono">{benchmark.ammPrice.toFixed(6)}</span>
+                    </div>
+                  )}
+                  {benchmark.ammImpactBps != null && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Price impact</span>
+                      <span className="font-mono">{benchmark.ammImpactBps} bps</span>
+                    </div>
+                  )}
+                </div>
+              ) : benchmark.error ? (
+                <p className="text-xs text-muted-foreground/60 py-1">
+                  On-chain baseline unavailable — quote without reference
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground/60 py-1">
+                  No on-chain route data for this pair
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ── Section B: Quote Builder ── */}
           {!isExpired && quoteStatus === "idle" && (
             <QuoteBuilder
               request={request}
               feePips={feePips}
+              benchmark={benchmark}
               onAmountsChange={setAmounts}
             />
           )}

@@ -7,3 +7,4 @@ export { ImportPrivateRFQ } from "./ImportPrivateRFQ";
 export { MyQuotes } from "./MyQuotes";
 export { MakerSettings } from "./MakerSettings";
 export { AlertPreferencesCard } from "./AlertPreferencesCard";
+export { TokenBadge } from "./TokenBadge";

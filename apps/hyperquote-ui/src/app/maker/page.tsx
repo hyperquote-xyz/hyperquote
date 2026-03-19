@@ -206,10 +206,10 @@ function MakerStatsCard({ address }: { address: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Preferences sidebar card
+// Feed Filters sidebar card (auto-saved to localStorage)
 // ---------------------------------------------------------------------------
 
-function PreferencesCard() {
+function FeedFiltersCard() {
   const { prefs, updatePrefs, loaded } = useMakerPreferences();
   const [watchlistInput, setWatchlistInput] = useState("");
 
@@ -227,14 +227,17 @@ function PreferencesCard() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Settings className="h-4 w-4 text-muted-foreground" />
-          Preferences
+          My Feed Filters
         </CardTitle>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Applies only to your view of the live RFQ feed (saved in this browser)
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Min RFQ Size */}
         <div className="space-y-1.5">
           <Label htmlFor="min-size" className="text-xs text-muted-foreground">
-            Min RFQ Size (USD)
+            Min Size (USD, stable pairs only)
           </Label>
           <Input
             id="min-size"
@@ -248,6 +251,9 @@ function PreferencesCard() {
               })
             }
           />
+          <p className="text-[11px] text-muted-foreground">
+            Applies only to RFQs with stablecoin-denominated size
+          </p>
         </div>
 
         {/* Token Watchlist */}
@@ -257,37 +263,36 @@ function PreferencesCard() {
           </Label>
           <Input
             id="watchlist"
-            placeholder="e.g. HYPE, USDC, WHYPE"
+            placeholder="e.g. HYPE, USDC, PURR"
             className="h-9 text-sm"
             value={watchlistInput}
             onChange={(e) => {
-              setWatchlistInput(e.target.value);
-              const tokens = e.target.value
-                .split(",")
-                .map((s) => s.trim().toUpperCase())
-                .filter(Boolean);
+              const raw = e.target.value;
+              setWatchlistInput(raw);
+              // Parse: split on commas or spaces, trim, uppercase, deduplicate
+              const tokens = [
+                ...new Set(
+                  raw
+                    .split(/[,\s]+/)
+                    .map((s) => s.trim().toUpperCase())
+                    .filter(Boolean)
+                ),
+              ];
               updatePrefs({ tokenWatchlist: tokens });
             }}
           />
           <p className="text-[11px] text-muted-foreground">
-            Comma-separated symbols to highlight
+            Only show RFQs involving these tokens. Leave empty to show all.
           </p>
         </div>
 
-        {/* Alert Preferences */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">
-              Alerts
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Bell className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="text-xs text-muted-foreground">
-              Configure alert preferences in the{" "}
-              <span className="text-foreground font-medium">Alerts</span> tab.
-            </span>
-          </div>
+        {/* Alert Preferences pointer */}
+        <div className="flex items-center gap-2 pt-1 border-t border-border/30">
+          <Bell className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-[11px] text-muted-foreground">
+            Alert preferences are configured in the{" "}
+            <span className="text-foreground font-medium">Alerts</span> tab
+          </span>
         </div>
       </CardContent>
     </Card>
@@ -331,6 +336,7 @@ function PrivateRfqCallout() {
 
 export default function MakerPage() {
   const { address, isConnected } = useAccount();
+  const { prefs, updatePrefs, loaded: prefsLoaded } = useMakerPreferences();
   const { status, liveRequests } = useMakerRelay({
     enabled: RELAY_ENABLED,
     chainId: CHAIN_ID,
@@ -338,6 +344,11 @@ export default function MakerPage() {
   });
 
   const relayConnected = status === "connected";
+
+  // Build filters from localStorage prefs (only when loaded)
+  const feedFilters = prefsLoaded
+    ? { minSizeUsd: prefs.minSizeUsd, tokenWatchlist: prefs.tokenWatchlist }
+    : undefined;
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12 space-y-8">
@@ -387,13 +398,18 @@ export default function MakerPage() {
 
         {/* Right — Preferences + Private RFQ Callout (1/3) */}
         <div className="space-y-6">
-          <PreferencesCard />
+          <FeedFiltersCard />
           <PrivateRfqCallout />
         </div>
       </div>
 
       {/* ── D) ReadOnlyFeed (full width) ─────────────────────────────────── */}
-      <ReadOnlyFeed requests={liveRequests} relayStatus={status} />
+      <ReadOnlyFeed
+        requests={liveRequests}
+        relayStatus={status}
+        filters={feedFilters}
+        onClearFilters={() => updatePrefs({ minSizeUsd: null, tokenWatchlist: [] })}
+      />
 
       {/* ── E) Points explainer ──────────────────────────────────────────── */}
       <div className="text-center">

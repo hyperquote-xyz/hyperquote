@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import { Token } from "@/types";
 import { toast } from "@/components/ui/use-toast";
 import { ALL_TOKENS, DEFAULT_TOKENS } from "@/config/tokens";
+import { APPROVED_TOKENS, isApprovedToken, APPROVED_STABLE_SYMBOLS } from "@/config/approvedTokens";
 import { getContractStatus, ContractStatus } from "@/lib/explorer";
 import {
   Dialog,
@@ -79,6 +80,11 @@ interface TokenSelectorProps {
   onSelect: (token: Token) => void;
   excludeToken?: Token | null;
   label?: string;
+  /**
+   * "rfq" — Only show approved launch tokens (no custom, no unverified toggle).
+   * "full" (default) — Show full token universe with unverified toggle + custom address.
+   */
+  mode?: "rfq" | "full";
 }
 
 export function TokenSelector({
@@ -86,7 +92,9 @@ export function TokenSelector({
   onSelect,
   excludeToken,
   label = "Select token",
+  mode = "full",
 }: TokenSelectorProps) {
+  const isRfqMode = mode === "rfq";
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [customAddress, setCustomAddress] = useState("");
@@ -142,22 +150,33 @@ export function TokenSelector({
     }
   };
 
-  const sourceTokens = showUnverified ? ALL_TOKENS : DEFAULT_TOKENS;
+  const sourceTokens = isRfqMode
+    ? (APPROVED_TOKENS as Token[])
+    : showUnverified ? ALL_TOKENS : DEFAULT_TOKENS;
 
-  const filteredTokens = sourceTokens.filter((token) => {
-    if (
-      excludeToken &&
-      token.address.toLowerCase() === excludeToken.address.toLowerCase()
-    ) {
-      return false;
-    }
-    if (!search) return true;
-    return (
-      token.symbol.toLowerCase().includes(search.toLowerCase()) ||
-      token.name.toLowerCase().includes(search.toLowerCase()) ||
-      token.address.toLowerCase().includes(search.toLowerCase())
-    );
-  });
+  /** Is this the excluded (already-selected opposite) token? */
+  const isExcluded = (token: Token) =>
+    !!excludeToken && token.address.toLowerCase() === excludeToken.address.toLowerCase();
+
+  const filteredTokens = sourceTokens
+    .filter((token) => {
+      // In RFQ mode: keep excluded token in list (shown as disabled).
+      // In full mode: hide it entirely (original behavior).
+      if (isExcluded(token) && !isRfqMode) return false;
+      if (!search) return true;
+      return (
+        token.symbol.toLowerCase().includes(search.toLowerCase()) ||
+        token.name.toLowerCase().includes(search.toLowerCase()) ||
+        token.address.toLowerCase().includes(search.toLowerCase())
+      );
+    })
+    // In RFQ mode, sort stables first for guided pair selection
+    .sort((a, b) => {
+      if (!isRfqMode) return 0;
+      const aStable = APPROVED_STABLE_SYMBOLS.has(a.symbol.toUpperCase()) ? 0 : 1;
+      const bStable = APPROVED_STABLE_SYMBOLS.has(b.symbol.toUpperCase()) ? 0 : 1;
+      return aStable - bStable;
+    });
 
   const isVerified = (t: any) => Boolean(t?.verified) && t?.tier !== "unverified";
   const isUnverified = (t: any) => t?.tier === "unverified" || t?.verified === false;
@@ -223,8 +242,8 @@ export function TokenSelector({
             />
           </div>
 
-          {/* Visibility toggle for token universe */}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2">
+          {/* Visibility toggle for token universe — hidden in RFQ mode */}
+          {!isRfqMode && <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2">
             <div className="min-w-0">
               <div className="text-sm font-medium">Show unverified tokens</div>
               <div className="text-xs text-muted-foreground">
@@ -240,14 +259,18 @@ export function TokenSelector({
               />
               <span className="text-sm">Enable</span>
             </label>
-          </div>
+          </div>}
 
           {/* Token List */}
           <div className="max-h-[300px] overflow-y-auto space-y-1">
-            {filteredTokens.map((token) => (
+            {filteredTokens.map((token) => {
+              const excluded = isRfqMode && isExcluded(token);
+              return (
               <button
                 key={`${token.address.toLowerCase()}-${(token.symbol ?? "").toLowerCase()}`}
+                disabled={excluded}
                 onClick={() => {
+                  if (excluded) return;
                   // Warn, but still allow selection.
                   if (isUnverified(token)) {
                     toast({
@@ -262,7 +285,10 @@ export function TokenSelector({
                   setOpen(false);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors text-left",
+                  "w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left",
+                  excluded
+                    ? "opacity-40 cursor-not-allowed"
+                    : "hover:bg-muted/50",
                   selectedToken?.address === token.address && "bg-muted"
                 )}
               >
@@ -273,14 +299,17 @@ export function TokenSelector({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <div className="font-medium">{safeSymbol(token)}</div>
-                    {token.isNative && (
+                    {excluded && (
+                      <Badge variant="outline" className="h-5 px-2 text-[10px] text-muted-foreground">Already selected</Badge>
+                    )}
+                    {!excluded && token.isNative && (
                       <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Native</Badge>
                     )}
-                    {isVerified(token) ? (
+                    {!excluded && (isVerified(token) ? (
                       <Badge variant="secondary" className="h-5 px-2 text-xs">Verified</Badge>
                     ) : (
                       <Badge variant="destructive" className="h-5 px-2 text-xs">Unverified</Badge>
-                    )}
+                    ))}
                   </div>
                   <div className="text-sm text-muted-foreground truncate">{safeName(token)}</div>
 
@@ -390,27 +419,35 @@ export function TokenSelector({
                   </div>
                 </div>
               </button>
-            ))}
+              );
+            })}
 
             {filteredTokens.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <p className="mb-4">No tokens found</p>
-                {/* Custom address input */}
-                <div className="space-y-2">
-                  <Input
-                    placeholder="Paste token address (0x...)"
-                    value={customAddress}
-                    onChange={(e) => setCustomAddress(e.target.value)}
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleCustomToken}
-                    disabled={!customAddress || customAddress.length !== 42}
-                    className="w-full"
-                  >
-                    Add Custom Token
-                  </Button>
-                </div>
+                {/* Custom address input — disabled in RFQ mode */}
+                {!isRfqMode && (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Paste token address (0x...)"
+                      value={customAddress}
+                      onChange={(e) => setCustomAddress(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleCustomToken}
+                      disabled={!customAddress || customAddress.length !== 42}
+                      className="w-full"
+                    >
+                      Add Custom Token
+                    </Button>
+                  </div>
+                )}
+                {isRfqMode && (
+                  <p className="text-xs text-muted-foreground/60">
+                    Only approved launch tokens can be used for RFQ creation.
+                  </p>
+                )}
               </div>
             )}
           </div>

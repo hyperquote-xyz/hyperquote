@@ -28,8 +28,10 @@ import {
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
-// Token definitions — matches the 5 launch tokens
+// Token definitions — derived from approved token registry
 // ---------------------------------------------------------------------------
+
+import { APPROVED_LAUNCH_ASSETS } from "@/config/approvedTokens";
 
 interface AlertToken {
   symbol: string;
@@ -39,35 +41,15 @@ interface AlertToken {
   address: string;
 }
 
-/** Launch tokens for alert filtering. Addresses must be lowercase. */
-const ALERT_TOKENS: AlertToken[] = [
-  {
-    symbol: "HYPE",
-    iconFile: "HYPE.png",
-    // Native HYPE resolves to WHYPE on HyperEVM
-    address: "0x5555555555555555555555555555555555555555",
-  },
-  {
-    symbol: "kHYPE",
-    iconFile: "KHYPE.png",
-    address: "0xfd739d4e423301ce9385c1fb8850539d657c296d",
-  },
-  {
-    symbol: "PURR",
-    iconFile: "PURR.png",
-    address: "0x9b498c3c8a0b8cd8ba1d9851d40d186f1872b44e",
-  },
-  {
-    symbol: "KNTQ",
-    iconFile: "KNTQ.png",
-    address: "0x000000000000780555bd0bca3791f89f9542c2d6",
-  },
-  {
-    symbol: "HPL",
-    iconFile: "HPL.png",
-    address: "0xbd6dab50f03a305a80037294fa8d1a9dc0cac91b",
-  },
-];
+/** Launch tokens for alert filtering, derived from approved token registry. */
+const ALERT_TOKENS: AlertToken[] = APPROVED_LAUNCH_ASSETS.map((t) => ({
+  symbol: t.symbol,
+  iconFile: t.localLogo,
+  // For native HYPE, alerts track the wrapped address
+  address: t.symbol === "HYPE"
+    ? "0x5555555555555555555555555555555555555555"
+    : t.address.toLowerCase(),
+}));
 
 // ---------------------------------------------------------------------------
 // Min notional USD options
