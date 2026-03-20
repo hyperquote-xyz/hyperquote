@@ -49,7 +49,7 @@ const CRITICAL = [
   },
   {
     name: "NEXT_PUBLIC_APP_URL",
-    help: "Public app URL (e.g. https://app.hyperquote.io)",
+    help: "Public app URL (e.g. https://hyperquote.xyz)",
     validate: (v) => isUrl(v) && isNotLocalhost(v),
     validationMsg: "Must be a non-localhost https URL",
     prodOnly: true,

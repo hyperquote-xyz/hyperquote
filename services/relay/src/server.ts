@@ -91,7 +91,7 @@ const RFQ_TTL_SECS = parseInt(process.env.RFQ_TTL_SECS ?? "60");
 const RATE_LIMIT_PER_MINUTE = parseInt(process.env.RATE_LIMIT_PER_MIN ?? "30");
 
 /**
- * CORS allowed origins. Comma-separated list of origins (e.g. "https://app.hyperquote.io,https://staging.hyperquote.io").
+ * CORS allowed origins. Comma-separated list of origins (e.g. "https://hyperquote.xyz,https://staging.hyperquote.xyz").
  * Defaults to "*" in development; MUST be set explicitly in production.
  */
 const CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS ?? "*";

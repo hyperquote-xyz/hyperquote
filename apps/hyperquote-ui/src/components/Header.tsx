@@ -4,11 +4,77 @@ import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } fro
 import { Button } from "@/components/ui/button";
 import { formatAddress } from "@/lib/utils";
 import { hyperEVM } from "@/config/chains";
-import { Wallet, LogOut, AlertTriangle, ArrowDownUp, Bell } from "lucide-react";
+import { Wallet, LogOut, AlertTriangle, ArrowDownUp, Bell, Download } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { WrapModal } from "@/components/WrapModal";
 import { HyperQuoteLogo } from "@/components/HyperQuoteLogo";
+
+// ---------------------------------------------------------------------------
+// No-wallet fallback — shown when no injected wallet is detected
+// ---------------------------------------------------------------------------
+
+const WALLET_LINKS = [
+  {
+    name: "MetaMask",
+    url: "https://metamask.io/download/",
+    description: "Most popular EVM wallet",
+  },
+  {
+    name: "Rabby",
+    url: "https://rabby.io/",
+    description: "Multi-chain DeFi wallet",
+  },
+];
+
+function NoWalletDropdown() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Button
+        variant="outline"
+        className="gap-2"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Download className="h-4 w-4" />
+        Install Wallet
+      </Button>
+
+      {open && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+          />
+          {/* Dropdown */}
+          <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-lg border border-border/50 bg-background shadow-lg p-3 space-y-2">
+            <p className="text-xs text-muted-foreground px-1">
+              No wallet detected. Install one to get started:
+            </p>
+            {WALLET_LINKS.map((w) => (
+              <a
+                key={w.name}
+                href={w.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between gap-3 rounded-md px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                onClick={() => setOpen(false)}
+              >
+                <div>
+                  <div className="text-sm font-medium">{w.name}</div>
+                  <div className="text-xs text-muted-foreground">{w.description}</div>
+                </div>
+                <span className="text-xs text-primary shrink-0">Install →</span>
+              </a>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function Header() {
   const { address, isConnected } = useAccount();
@@ -172,21 +238,20 @@ export function Header() {
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
-          ) : (
+          ) : bestConnector ? (
             <Button
               onClick={() => {
                 reset();
-                if (bestConnector) {
-                  connect({ connector: bestConnector });
-                }
+                connect({ connector: bestConnector });
               }}
-              disabled={!bestConnector}
               loading={isPending}
               className="gap-2"
             >
               <Wallet className="h-4 w-4" />
               Connect Wallet
             </Button>
+          ) : (
+            <NoWalletDropdown />
           )}
         </div>
       </div>

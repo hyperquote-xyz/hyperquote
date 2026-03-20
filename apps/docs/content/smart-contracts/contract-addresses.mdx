@@ -19,7 +19,7 @@ All HyperQuote contracts are deployed on HyperEVM mainnet (chain ID 999). This p
 
 | Contract | Address | Description |
 |----------|---------|-------------|
-| **SpotRFQ** | TBD | Atomic spot token swap settlement — verifies EIP-712 signatures, enforces nonces, executes bilateral token transfers |
+| **SpotRFQ** | [`0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017`](https://hyperscan.xyz/address/0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017) | Atomic spot token swap settlement — verifies EIP-712 signatures, enforces nonces, executes bilateral token transfers |
 
 <Callout type="warning">
 Always verify contract addresses against this page or the HyperQuote app before interacting with them. Do not trust addresses from unofficial sources.
@@ -67,11 +67,15 @@ const domain = {
   name: "HyperQuote",
   version: "1",
   chainId: 999,
-  verifyingContract: SPOT_RFQ_CONTRACT_ADDRESS,
+  verifyingContract: "0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017",
 };
 ```
 
 The `verifyingContract` field must match the deployed SpotRFQ address listed above. Signatures constructed with a mismatched domain will be rejected by the contract.
+
+**Domain Separator:** `0xd725f898dc80270b9e3ec3c9f91c0a842b94a1f5dc89f9d96630d2f093769450`
+
+**Deployment Tx:** [`0xae991aa...`](https://hyperscan.xyz/tx/0xae991aa21b6e38d944e6b381b374c161bd3c8ddbb90c0ff88b3b5ced0ab561dd) (block 30220144)
 
 ## Adding the Network to Your Wallet
 
@@ -91,7 +95,7 @@ For local development with Foundry, the default contract address used by the Hyp
 0x5FbDB2315678afecb367f032d93F642f64180aa3
 ```
 
-This is the standard first-deployed address on a fresh Anvil instance. Set it via the `NEXT_PUBLIC_RFQ_CONTRACT_ADDRESS` environment variable.
+This is the standard first-deployed address on a fresh Anvil instance. Set it via the `NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS` environment variable. For mainnet, use `0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017`.
 
 ## Edge Cases
 
