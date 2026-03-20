@@ -520,7 +520,9 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
       }
     }
 
-    // ── Server-side limit check ──
+    // ── Server-side limit check + registration ──
+    // Generate the canonical RFQ ID here so both server and client use the same value.
+    const rfqId = crypto.randomUUID();
     const expiryTs = Math.floor(Date.now() / 1000) + resolvedTtl;
     const walletAddr = address ?? "0x0000000000000000000000000000000000000000";
     try {
@@ -532,7 +534,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
           visibility,
           expiry: expiryTs,
           rfqData: {
-            id: crypto.randomUUID(), // placeholder — real id assigned by createRequest
+            id: rfqId,
             kind,
             taker: walletAddr,
             tokenIn: settlementTokenIn,
@@ -571,6 +573,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
 
     console.log("[HyperQuote] Calling createRequest...", { address, walletConnected: !!address });
     const request = createRequest({
+      id: rfqId, // Use the same ID registered with the server
       kind,
       tokenIn: settlementTokenIn,
       tokenOut: settlementTokenOut,

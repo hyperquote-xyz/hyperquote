@@ -42,6 +42,82 @@ export interface TrackedRFQ {
   filledAt?: number;
 }
 
+// ── localStorage persistence for tracked RFQs ──
+
+const TRACKED_RFQS_KEY = "hyperquote:tracked-rfqs";
+const TRACKED_RFQS_MAX_AGE_SECS = 24 * 60 * 60; // Keep for 24h max
+
+/** Serializable form of TrackedRFQ (bigints → strings) */
+interface TrackedRFQSerialized {
+  request: RFQRequestJSON;
+  status: RFQStatus;
+  quoteCount: number;
+  createdAt: number;
+  cancelledAt?: number;
+  filledAt?: number;
+}
+
+function serializeTracked(t: TrackedRFQ): TrackedRFQSerialized {
+  return {
+    request: requestToJSON(t.request),
+    status: t.status,
+    quoteCount: t.quoteCount,
+    createdAt: t.createdAt,
+    cancelledAt: t.cancelledAt,
+    filledAt: t.filledAt,
+  };
+}
+
+function deserializeTracked(s: TrackedRFQSerialized): TrackedRFQ {
+  return {
+    request: requestFromJSON(s.request),
+    status: s.status,
+    quoteCount: s.quoteCount,
+    createdAt: s.createdAt,
+    cancelledAt: s.cancelledAt,
+    filledAt: s.filledAt,
+  };
+}
+
+function loadTrackedRFQs(): TrackedRFQ[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(TRACKED_RFQS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as TrackedRFQSerialized[];
+    const now = Math.floor(Date.now() / 1000);
+    return parsed
+      .filter((s) => now - s.createdAt < TRACKED_RFQS_MAX_AGE_SECS)
+      .map(deserializeTracked)
+      .map((t) => {
+        // Mark as expired if past expiry and still active
+        if (t.status === "active" && t.request.expiry <= now) {
+          return { ...t, status: "expired" as const };
+        }
+        return t;
+      });
+  } catch {
+    return [];
+  }
+}
+
+function saveTrackedRFQs(tracked: TrackedRFQ[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    // Only persist entries from the last 24h
+    const recent = tracked.filter(
+      (t) => now - t.createdAt < TRACKED_RFQS_MAX_AGE_SECS
+    );
+    localStorage.setItem(
+      TRACKED_RFQS_KEY,
+      JSON.stringify(recent.map(serializeTracked))
+    );
+  } catch {
+    // localStorage may be full or unavailable — non-critical
+  }
+}
+
 /**
  * Hook for taker RFQ operations
  */
@@ -52,8 +128,10 @@ export function useTakerRFQ() {
   const [selectedQuote, setSelectedQuote] = useState<RFQQuote | null>(null);
   const [txState, setTxState] = useState<TransactionState>({ status: "idle" });
 
-  // ── Lifecycle tracking ──
-  const [trackedRequests, setTrackedRequests] = useState<TrackedRFQ[]>([]);
+  // ── Lifecycle tracking — hydrate from localStorage ──
+  const [trackedRequests, setTrackedRequests] = useState<TrackedRFQ[]>(() =>
+    loadTrackedRFQs()
+  );
 
   // Contract reads
   const { data: feePips } = useReadContract({
@@ -64,6 +142,11 @@ export function useTakerRFQ() {
 
   // Contract writes
   const { writeContractAsync } = useWriteContract();
+
+  // ── Persist to localStorage on every change ──
+  useEffect(() => {
+    saveTrackedRFQs(trackedRequests);
+  }, [trackedRequests]);
 
   // ── Expiry ticker — marks active requests as expired once past their expiry ──
   useEffect(() => {
@@ -106,6 +189,7 @@ export function useTakerRFQ() {
    */
   const createRequest = useCallback(
     (params: {
+      id?: string; // Optional: use server-assigned ID if available
       kind: QuoteKind;
       tokenIn: Token;
       tokenOut: Token;
@@ -128,7 +212,7 @@ export function useTakerRFQ() {
       if (!address) return null;
 
       const request: RFQRequest = {
-        id: generateRequestId(),
+        id: params.id ?? generateRequestId(),
         kind: params.kind,
         taker: address,
         tokenIn: params.tokenIn,
