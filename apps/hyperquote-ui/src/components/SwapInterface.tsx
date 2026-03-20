@@ -25,7 +25,7 @@ import { QuoteComparisonPanel } from "./swap/QuoteComparisonPanel";
 import { RFQDebugPanel } from "./swap/RFQDebugPanel";
 import { LiveRFQsPanel } from "./swap/LiveRFQsPanel";
 import { ExecutionPanel } from "./ExecutionPanel";
-import { JSONExchange } from "./JSONExchange";
+// JSONExchange import removed — manual quote copy/paste UI removed from production
 import { BlockTradeCTA } from "./BlockTradeCTA";
 import { FavoriteMakerPills } from "./FavoriteMakerPills";
 import { useFavoriteMakers } from "@/hooks/useFavoriteMakers";
@@ -617,7 +617,8 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
     }
   };
 
-  // Import quote handler
+  // Import quote handler — retained for future use (relay quote import, CLI paste, etc.)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleImportQuote = (json: string): boolean => {
     const quote = importQuoteJSON(json);
     if (quote) {
@@ -756,7 +757,7 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
   // Derive the selected tracked RFQ for the export panel
   const selectedTracked = trackedRequests.find((t) => t.request.id === selectedRfqId);
   const selectedRequest = selectedTracked?.request ?? null;
-  const isSelectedPrivate = selectedRequest?.visibility === "private";
+  // isSelectedPrivate removed — was only used by JSONExchange block
 
   // Formatted labels for the export panel context line
   const selectedPairLabel = selectedRequest
@@ -1275,21 +1276,9 @@ export function SwapInterface({ initialParams }: SwapInterfaceProps = {}) {
           sizeLabel={selectedSizeLabel}
           visibility={selectedRequest?.visibility}
         />
-        {selectedRequest && (
-          <JSONExchange
-            title={isSelectedPrivate ? "Import Maker Quote" : "Quote Exchange"}
-            description={
-              isSelectedPrivate
-                ? "Paste a quote received from your maker. It will be verified automatically."
-                : "Copy your request and send to makers. Paste their quote response to execute."
-            }
-            exportLabel="Copy Request"
-            importLabel="Paste Quote"
-            exportData={JSON.stringify(requestToJSON(selectedRequest), null, 2)}
-            onImport={handleImportQuote}
-            importPlaceholder="Paste maker's signed quote JSON here..."
-          />
-        )}
+        {/* JSONExchange (manual quote copy/paste) removed — quote delivery
+            is handled by the relay. Import logic retained in handleImportQuote
+            for potential future use. */}
 
         {/* Received Quotes */}
         {enrichedQuotes.length > 0 && (
