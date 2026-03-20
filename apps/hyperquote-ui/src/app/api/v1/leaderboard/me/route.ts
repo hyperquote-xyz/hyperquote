@@ -47,10 +47,12 @@ export async function GET(request: NextRequest) {
       totalParticipants: result.totalParticipants,
     });
   } catch (err) {
-    console.error("[leaderboard/me] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal error" },
-      { status: 500 }
-    );
+    console.error("[leaderboard/me] Error (returning empty):", err);
+    // Return valid empty response instead of 500 — UI renders "no rank"
+    return NextResponse.json({
+      rank: null,
+      entry: null,
+      totalParticipants: 0,
+    });
   }
 }

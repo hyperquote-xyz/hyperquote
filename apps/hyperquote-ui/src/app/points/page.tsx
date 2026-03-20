@@ -262,49 +262,48 @@ export default function PointsPage() {
 
         {/* NFT Boost Info Card */}
         <Card className="border-primary/20 bg-primary/[0.02]">
-          <CardContent className="py-4 px-5">
-            <div className="flex items-start justify-between gap-4">
-              {/* Left: text content */}
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-medium flex items-center gap-1.5 mb-2">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  HyperEVM NFT Boosts Active
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Holding eligible NFTs increases your points multiplier:
-                </p>
-                <ul className="text-xs text-muted-foreground mt-1.5 space-y-0.5 ml-4 list-disc">
-                  <li>Hypurr — 1.5x points</li>
-                  <li>Lucky Hypio Winners — 1.25x points</li>
-                  <li>Holding both — 2.0x multiplier</li>
-                </ul>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Boosts apply automatically when your wallet holds the NFT.
-                </p>
-              </div>
+          <CardContent className="py-5 px-5">
+            <h3 className="text-sm font-medium flex items-center gap-1.5 mb-1">
+              <Sparkles className="h-4 w-4 text-primary" />
+              HyperEVM NFT Boosts Active
+            </h3>
+            <p className="text-xs text-muted-foreground leading-relaxed mb-5">
+              Holding eligible NFTs increases your points multiplier:
+            </p>
 
-              {/* Right: NFT avatars */}
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="rounded-full overflow-hidden border-2 border-border/60 shadow-sm" style={{ width: 48, height: 48 }}>
+            {/* NFT logos + multipliers */}
+            <div className="flex items-center justify-center gap-10">
+              <div className="flex flex-col items-center gap-2">
+                <span className="rounded-full overflow-hidden border-2 border-border/60 shadow-sm" style={{ width: 96, height: 96 }}>
                   <Image
                     src={NFT_BADGES.hypurr.icon}
                     alt="Hypurr"
-                    width={48}
-                    height={48}
+                    width={96}
+                    height={96}
                     className="block object-cover w-full h-full"
                   />
                 </span>
-                <span className="rounded-full overflow-hidden border-2 border-border/60 shadow-sm" style={{ width: 48, height: 48 }}>
+                <span className="text-base font-bold text-foreground">2.0x</span>
+                <span className="text-xs text-muted-foreground">Hypurr</span>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <span className="rounded-full overflow-hidden border-2 border-border/60 shadow-sm" style={{ width: 96, height: 96 }}>
                   <Image
                     src={NFT_BADGES.hypio.icon}
                     alt="Hypio"
-                    width={48}
-                    height={48}
+                    width={96}
+                    height={96}
                     className="block object-cover w-full h-full"
                   />
                 </span>
+                <span className="text-base font-bold text-foreground">1.25x</span>
+                <span className="text-xs text-muted-foreground">Lucky Hypio Winners</span>
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground/60 text-center mt-5">
+              Boosts apply automatically when your wallet holds the NFT
+            </p>
           </CardContent>
         </Card>
 

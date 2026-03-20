@@ -197,11 +197,22 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[league] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal error" },
-      { status: 500 }
-    );
+    console.error("[league] Error (returning empty):", err);
+    // Return valid empty response instead of 500 — UI renders empty state
+    return NextResponse.json({
+      role,
+      period,
+      minUsd,
+      entries: [],
+      totalParticipants: 0,
+      hasMore: false,
+      kpi: {
+        totalNotional: 0,
+        avgImprovementBps: 0,
+        privateVolumePct: 0,
+        fillCount: 0,
+      },
+    });
   }
 }
 
