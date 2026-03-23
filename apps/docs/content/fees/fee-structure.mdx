@@ -6,19 +6,19 @@ HyperQuote charges transparent, on-chain fees on every filled trade. There are n
 
 ## Spot RFQ Fees
 
-The spot RFQ settlement contract charges a protocol fee denominated in **basis points (bps)** via the `feePips` parameter. This fee is deducted from the output token amount at the time of settlement.
+The spot RFQ settlement contract charges a protocol fee via the `feePips` parameter. The fee is deducted from the **input token amount** (`amountIn`) at settlement time. The maker receives `amountIn - fee`, and the fee is sent to the protocol fee recipient.
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| `feePips` | 250 bps (default) | Protocol fee on spot RFQ fills |
-| Denomination | Basis points (1 bps = 0.01%) | 250 bps = 2.50% |
-| Deducted from | `amountOut` (output token) | Taker receives `amountOut - fee` |
+| `feePips` | 250 (default) | Protocol fee in pips |
+| Denomination | Pips (1,000,000 pips = 100%) | 250 pips = 2.5 bps = 0.025% |
+| Deducted from | `amountIn` (input token) | `fee = amountIn * feePips / 1,000,000` |
 | Visibility | On-chain, readable from contract | `RFQSettlement.feePips()` |
 
-The `feePips` value is set by the contract admin at deployment and can be adjusted. Makers should always read the current `feePips` from the contract when pricing quotes, since the fee directly reduces the taker's net received amount.
+The `feePips` value is set by the contract admin at deployment and can be adjusted. Makers should always read the current `feePips` from the contract when pricing quotes, since the fee reduces the amount they receive from the taker's input.
 
 <Callout type="info">
-  The fee is deducted from the **output** side of the trade. If a taker is buying HYPE with USDC, the fee is taken from the HYPE amount received. The taker's input amount is transferred in full.
+  The fee is deducted from the **input** side of the trade. If a taker swaps 10,000 USDC for HYPE, the fee is taken from the USDC. The taker sends 10,000 USDC; the maker receives 10,000 - fee; the fee recipient receives the fee. The maker sends the full quoted `amountOut` to the taker.
 </Callout>
 
 ### Fee Calculation Example (Spot)
@@ -26,15 +26,17 @@ The `feePips` value is set by the contract admin at deployment and can be adjust
 A taker requests to swap 10,000 USDC for HYPE. A maker quotes `amountOut = 500 HYPE`.
 
 ```
-feePips     = 250
-fee         = amountOut * feePips / 10000
-            = 500 * 250 / 10000
-            = 12.5 HYPE
+feePips       = 250
+fee           = amountIn * feePips / 1_000_000
+              = 10,000 * 250 / 1,000,000
+              = 2.5 USDC
 
-takerReceives = 500 - 12.5 = 487.5 HYPE
+makerReceives = 10,000 - 2.5 = 9,997.5 USDC
+takerReceives = 500 HYPE (full quoted amount)
+feeRecipient  = 2.5 USDC
 ```
 
-The taker sends 10,000 USDC and receives 487.5 HYPE. The 12.5 HYPE protocol fee is retained by the settlement contract.
+The taker sends 10,000 USDC and receives 500 HYPE. The maker receives 9,997.5 USDC. The 2.5 USDC protocol fee goes to the fee recipient.
 
 ## Fee Visibility
 

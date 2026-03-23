@@ -20,7 +20,7 @@ The timestamp after which a signed quote is no longer valid. If the taker attemp
 
 ### EIP-712
 
-An Ethereum standard for typed structured data signing. HyperQuote uses EIP-712 to create cryptographic signatures that bind a maker to specific trade parameters (token addresses, amounts, strike, expiry, nonce, deadline). The signature can be verified on-chain without revealing the maker's private key. The EIP-712 domain for HyperQuote is `{ name: "HyperQuote Options", version: "1", chainId, verifyingContract }`.
+An Ethereum standard for typed structured data signing. HyperQuote uses EIP-712 to create cryptographic signatures that bind a maker to specific trade parameters (token addresses, amounts, expiry, nonce, deadline). The signature can be verified on-chain without revealing the maker's private key. The SpotRFQ contract uses domain `{ name: "HyperQuote", version: "1", chainId: 999, verifyingContract }`. The OptionsEngine uses domain `{ name: "HyperQuote Options", version: "1", chainId: 999, verifyingContract }`.
 
 ### Expiry
 

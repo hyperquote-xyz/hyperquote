@@ -35,28 +35,25 @@ Unverified tokens are imported from on-chain token registries but have not been 
 Unverified tokens have not been reviewed for contract safety. Exercise caution when trading unverified tokens. Always verify the contract address independently before approving or trading.
 </Callout>
 
-## Core Token Registry
+## Launch Token Registry
 
-The following tokens are classified as core and are always available for RFQ trading:
+The following tokens are approved for RFQ trading at launch:
 
 | Token | Symbol | Decimals | Address | Notes |
 |-------|--------|----------|---------|-------|
 | HYPE | `HYPE` | 18 | `0x0000...0000` (native) | Native gas token; auto-wraps to WHYPE for settlement |
-| USD Coin | `USDC` | 6 | `0xb883...630f` | Circle native USDC on HyperEVM |
 | Kinetiq kHYPE | `kHYPE` | 18 | `0xfd73...296d` | Kinetiq liquid staked HYPE |
-| USD₮0 | `USD₮0` | 6 | `0xB8ce...ebb` | Tether USDT0 on HyperEVM |
 | Purr | `PURR` | 18 | `0x9b49...44e` | Hyperliquid community token |
-| USDH | `USDH` | 6 | `0x1111...1111` | HyperEVM native stablecoin |
-| Unit Bitcoin | `UBTC` | 8 | `0x9FDB...3463` | Synthetic Bitcoin exposure |
-| Unit Ethereum | `UETH` | 18 | `0xBe67...5907` | Synthetic Ethereum exposure |
-| Unit Solana | `USOL` | 9 | `0x068f...a29` | Synthetic Solana exposure |
-| Unit Plasma | `UXPL` | 18 | `0x33af...21f5` | Synthetic Plasma exposure |
-| Unit Ethena | `UENA` | 18 | `0x5853...0133` | Synthetic Ethena exposure |
-| Unit Pump Fun | `UPUMP` | 6 | `0x27ec...9452` | Synthetic Pump Fun exposure |
-| Unit Fartcoin | `UFART` | 6 | `0x3b45...cedf` | Synthetic Fartcoin exposure |
+| Kinetiq | `KNTQ` | 18 | See app | Kinetiq governance token |
+| HyperLend | `HPL` | 18 | See app | HyperLend governance token |
+| USD Coin | `USDC` | 6 | `0xb883...630f` | Circle native USDC on HyperEVM |
+| USD₮0 | `USD₮0` | 6 | `0xB8ce...ebb` | Tether USDT0 on HyperEVM |
+| USDH | `USDH` | 18 | See app | HyperEVM native stablecoin |
+
+Additional verified tokens (UBTC, UETH, USOL, and others from the HyperEVM ecosystem) may be added post-launch. The full token registry is maintained in the app's token configuration.
 
 <Callout type="info">
-Core token addresses are authoritative and take precedence over any data from spotMeta or external registries. If a discrepancy exists, the core token configuration is always used.
+Launch token addresses are authoritative and take precedence over any data from spotMeta or external registries. The approved token list is enforced in the RFQ creation UI — only launch-approved tokens appear in the token selector by default.
 </Callout>
 
 ## Native HYPE and WHYPE Settlement

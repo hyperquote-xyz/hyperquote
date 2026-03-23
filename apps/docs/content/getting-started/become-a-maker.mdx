@@ -88,7 +88,7 @@ import { MakerConfig } from "@hyperquote/sdk-maker";
 
 const config: MakerConfig = {
   privateKey: process.env.MAKER_PRIVATE_KEY!,
-  chainId: 999999,
+  chainId: 999,
   engineAddress: "0x...",          // OptionsEngine contract address
   relayWsUrl: "ws://127.0.0.1:8080",
   allowedUnderlying: ["0x..."],    // WHYPE address
@@ -227,7 +227,7 @@ The EIP-712 domain used for signing is:
 |-------|-------|
 | name | `HyperQuote Options` |
 | version | `1` |
-| chainId | Your chain ID (e.g., `999999`) |
+| chainId | Your chain ID (`999` for HyperEVM mainnet) |
 | verifyingContract | OptionsEngine contract address |
 
 The `Quote` type hash is:

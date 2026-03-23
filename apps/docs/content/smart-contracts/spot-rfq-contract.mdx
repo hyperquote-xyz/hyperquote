@@ -83,11 +83,12 @@ If step 3 or step 4 fails, the entire transaction reverts and no tokens move. Th
 When a protocol fee is configured:
 
 ```
-actualAmountOut = amountOut - (amountOut * feePips / 10000)
-feeAmount = amountOut - actualAmountOut
+feeAmount       = amountIn * feePips / 1_000_000
+makerReceives   = amountIn - feeAmount
+takerReceives   = amountOut  (full quoted amount)
 ```
 
-The fee is denominated in `tokenOut` and collected by the contract. The taker receives `actualAmountOut` while the maker sends the full `amountOut`.
+The fee is denominated in `tokenIn` (the taker's input token) and sent to the fee recipient. The taker receives the full quoted `amountOut`. The maker receives `amountIn - feeAmount`. At `feePips = 250` (2.5 bps / 0.025%), the fee on a 10,000 USDC input is 2.5 USDC.
 
 ## Native HYPE Handling
 

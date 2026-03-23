@@ -2,20 +2,21 @@
 
 import { Callout } from 'nextra/components'
 
-Understanding how protocol fees affect execution is critical for makers pricing competitive quotes. The `feePips` parameter directly reduces the output amount a taker receives, which means makers must factor the fee into their pricing model to ensure their quotes remain attractive after the deduction.
+Understanding how protocol fees affect execution is critical for makers pricing competitive quotes. The `feePips` parameter reduces the `amountIn` the maker receives from the taker, which means makers must factor the fee into their pricing model.
 
 ## How `feePips` Affects Maker Pricing
 
-When a maker submits a signed quote with a specific `amountOut`, the taker does not receive that full amount. The settlement contract deducts `feePips` from `amountOut` before transferring tokens to the taker.
+The fee is deducted from `amountIn` (the taker's input token). The maker receives `amountIn - fee`, while the taker receives the full quoted `amountOut`.
 
 ```
-takerReceives = amountOut - (amountOut * feePips / 10000)
+fee           = amountIn * feePips / 1_000_000
+makerReceives = amountIn - fee
 ```
 
-This means the **effective rate** the taker experiences is worse than the raw `amountOut` the maker quotes. A maker who ignores the fee deduction will appear less competitive than they intend, because takers compare net received amounts, not gross quotes.
+At the current `feePips = 250` (2.5 bps / 0.025%), the fee on a 10,000 USDC input is just 2.5 USDC. Takers compare quotes by `amountOut` directly, since the fee does not reduce their output.
 
 <Callout type="info">
-  The protocol fee is deducted from `amountOut`, not from the maker's received `amountIn`. The maker always receives the full `amountIn` specified in the signed quote. Only the taker's output is reduced.
+  The protocol fee is deducted from `amountIn`, not from `amountOut`. The taker always receives the full `amountOut` quoted by the maker. The maker receives `amountIn - fee`. The fee goes to the protocol fee recipient.
 </Callout>
 
 ## Fee Deduction Mechanics
@@ -23,41 +24,35 @@ This means the **effective rate** the taker experiences is worse than the raw `a
 The settlement flow works as follows:
 
 1. The taker submits the maker's signed quote to the `RFQSettlement` contract.
-2. The contract transfers `amountIn` from the taker to the maker (full amount, no deduction).
-3. The contract computes `fee = amountOut * feePips / 10000`.
-4. The contract transfers `amountOut - fee` from the maker's approved balance to the taker.
-5. The `fee` amount is retained by the settlement contract (protocol treasury).
+2. The contract computes `fee = amountIn * feePips / 1_000_000`.
+3. The contract transfers `amountIn - fee` from the taker to the maker.
+4. The contract transfers `fee` from the taker to the fee recipient.
+5. The contract transfers `amountOut` from the maker's approved balance to the taker.
 
-The maker always sends the full `amountOut` from their balance. The fee is carved out of that amount before it reaches the taker. From the maker's accounting perspective, the total outflow equals `amountOut` exactly.
+The maker receives slightly less than the full `amountIn` due to the fee. The taker receives exactly `amountOut`. From the maker's perspective, inflow equals `amountIn - fee`.
 
 ## Net Execution Amount
 
-Makers should compute the taker's net received amount when evaluating competitiveness:
+Makers should account for the fee when computing their effective spread:
 
 ```
-grossAmountOut = 500 HYPE
+amountIn       = 10,000 USDC
+amountOut      = 500 HYPE
 feePips        = 250
-fee            = 500 * 250 / 10000 = 12.5 HYPE
-netToTaker     = 500 - 12.5 = 487.5 HYPE
+fee            = 10,000 * 250 / 1,000,000 = 2.5 USDC
+makerReceives  = 10,000 - 2.5 = 9,997.5 USDC
 ```
 
-If a competing maker quotes `amountOut = 510 HYPE`:
-
-```
-fee        = 510 * 250 / 10000 = 12.75 HYPE
-netToTaker = 510 - 12.75 = 497.25 HYPE
-```
-
-The taker will select the quote that gives them the highest `netToTaker`, which in this case is 497.25 HYPE.
+The fee is small at 2.5 bps. On a $10,000 trade the maker loses $2.50 to the protocol — far less than a typical AMM swap fee.
 
 ## Pricing Strategy Implications
 
 When building a pricing engine, makers should:
 
 1. **Read `feePips` from the contract** -- Do not hardcode the fee. Query `RFQSettlement.feePips()` on startup and periodically thereafter, in case the admin adjusts the value.
-2. **Price to the net rate** -- Compute the effective price the taker will receive after fees, and benchmark that against AMM and order book alternatives that the taker can see in the venue comparison panel.
-3. **Account for fee in spread calculation** -- If your target spread above fair value is 20 bps, and the protocol fee is 250 bps, the taker's all-in cost is 270 bps above fair value from your quote. Adjust accordingly to remain competitive.
-4. **Monitor venue comparison** -- The UI shows takers how your quote compares to DEX routes and HyperCore. Those venues have their own fee structures (typically 30 bps for Uniswap-style AMMs). Your net quote needs to beat or match those alternatives to win fills.
+2. **Price competitively on `amountOut`** -- Takers compare quotes by output amount. The fee does not reduce the taker's output, so your quoted `amountOut` is exactly what the taker receives.
+3. **Account for fee in P&L** -- Your effective inflow per trade is `amountIn * (1 - feePips / 1_000_000)`. At 250 pips this is 99.975% of `amountIn`.
+4. **Monitor venue comparison** -- The UI shows takers how your quote compares to DEX routes and HyperCore. Those venues have their own fee structures (typically 30 bps for Uniswap-style AMMs). Your quoted `amountOut` needs to beat or match those alternatives to win fills.
 
 <Callout type="warning">
   If `feePips` changes, all previously signed but unfilled quotes will be settled at the **new** fee rate. Makers should monitor for fee changes and consider incrementing their nonce to invalidate outstanding quotes if a fee change makes their existing quotes unprofitable.

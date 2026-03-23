@@ -137,7 +137,7 @@ HyperQuote is deployed on HyperEVM, the EVM-compatible execution environment of 
 | Network | HyperEVM Mainnet |
 | Chain ID | `999` |
 | RPC URL | `https://rpc.hyperliquid.xyz/evm` |
-| Block Explorer | [HyperEVMScan](https://hyperevm.cloud) |
+| Block Explorer | [HyperScan](https://hyperscan.xyz) |
 | Local Development Chain ID | `31337` (Foundry/Anvil) |
 
 <Callout type="info">
@@ -146,14 +146,12 @@ For local development, the relay and contracts default to chain ID `31337` (Foun
 
 ## EIP-712 Domain
 
-All quote signatures use the following EIP-712 domain, which must match across the relay, SDK, and on-chain contracts:
+Quote signatures use EIP-712 typed data. The domain must match across the relay, SDK, and on-chain contracts:
 
-| Field | Value |
-|-------|-------|
-| `name` | `"HyperQuote Options"` |
-| `version` | `"1"` |
-| `chainId` | Network chain ID |
-| `verifyingContract` | Settlement contract address |
+| Contract | `name` | `version` | `chainId` | `verifyingContract` |
+|----------|--------|-----------|-----------|---------------------|
+| **SpotRFQ** | `"HyperQuote"` | `"1"` | `999` | [`0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017`](https://hyperscan.xyz/address/0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017) |
+| **OptionsEngine** | `"HyperQuote Options"` | `"1"` | `999` | OptionsEngine address |
 
 The domain separator is computed on-chain by the settlement contract's constructor and must be reproduced identically by any off-chain signer (the Maker SDK handles this automatically).
 

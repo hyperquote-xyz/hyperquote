@@ -8,34 +8,33 @@ As a taker, the fees you pay on HyperQuote are transparent and visible before yo
 
 When you request a quote and receive responses from makers, the quote comparison panel shows:
 
-- **Gross amount** -- The raw `amountOut` the maker quoted.
-- **Protocol fee** -- The fee deducted by the settlement contract, calculated as `amountOut * feePips / 10000`.
-- **Net amount** -- What you actually receive: `amountOut - fee`.
-- **Effective rate** -- Your net amount divided by your input, expressed as a per-token price.
+- **Quoted output** -- The `amountOut` you will receive (the full quoted amount — no fee is deducted from your output).
+- **Protocol fee** -- A small fee deducted from your input token: `amountIn * feePips / 1,000,000`. At 250 pips (2.5 bps), this is 0.025% of your input.
+- **Effective rate** -- Your output divided by your input, factoring in the fee on the input side.
 
-All quotes in the comparison panel are ranked by **net amount**, not gross amount. This ensures you are always comparing apples to apples.
+All quotes in the comparison panel are ranked by **output amount** (`amountOut`). Since the fee is deducted from your input — not your output — every maker quote shows the exact amount you will receive.
 
 <Callout type="info">
-  The quote comparison panel automatically accounts for fees. The "best quote" badge is awarded to the maker whose quote delivers the highest net amount to you after the protocol fee deduction.
+  The protocol fee is deducted from your **input** token, not your output. You receive the full `amountOut` quoted by the maker. The fee (0.025% of input at 250 pips) is sent to the protocol fee recipient.
 </Callout>
 
 ## Effective Rate After Fees
 
-The effective rate is the price you actually pay per output token after all fees:
+The effective rate is the price you actually pay per output token after the input-side fee:
 
 ```
 Input:          10,000 USDC
-Gross amountOut: 500 HYPE (maker quote)
-feePips:         250 bps
+amountOut:      500 HYPE (maker quote)
+feePips:        250 (2.5 bps = 0.025%)
 
-Fee:            500 * 250 / 10000 = 12.5 HYPE
-Net received:   487.5 HYPE
+Fee:            10,000 * 250 / 1,000,000 = 2.5 USDC
+You receive:    500 HYPE (full amount)
+Maker receives: 9,997.5 USDC
 
-Effective rate: 10,000 / 487.5 = 20.51 USDC per HYPE
-Gross rate:     10,000 / 500   = 20.00 USDC per HYPE
+Effective rate: 10,000 / 500 = 20.00 USDC per HYPE
 ```
 
-The fee increases your effective cost by the `feePips` percentage. At 250 bps, this adds approximately 2.56% to the gross rate (since the fee is on the output side, the percentage impact on the rate is slightly higher than the raw bps figure).
+The fee impact is minimal at 2.5 bps. On a $10,000 trade the fee is just $2.50.
 
 ## Comparison Against AMM Swap Fees
 
@@ -43,7 +42,7 @@ The HyperQuote UI includes a venue comparison engine that fetches parallel quote
 
 | Venue | Typical Fee | Price Impact | MEV Risk |
 |-------|-------------|--------------|----------|
-| **HyperQuote RFQ** | 250 bps (feePips) | None (firm quote) | None (atomic settlement) |
+| **HyperQuote RFQ** | 2.5 bps (250 pips) | None (firm quote) | None (atomic settlement) |
 | **Uniswap-style AMM** | 30 bps (pool fee) | Scales with size | Sandwich risk |
 | **HyperCore CLOB** | Variable (taker fee) | Depends on book depth | Minimal |
 
