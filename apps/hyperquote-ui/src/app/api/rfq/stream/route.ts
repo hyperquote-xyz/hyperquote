@@ -19,7 +19,7 @@ export async function GET(_request: NextRequest) {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       // Helper to write SSE data
       const writer = {
         write: (data: string) => {
@@ -39,7 +39,7 @@ export async function GET(_request: NextRequest) {
       };
 
       // Send initial snapshot of all public RFQs
-      const snapshot = listPublicRFQs();
+      const snapshot = await listPublicRFQs();
       writer.write(`data: ${JSON.stringify({ type: "snapshot", data: snapshot })}\n\n`);
 
       // Register for live updates

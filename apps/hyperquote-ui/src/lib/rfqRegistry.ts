@@ -1,15 +1,17 @@
 /**
- * RFQ Registry — In-memory server-side state for tracking active RFQs,
- * enforcing per-wallet limits, rate limiting, and share tokens.
+ * RFQ Registry — Durable server-side state for tracking RFQs and quotes.
  *
- * Runs in Node.js (used by API routes), NOT in browser code.
- * Data is volatile — lost on server restart. Acceptable for dev/demo.
+ * PostgreSQL (via Prisma) is the single source of truth.
+ * In-memory Maps are kept as a hot cache for SSE event delivery only.
  *
- * Extended with:
- *   - Feed event system (rfq.created/quoted/filled/cancelled/expired)
- *   - Prisma persistence for FeedRfq (survives restart)
- *   - Expiry scanner (detects + emits expired events)
- *   - Telegram broadcast integration
+ * All writes go to Postgres first (awaited). If Postgres fails, the
+ * operation fails. Memory is populated AFTER a successful DB write.
+ * All reads go to Postgres.
+ *
+ * What stays in-memory (volatile, acceptable to lose on restart):
+ *   - Rate limiting Maps
+ *   - SSE subscriber Sets
+ *   - Hot cache for SSE event data (populated from DB writes)
  */
 
 import { RFQRequestJSON, RFQQuoteJSON, RFQVisibility } from "@/types";
@@ -26,26 +28,17 @@ import {
 
 const MAX_PUBLIC_PER_WALLET = 3;
 const MAX_PRIVATE_PER_WALLET = 5;
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 10; // max 10 requests per minute per key
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 10;
 const EXPIRY_SCAN_INTERVAL_MS = 5_000;
+const MAX_QUOTES_PER_RFQ = 20;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface RFQEntry {
-  id: string;
-  wallet: string; // lowercase
-  visibility: RFQVisibility;
-  expiry: number; // unix seconds
-  shareToken: string;
-  rfqData: RFQRequestJSON;
-  createdAt: number; // unix seconds
-}
-
 interface RateLimitEntry {
-  timestamps: number[]; // sliding window of request timestamps (ms)
+  timestamps: number[];
 }
 
 export interface RegisterResult {
@@ -55,7 +48,6 @@ export interface RegisterResult {
   activeCount: { public: number; private: number };
 }
 
-// Feed event types
 export type FeedRfqStatus = "OPEN" | "QUOTED" | "FILLED" | "EXPIRED" | "KILLED";
 
 export type FeedEventType =
@@ -75,64 +67,94 @@ export interface FeedEvent {
   timestamp: number;
 }
 
+export interface InternalFeedEvent extends FeedEvent {
+  visibility: RFQVisibility;
+  allowedMakers?: string[];
+}
+
 // ---------------------------------------------------------------------------
-// Module-level singletons (same pattern as contract-status route)
+// Module-level singletons — volatile caches and subscriber sets
 // ---------------------------------------------------------------------------
 
-const rfqStore = new Map<string, RFQEntry>(); // shareToken → entry
-const rfqById = new Map<string, string>(); // rfqId → shareToken (reverse index)
-const walletIndex = new Map<string, Set<string>>(); // wallet → Set<shareToken>
-const rateLimits = new Map<string, RateLimitEntry>(); // "ip|wallet" → entry
+const rateLimits = new Map<string, RateLimitEntry>();
 
-// Quote storage: rfqId → RFQQuoteJSON[]
-const quoteStore = new Map<string, RFQQuoteJSON[]>();
-
-// SSE subscribers: Set of writable controllers for the public feed stream (legacy)
+// SSE subscribers
 type SSEWriter = { write: (data: string) => void; close: () => void };
 const sseSubscribers = new Set<SSEWriter>();
-
-// Feed SSE subscribers (new — used by /api/v1/feed/stream)
 const feedSubscribers = new Set<SSEWriter>();
-
-// Internal SSE subscribers — receives ALL events (public + private) with metadata
-// Used by the alert-stream service to build filtered WebSocket alerts
 const internalSubscribers = new Set<SSEWriter>();
 
+// Hot cache for SSE event data (populated from DB writes, NOT used for reads)
+const rfqCache = new Map<string, RFQRequestJSON>(); // rfqId → rfqData
+const visibilityCache = new Map<string, RFQVisibility>(); // rfqId → visibility
+const allowedMakersCache = new Map<string, string[] | undefined>(); // rfqId → allowedMakers
+
 // ---------------------------------------------------------------------------
-// Cleanup — removes expired entries. Called on every public function.
-// NOTE: The expiry scanner (startExpiryScanner) handles emitting events
-// and updating Prisma. This cleanup is for the in-memory store only and
-// does NOT emit events (to avoid duplicates with the scanner).
+// DB → Type mapping helpers
 // ---------------------------------------------------------------------------
 
-function cleanup(): void {
-  const now = Math.floor(Date.now() / 1000);
+function feedRfqToRequestJSON(row: {
+  id: string; kind: number; taker: string; tokenInJson: string; tokenOutJson: string;
+  amountIn: string | null; amountOut: string | null; expiry: number;
+  createdAt: Date | number; visibility: string; allowedMakers: string | null;
+}): RFQRequestJSON {
+  return {
+    id: row.id,
+    kind: row.kind,
+    taker: row.taker,
+    tokenIn: JSON.parse(row.tokenInJson),
+    tokenOut: JSON.parse(row.tokenOutJson),
+    amountIn: row.amountIn ?? undefined,
+    amountOut: row.amountOut ?? undefined,
+    expiry: row.expiry,
+    createdAt: row.createdAt instanceof Date
+      ? Math.floor(row.createdAt.getTime() / 1000)
+      : row.createdAt,
+    visibility: row.visibility as RFQVisibility,
+    allowedMakers: row.allowedMakers ? JSON.parse(row.allowedMakers) : undefined,
+  };
+}
 
-  for (const [token, entry] of rfqStore) {
-    if (entry.expiry <= now) {
-      rfqStore.delete(token);
-      rfqById.delete(entry.id);
-      quoteStore.delete(entry.id);
+function feedQuoteToJSON(row: {
+  kind: number; maker: string; taker: string; tokenIn: string; tokenOut: string;
+  amountIn: string; amountOut: string; expiry: number; nonce: string;
+  requestId: string; signature: string; createdAt: Date | number;
+}): RFQQuoteJSON {
+  return {
+    kind: row.kind,
+    maker: row.maker,
+    taker: row.taker,
+    tokenIn: row.tokenIn,
+    tokenOut: row.tokenOut,
+    amountIn: row.amountIn,
+    amountOut: row.amountOut,
+    expiry: row.expiry,
+    nonce: row.nonce,
+    requestId: row.requestId,
+    signature: row.signature,
+    createdAt: row.createdAt instanceof Date
+      ? Math.floor(row.createdAt.getTime() / 1000)
+      : row.createdAt,
+  };
+}
 
-      // Remove from wallet index
-      const tokens = walletIndex.get(entry.wallet);
-      if (tokens) {
-        tokens.delete(token);
-        if (tokens.size === 0) walletIndex.delete(entry.wallet);
-      }
-    }
+function safeParseJson(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Rate limiting — sliding window per IP+wallet
+// Rate limiting — sliding window per IP+wallet (in-memory, volatile)
 // ---------------------------------------------------------------------------
 
 function checkRateLimit(
   ip: string,
   wallet: string
 ): { allowed: boolean; retryAfterMs?: number } {
-  const key = `${ip}|${wallet.toLowerCase()}`;
+  const key = `${ip}|${wallet}`;
   const now = Date.now();
   const entry = rateLimits.get(key);
 
@@ -141,7 +163,6 @@ function checkRateLimit(
     return { allowed: true };
   }
 
-  // Remove timestamps outside the window
   entry.timestamps = entry.timestamps.filter(
     (t) => now - t < RATE_LIMIT_WINDOW_MS
   );
@@ -157,99 +178,91 @@ function checkRateLimit(
 }
 
 // ---------------------------------------------------------------------------
-// Active count helper
+// Active count — DB-backed
 // ---------------------------------------------------------------------------
 
-function countActive(wallet: string): { public: number; private: number } {
-  const tokens = walletIndex.get(wallet.toLowerCase());
-  if (!tokens) return { public: 0, private: 0 };
-
-  let pub = 0;
-  let priv = 0;
-  for (const token of tokens) {
-    const entry = rfqStore.get(token);
-    if (entry) {
-      if (entry.visibility === "public") pub++;
-      else priv++;
-    }
-  }
+async function countActive(wallet: string): Promise<{ public: number; private: number }> {
+  const now = Math.floor(Date.now() / 1000);
+  const [pub, priv] = await Promise.all([
+    prisma.feedRfq.count({
+      where: { taker: wallet, status: { in: ["OPEN", "QUOTED"] }, visibility: "public", expiry: { gt: now } },
+    }),
+    prisma.feedRfq.count({
+      where: { taker: wallet, status: { in: ["OPEN", "QUOTED"] }, visibility: "private", expiry: { gt: now } },
+    }),
+  ]);
   return { public: pub, private: priv };
 }
 
 // ---------------------------------------------------------------------------
-// Internal feed event type — extends FeedEvent with private RFQ metadata
+// SSE subscriber management
 // ---------------------------------------------------------------------------
 
-export interface InternalFeedEvent extends FeedEvent {
-  visibility: RFQVisibility;
-  allowedMakers?: string[];
-}
-
-// ---------------------------------------------------------------------------
-// Feed SSE subscriber management
-// ---------------------------------------------------------------------------
-
-/**
- * Register a feed SSE subscriber. Returns an unsubscribe function.
- */
 export function addFeedSubscriber(writer: SSEWriter): () => void {
   feedSubscribers.add(writer);
-  return () => {
-    feedSubscribers.delete(writer);
-  };
+  return () => { feedSubscribers.delete(writer); };
 }
 
-/**
- * Register an internal SSE subscriber (for alert-stream service).
- * Receives ALL events (public + private) with visibility and allowedMakers metadata.
- * Returns an unsubscribe function.
- */
 export function addInternalSubscriber(writer: SSEWriter): () => void {
   internalSubscribers.add(writer);
-  return () => {
-    internalSubscribers.delete(writer);
-  };
+  return () => { internalSubscribers.delete(writer); };
 }
 
-/**
- * Broadcast a feed event to all feed SSE subscribers.
- */
+export function addSSESubscriber(writer: SSEWriter): () => void {
+  sseSubscribers.add(writer);
+  return () => { sseSubscribers.delete(writer); };
+}
+
 function broadcastFeedEvent(event: FeedEvent): void {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const sub of feedSubscribers) {
-    try {
-      sub.write(payload);
-    } catch {
-      feedSubscribers.delete(sub);
-    }
+    try { sub.write(payload); } catch { feedSubscribers.delete(sub); }
   }
 }
 
-/**
- * Broadcast an internal event to all internal SSE subscribers.
- * Called UNCONDITIONALLY for all RFQs (public + private) with full metadata.
- */
 function broadcastInternalEvent(event: InternalFeedEvent): void {
   if (internalSubscribers.size === 0) return;
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const sub of internalSubscribers) {
-    try {
-      sub.write(payload);
-    } catch {
-      internalSubscribers.delete(sub);
-    }
+    try { sub.write(payload); } catch { internalSubscribers.delete(sub); }
+  }
+}
+
+function broadcastSSE(event: object): void {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (const sub of sseSubscribers) {
+    try { sub.write(payload); } catch { sseSubscribers.delete(sub); }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Expiry scanner — detects expired RFQs, emits events, updates Prisma
+// Cache helpers — populate after DB writes for SSE event construction
+// ---------------------------------------------------------------------------
+
+function cacheRfq(rfqId: string, data: RFQRequestJSON, visibility: RFQVisibility, allowedMakers?: string[]): void {
+  rfqCache.set(rfqId, data);
+  visibilityCache.set(rfqId, visibility);
+  allowedMakersCache.set(rfqId, allowedMakers);
+}
+
+function getCachedRfq(rfqId: string): { data: RFQRequestJSON; visibility: RFQVisibility; allowedMakers?: string[] } | null {
+  const data = rfqCache.get(rfqId);
+  if (!data) return null;
+  return { data, visibility: visibilityCache.get(rfqId) ?? "public", allowedMakers: allowedMakersCache.get(rfqId) };
+}
+
+function evictCache(rfqId: string): void {
+  rfqCache.delete(rfqId);
+  visibilityCache.delete(rfqId);
+  allowedMakersCache.delete(rfqId);
+}
+
+// ---------------------------------------------------------------------------
+// Expiry scanner — DB-first, emits SSE events
 // ---------------------------------------------------------------------------
 
 let expiryTimerStarted = false;
 
-/**
- * Start the expiry scanner. Safe to call multiple times — only starts once.
- */
 export function startExpiryScanner(): void {
   if (expiryTimerStarted) return;
   expiryTimerStarted = true;
@@ -257,51 +270,57 @@ export function startExpiryScanner(): void {
   setInterval(async () => {
     const now = Math.floor(Date.now() / 1000);
 
-    // Scan in-memory store for expired entries
-    for (const [token, entry] of rfqStore) {
-      if (entry.expiry <= now) {
-        // Internal event — broadcast unconditionally for ALL expirations
+    try {
+      // Find expired RFQs from DB (for SSE event emission)
+      const expired = await prisma.feedRfq.findMany({
+        where: {
+          status: { in: ["OPEN", "QUOTED"] },
+          expiry: { lte: now },
+        },
+        select: {
+          id: true, taker: true, visibility: true, allowedMakers: true,
+          tokenInJson: true, tokenOutJson: true, kind: true,
+          amountIn: true, amountOut: true, expiry: true, createdAt: true,
+        },
+      });
+
+      if (expired.length === 0) return;
+
+      // Emit SSE events for each expired RFQ
+      for (const row of expired) {
+        const rfqData = feedRfqToRequestJSON(row);
+        const vis = row.visibility as RFQVisibility;
+        const makers = row.allowedMakers ? (safeParseJson(row.allowedMakers) as string[]) : undefined;
+
         broadcastInternalEvent({
           type: "rfq.expired",
-          rfqId: entry.id,
-          data: entry.rfqData,
+          rfqId: row.id,
+          data: rfqData,
           status: "EXPIRED",
           timestamp: now,
-          visibility: entry.visibility,
-          allowedMakers: entry.rfqData.allowedMakers?.map((a) => a.toLowerCase()),
+          visibility: vis,
+          allowedMakers: makers,
         });
 
-        // Emit public feed expiry event BEFORE removing
-        if (entry.visibility === "public") {
+        if (vis === "public") {
           broadcastFeedEvent({
             type: "rfq.expired",
-            rfqId: entry.id,
-            data: entry.rfqData,
+            rfqId: row.id,
+            data: rfqData,
             status: "EXPIRED",
             timestamp: now,
           });
-
           notifyRfqExpiredOrKilled("expired", {
-            id: entry.id,
-            tokenIn: entry.rfqData.tokenIn,
-            tokenOut: entry.rfqData.tokenOut,
+            id: row.id,
+            tokenIn: rfqData.tokenIn,
+            tokenOut: rfqData.tokenOut,
           });
         }
 
-        // Remove from in-memory stores
-        rfqStore.delete(token);
-        rfqById.delete(entry.id);
-        quoteStore.delete(entry.id);
-        const tokens = walletIndex.get(entry.wallet);
-        if (tokens) {
-          tokens.delete(token);
-          if (tokens.size === 0) walletIndex.delete(entry.wallet);
-        }
+        evictCache(row.id);
       }
-    }
 
-    // Bulk-update Prisma: mark any OPEN/QUOTED entries past expiry
-    try {
+      // Bulk-update status
       await prisma.feedRfq.updateMany({
         where: {
           status: { in: ["OPEN", "QUOTED"] },
@@ -309,56 +328,49 @@ export function startExpiryScanner(): void {
         },
         data: { status: "EXPIRED" },
       });
-    } catch {
-      // Non-critical — Prisma may be unavailable
+    } catch (err) {
+      console.warn("[rfqRegistry] Expiry scanner error:", err);
     }
   }, EXPIRY_SCAN_INTERVAL_MS);
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — All async, DB-first
 // ---------------------------------------------------------------------------
 
 /**
- * Register a new RFQ. Enforces rate limits and per-wallet active limits.
+ * Register a new RFQ. Writes to Postgres first, then caches for SSE.
  */
-export function registerRFQ(params: {
+export async function registerRFQ(params: {
   wallet: string;
   visibility: RFQVisibility;
   expiry: number;
   rfqData: RFQRequestJSON;
   ip: string;
-}): RegisterResult {
-  cleanup();
-
+}): Promise<RegisterResult> {
   const wallet = params.wallet.toLowerCase();
 
-  // Rate limit check
+  // Rate limit check (in-memory, fast)
   const rateCheck = checkRateLimit(params.ip, wallet);
   if (!rateCheck.allowed) {
+    const active = await countActive(wallet);
     return {
       allowed: false,
       reason: `Rate limit exceeded. Try again in ${Math.ceil((rateCheck.retryAfterMs ?? 0) / 1000)}s`,
-      activeCount: countActive(wallet),
+      activeCount: active,
     };
   }
 
-  // Active count check
-  const active = countActive(wallet);
-  if (
-    params.visibility === "public" &&
-    active.public >= MAX_PUBLIC_PER_WALLET
-  ) {
+  // Active count check (DB-backed)
+  const active = await countActive(wallet);
+  if (params.visibility === "public" && active.public >= MAX_PUBLIC_PER_WALLET) {
     return {
       allowed: false,
       reason: `Maximum ${MAX_PUBLIC_PER_WALLET} active public RFQs reached. Wait for one to expire or cancel.`,
       activeCount: active,
     };
   }
-  if (
-    params.visibility === "private" &&
-    active.private >= MAX_PRIVATE_PER_WALLET
-  ) {
+  if (params.visibility === "private" && active.private >= MAX_PRIVATE_PER_WALLET) {
     return {
       allowed: false,
       reason: `Maximum ${MAX_PRIVATE_PER_WALLET} active private RFQs reached. Wait for one to expire.`,
@@ -366,67 +378,61 @@ export function registerRFQ(params: {
     };
   }
 
-  // Generate share token and store
+  // Generate share token
   const shareToken = crypto.randomUUID();
+  const rfqData = params.rfqData;
 
-  const entry: RFQEntry = {
-    id: params.rfqData.id,
-    wallet,
-    visibility: params.visibility,
-    expiry: params.expiry,
-    shareToken,
-    rfqData: params.rfqData,
-    createdAt: Math.floor(Date.now() / 1000),
-  };
-
-  rfqStore.set(shareToken, entry);
-  rfqById.set(entry.id, shareToken);
-
-  // Update wallet index
-  let tokens = walletIndex.get(wallet);
-  if (!tokens) {
-    tokens = new Set();
-    walletIndex.set(wallet, tokens);
+  // Write to Postgres FIRST — if this fails, the RFQ does not exist
+  try {
+    await prisma.feedRfq.create({
+      data: {
+        id: rfqData.id,
+        taker: wallet,
+        tokenIn: rfqData.tokenIn.address.toLowerCase(),
+        tokenOut: rfqData.tokenOut.address.toLowerCase(),
+        tokenInJson: JSON.stringify(rfqData.tokenIn),
+        tokenOutJson: JSON.stringify(rfqData.tokenOut),
+        kind: rfqData.kind,
+        amountIn: rfqData.amountIn ?? null,
+        amountOut: rfqData.amountOut ?? null,
+        expiry: params.expiry,
+        status: "OPEN",
+        visibility: params.visibility,
+        shareToken,
+        allowedMakers: rfqData.allowedMakers
+          ? JSON.stringify(rfqData.allowedMakers.map((a) => a.toLowerCase()))
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("[rfqRegistry] Failed to persist RFQ:", err);
+    return {
+      allowed: false,
+      reason: "Failed to create RFQ",
+      activeCount: active,
+    };
   }
-  tokens.add(shareToken);
+
+  // Cache for SSE event delivery
+  cacheRfq(
+    rfqData.id,
+    rfqData,
+    params.visibility,
+    rfqData.allowedMakers?.map((a) => a.toLowerCase()),
+  );
+
+  const now = Math.floor(Date.now() / 1000);
 
   // Broadcast to legacy SSE subscribers if public
   if (params.visibility === "public") {
-    broadcastSSE({ type: "rfq", data: params.rfqData });
-
-    // Persist to FeedRfq table (fire-and-forget)
-    const rfqData = params.rfqData;
-    prisma.feedRfq
-      .create({
-        data: {
-          id: rfqData.id,
-          taker: wallet,
-          tokenIn: rfqData.tokenIn.address.toLowerCase(),
-          tokenOut: rfqData.tokenOut.address.toLowerCase(),
-          tokenInJson: JSON.stringify(rfqData.tokenIn),
-          tokenOutJson: JSON.stringify(rfqData.tokenOut),
-          kind: rfqData.kind,
-          amountIn: rfqData.amountIn ?? null,
-          amountOut: rfqData.amountOut ?? null,
-          expiry: rfqData.expiry,
-          status: "OPEN",
-          visibility: "public",
-        },
-      })
-      .catch((err: unknown) =>
-        console.warn("[rfqRegistry] Failed to persist FeedRfq:", err)
-      );
-
-    // Emit feed event
+    broadcastSSE({ type: "rfq", data: rfqData });
     broadcastFeedEvent({
       type: "rfq.created",
       rfqId: rfqData.id,
       data: rfqData,
       status: "OPEN",
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: now,
     });
-
-    // Telegram notification
     notifyRfqCreated({
       id: rfqData.id,
       tokenIn: rfqData.tokenIn,
@@ -439,168 +445,134 @@ export function registerRFQ(params: {
     });
   }
 
-  // Internal event — broadcast unconditionally for ALL RFQs (public + private)
+  // Internal event — all RFQs
   broadcastInternalEvent({
     type: "rfq.created",
-    rfqId: params.rfqData.id,
-    data: params.rfqData,
+    rfqId: rfqData.id,
+    data: rfqData,
     status: "OPEN",
-    timestamp: Math.floor(Date.now() / 1000),
+    timestamp: now,
     visibility: params.visibility,
-    allowedMakers: params.rfqData.allowedMakers?.map((a) => a.toLowerCase()),
+    allowedMakers: rfqData.allowedMakers?.map((a) => a.toLowerCase()),
   });
 
-  // Recount after insertion
-  const newCount = countActive(wallet);
-
-  return {
-    allowed: true,
-    shareToken,
-    activeCount: newCount,
-  };
+  const newCount = await countActive(wallet);
+  return { allowed: true, shareToken, activeCount: newCount };
 }
 
 /**
- * Retrieve a private RFQ by its share token.
- * Returns the RFQ data if found and not expired, null otherwise.
+ * Retrieve a private RFQ by its share token (DB-backed).
  */
-export function getRFQByShareToken(token: string): RFQRequestJSON | null {
-  cleanup();
-
-  const entry = rfqStore.get(token);
-  if (!entry) return null;
+export async function getRFQByShareToken(token: string): Promise<RFQRequestJSON | null> {
+  const row = await prisma.feedRfq.findUnique({ where: { shareToken: token } });
+  if (!row) return null;
 
   const now = Math.floor(Date.now() / 1000);
-  if (entry.expiry <= now) return null;
+  if (row.expiry <= now && !["FILLED", "KILLED", "EXPIRED"].includes(row.status)) return null;
 
-  return entry.rfqData;
+  return feedRfqToRequestJSON(row);
 }
 
 /**
- * Get active RFQ count for a wallet.
+ * Get active RFQ count for a wallet (DB-backed).
  */
-export function getActiveCount(wallet: string): {
-  public: number;
-  private: number;
-} {
-  cleanup();
+export async function getActiveCount(wallet: string): Promise<{ public: number; private: number }> {
   return countActive(wallet.toLowerCase());
 }
 
-// ---------------------------------------------------------------------------
-// RFQ detail lookup — by ID
-// ---------------------------------------------------------------------------
-
 /**
- * Retrieve an RFQ by its request ID.
- * Public RFQs are returned directly.
- * Private RFQs require the correct shareToken for access.
+ * Retrieve an RFQ by its request ID (DB-backed, includes quotes).
  */
-export function getRFQById(
+export async function getRFQById(
   rfqId: string,
   shareToken?: string
-): { rfq: RFQRequestJSON; quotes: RFQQuoteJSON[] } | null {
-  cleanup();
-
-  const token = rfqById.get(rfqId);
-  if (!token) return null;
-
-  const entry = rfqStore.get(token);
-  if (!entry) return null;
-
-  const now = Math.floor(Date.now() / 1000);
-  if (entry.expiry <= now) return null;
+): Promise<{ rfq: RFQRequestJSON; quotes: RFQQuoteJSON[] } | null> {
+  const row = await prisma.feedRfq.findUnique({
+    where: { id: rfqId },
+    include: { quotes: true },
+  });
+  if (!row) return null;
 
   // Private RFQs require the share token
-  if (entry.visibility === "private") {
-    if (!shareToken || shareToken !== entry.shareToken) return null;
+  if (row.visibility === "private") {
+    if (!shareToken || shareToken !== row.shareToken) return null;
   }
 
-  const quotes = quoteStore.get(rfqId) ?? [];
-  return { rfq: entry.rfqData, quotes };
+  const rfq = feedRfqToRequestJSON(row);
+  const quotes = (row.quotes ?? []).map(feedQuoteToJSON);
+  return { rfq, quotes };
 }
 
 /**
- * Get the wallet that created an RFQ (for ownership checks).
- * Returns the lowercase wallet address, or null if RFQ not found/expired.
+ * Get the wallet that created an RFQ (DB-backed).
  */
-export function getRFQOwner(rfqId: string): string | null {
-  const token = rfqById.get(rfqId);
-  if (!token) return null;
-  const entry = rfqStore.get(token);
-  if (!entry) return null;
-  return entry.wallet; // already lowercase
+export async function getRFQOwner(rfqId: string): Promise<string | null> {
+  const row = await prisma.feedRfq.findUnique({
+    where: { id: rfqId },
+    select: { taker: true },
+  });
+  return row?.taker ?? null;
 }
 
 /**
- * List all active public RFQs (for the feed).
+ * List all active public RFQs (DB-backed).
  */
-export function listPublicRFQs(): RFQRequestJSON[] {
-  cleanup();
-  const results: RFQRequestJSON[] = [];
+export async function listPublicRFQs(): Promise<RFQRequestJSON[]> {
   const now = Math.floor(Date.now() / 1000);
-
-  for (const entry of rfqStore.values()) {
-    if (entry.visibility === "public" && entry.expiry > now) {
-      results.push(entry.rfqData);
-    }
-  }
-
-  // Sort by most recent first
-  results.sort((a, b) => b.createdAt - a.createdAt);
-  return results;
+  const rows = await prisma.feedRfq.findMany({
+    where: {
+      visibility: "public",
+      status: { in: ["OPEN", "QUOTED"] },
+      expiry: { gt: now },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return rows.map(feedRfqToRequestJSON);
 }
 
-// ---------------------------------------------------------------------------
-// Quote submission
-// ---------------------------------------------------------------------------
-
-const MAX_QUOTES_PER_RFQ = 20;
-
 /**
- * Submit a signed quote for an RFQ.
- * Returns true if accepted, or an error reason string.
+ * Submit a signed quote for an RFQ (DB-first).
  */
-export function submitQuote(
+export async function submitQuote(
   rfqId: string,
   quote: RFQQuoteJSON,
   shareToken?: string
-): { accepted: boolean; reason?: string } {
-  cleanup();
-
-  const token = rfqById.get(rfqId);
-  if (!token) return { accepted: false, reason: "RFQ not found" };
-
-  const entry = rfqStore.get(token);
-  if (!entry) return { accepted: false, reason: "RFQ not found" };
+): Promise<{ accepted: boolean; reason?: string }> {
+  // Look up RFQ from DB
+  const rfqRow = await prisma.feedRfq.findUnique({ where: { id: rfqId } });
+  if (!rfqRow) return { accepted: false, reason: "RFQ not found" };
 
   const now = Math.floor(Date.now() / 1000);
-  if (entry.expiry <= now) return { accepted: false, reason: "RFQ expired" };
+  if (rfqRow.expiry <= now) return { accepted: false, reason: "RFQ expired" };
+  if (["FILLED", "KILLED", "EXPIRED"].includes(rfqRow.status)) {
+    return { accepted: false, reason: `RFQ is ${rfqRow.status.toLowerCase()}` };
+  }
 
   // Private RFQs require share token
-  if (entry.visibility === "private") {
-    if (!shareToken || shareToken !== entry.shareToken) {
+  if (rfqRow.visibility === "private") {
+    if (!shareToken || shareToken !== rfqRow.shareToken) {
       return { accepted: false, reason: "Invalid share token for private RFQ" };
     }
   }
 
-  // Enforce allowedMakers list (if set by the taker)
-  if (entry.rfqData.allowedMakers?.length) {
-    const makerLower = quote.maker.toLowerCase();
-    const isAllowed = entry.rfqData.allowedMakers.some(
-      (addr) => addr.toLowerCase() === makerLower
-    );
-    if (!isAllowed) {
-      return { accepted: false, reason: "Maker not in allowed list" };
+  // Enforce allowedMakers list
+  if (rfqRow.allowedMakers) {
+    const allowed = safeParseJson(rfqRow.allowedMakers) as string[] | null;
+    if (allowed?.length) {
+      const makerLower = quote.maker.toLowerCase();
+      if (!allowed.some((addr) => addr === makerLower)) {
+        return { accepted: false, reason: "Maker not in allowed list" };
+      }
     }
   }
 
-  // Validate requestId matches
+  // Validate requestId
   if (quote.requestId !== rfqId) {
     return { accepted: false, reason: "Quote requestId does not match" };
   }
 
-  // Basic structural checks
+  // Structural checks
   if (!quote.signature || quote.signature.length < 130) {
     return { accepted: false, reason: "Signature missing or malformed" };
   }
@@ -608,220 +580,212 @@ export function submitQuote(
     return { accepted: false, reason: "Invalid maker address" };
   }
 
-  // Get or create quotes array
-  let quotes = quoteStore.get(rfqId);
-  if (!quotes) {
-    quotes = [];
-    quoteStore.set(rfqId, quotes);
+  // Check max quotes
+  const existingCount = await prisma.feedQuote.count({ where: { rfqId } });
+  // Allow if under limit, or if this is a replacement (same maker)
+  if (existingCount >= MAX_QUOTES_PER_RFQ) {
+    const existing = await prisma.feedQuote.findUnique({
+      where: { rfqId_maker: { rfqId, maker: quote.maker.toLowerCase() } },
+    });
+    if (!existing) {
+      return { accepted: false, reason: "Maximum quotes for this RFQ reached" };
+    }
   }
 
-  if (quotes.length >= MAX_QUOTES_PER_RFQ) {
-    return { accepted: false, reason: "Maximum quotes for this RFQ reached" };
-  }
-
-  // Replace existing quote from same maker, or add new
+  // Persist to DB — upsert (one quote per maker per RFQ)
   const makerLower = quote.maker.toLowerCase();
-  const existingIdx = quotes.findIndex(
-    (q) => q.maker.toLowerCase() === makerLower
-  );
-  if (existingIdx >= 0) {
-    quotes[existingIdx] = quote;
-  } else {
-    quotes.push(quote);
+  try {
+    await prisma.feedQuote.upsert({
+      where: { rfqId_maker: { rfqId, maker: makerLower } },
+      create: {
+        rfqId,
+        maker: makerLower,
+        taker: quote.taker,
+        kind: quote.kind,
+        tokenIn: quote.tokenIn,
+        tokenOut: quote.tokenOut,
+        amountIn: quote.amountIn,
+        amountOut: quote.amountOut,
+        expiry: quote.expiry,
+        nonce: quote.nonce,
+        signature: quote.signature,
+        requestId: quote.requestId,
+      },
+      update: {
+        taker: quote.taker,
+        kind: quote.kind,
+        amountIn: quote.amountIn,
+        amountOut: quote.amountOut,
+        expiry: quote.expiry,
+        nonce: quote.nonce,
+        signature: quote.signature,
+      },
+    });
+
+    // Update quote count on FeedRfq
+    const newCount = await prisma.feedQuote.count({ where: { rfqId } });
+    await prisma.feedRfq.update({
+      where: { id: rfqId },
+      data: { quoteCount: newCount, status: "QUOTED" },
+    });
+  } catch (err) {
+    console.error("[rfqRegistry] Failed to persist quote:", err);
+    return { accepted: false, reason: "Failed to persist quote" };
   }
 
-  // Broadcast quote to legacy SSE subscribers (for public RFQs)
-  if (entry.visibility === "public") {
+  // SSE event delivery — use cache or reconstruct from DB row
+  const cached = getCachedRfq(rfqId);
+  const rfqData = cached?.data ?? feedRfqToRequestJSON(rfqRow);
+  const vis = (cached?.visibility ?? rfqRow.visibility) as RFQVisibility;
+  const makers = cached?.allowedMakers ?? (rfqRow.allowedMakers ? (safeParseJson(rfqRow.allowedMakers) as string[]) : undefined);
+  const quoteCount = (await prisma.feedQuote.count({ where: { rfqId } }));
+
+  if (vis === "public") {
     broadcastSSE({ type: "quote", rfqId, data: quote });
-
-    // Update FeedRfq quote count + status in Prisma
-    const newCount = quotes.length;
-    prisma.feedRfq
-      .update({
-        where: { id: rfqId },
-        data: {
-          quoteCount: newCount,
-          ...(newCount === 1 ? { status: "QUOTED" } : {}),
-        },
-      })
-      .catch(() => {});
-
-    // Emit feed event
     broadcastFeedEvent({
       type: "rfq.quoted",
       rfqId,
-      data: entry.rfqData,
-      status: newCount === 1 ? "QUOTED" : "QUOTED",
-      quoteCount: newCount,
-      timestamp: Math.floor(Date.now() / 1000),
+      data: rfqData,
+      status: "QUOTED",
+      quoteCount,
+      timestamp: now,
     });
   }
 
-  // Internal event — broadcast unconditionally for ALL quotes (public + private)
   broadcastInternalEvent({
     type: "rfq.quoted",
     rfqId,
-    data: entry.rfqData,
+    data: rfqData,
     status: "QUOTED",
-    quoteCount: quotes.length,
-    timestamp: Math.floor(Date.now() / 1000),
-    visibility: entry.visibility,
-    allowedMakers: entry.rfqData.allowedMakers?.map((a) => a.toLowerCase()),
+    quoteCount,
+    timestamp: now,
+    visibility: vis,
+    allowedMakers: makers,
   });
 
   return { accepted: true };
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle mutations — Fill + Cancel
+// Lifecycle mutations — Fill + Cancel (already async, now fully DB-backed)
 // ---------------------------------------------------------------------------
 
 /**
- * Mark an RFQ as filled (server-side). Updates Prisma + emits SSE.
+ * Mark an RFQ as filled. Updates Postgres, emits SSE.
  */
 export async function markRfqFilled(
   rfqId: string,
   txHash: string
 ): Promise<boolean> {
-  const token = rfqById.get(rfqId);
-  const entry = token ? rfqStore.get(token) : null;
-
-  // Update Prisma
-  try {
-    await prisma.feedRfq.update({
-      where: { id: rfqId },
-      data: { status: "FILLED", fillTxHash: txHash },
-    });
-  } catch {
-    // May not exist if private or not yet persisted
+  // Load from cache or DB for SSE event
+  let cached = getCachedRfq(rfqId);
+  if (!cached) {
+    const row = await prisma.feedRfq.findUnique({ where: { id: rfqId } });
+    if (row) {
+      cached = {
+        data: feedRfqToRequestJSON(row),
+        visibility: row.visibility as RFQVisibility,
+        allowedMakers: row.allowedMakers ? (safeParseJson(row.allowedMakers) as string[]) : undefined,
+      };
+    }
   }
 
-  // Emit feed event (if we have the entry data)
-  if (entry && entry.visibility === "public") {
-    broadcastFeedEvent({
-      type: "rfq.filled",
-      rfqId,
-      data: entry.rfqData,
-      status: "FILLED",
-      fillTxHash: txHash,
-      timestamp: Math.floor(Date.now() / 1000),
-    });
+  // Update Postgres
+  await prisma.feedRfq.update({
+    where: { id: rfqId },
+    data: { status: "FILLED", fillTxHash: txHash },
+  });
 
-    notifyRfqFilled({
-      id: rfqId,
-      tokenIn: entry.rfqData.tokenIn,
-      tokenOut: entry.rfqData.tokenOut,
-      amountIn: entry.rfqData.amountIn,
-      amountOut: entry.rfqData.amountOut,
-      fillTxHash: txHash,
-    });
-  }
+  const now = Math.floor(Date.now() / 1000);
 
-  // Internal event — broadcast unconditionally for ALL fills
-  if (entry) {
+  if (cached) {
+    if (cached.visibility === "public") {
+      broadcastFeedEvent({
+        type: "rfq.filled",
+        rfqId,
+        data: cached.data,
+        status: "FILLED",
+        fillTxHash: txHash,
+        timestamp: now,
+      });
+      notifyRfqFilled({
+        id: rfqId,
+        tokenIn: cached.data.tokenIn,
+        tokenOut: cached.data.tokenOut,
+        amountIn: cached.data.amountIn,
+        amountOut: cached.data.amountOut,
+        fillTxHash: txHash,
+      });
+    }
+
     broadcastInternalEvent({
       type: "rfq.filled",
       rfqId,
-      data: entry.rfqData,
+      data: cached.data,
       status: "FILLED",
       fillTxHash: txHash,
-      timestamp: Math.floor(Date.now() / 1000),
-      visibility: entry.visibility,
-      allowedMakers: entry.rfqData.allowedMakers?.map((a) => a.toLowerCase()),
+      timestamp: now,
+      visibility: cached.visibility,
+      allowedMakers: cached.allowedMakers,
     });
   }
 
+  evictCache(rfqId);
   return true;
 }
 
 /**
- * Mark an RFQ as cancelled/killed (server-side). Updates Prisma + emits SSE.
+ * Mark an RFQ as cancelled/killed. Updates Postgres, emits SSE.
  */
 export async function markRfqCancelled(rfqId: string): Promise<boolean> {
-  const token = rfqById.get(rfqId);
-  const entry = token ? rfqStore.get(token) : null;
-
-  // Update Prisma
-  try {
-    await prisma.feedRfq.update({
-      where: { id: rfqId },
-      data: { status: "KILLED" },
-    });
-  } catch {
-    // May not exist
+  // Load from cache or DB for SSE event
+  let cached = getCachedRfq(rfqId);
+  if (!cached) {
+    const row = await prisma.feedRfq.findUnique({ where: { id: rfqId } });
+    if (row) {
+      cached = {
+        data: feedRfqToRequestJSON(row),
+        visibility: row.visibility as RFQVisibility,
+        allowedMakers: row.allowedMakers ? (safeParseJson(row.allowedMakers) as string[]) : undefined,
+      };
+    }
   }
 
-  // Internal event — broadcast unconditionally for ALL cancellations
-  if (entry) {
+  // Update Postgres
+  await prisma.feedRfq.update({
+    where: { id: rfqId },
+    data: { status: "KILLED" },
+  });
+
+  const now = Math.floor(Date.now() / 1000);
+
+  if (cached) {
     broadcastInternalEvent({
       type: "rfq.cancelled",
       rfqId,
-      data: entry.rfqData,
+      data: cached.data,
       status: "KILLED",
-      timestamp: Math.floor(Date.now() / 1000),
-      visibility: entry.visibility,
-      allowedMakers: entry.rfqData.allowedMakers?.map((a) => a.toLowerCase()),
-    });
-  }
-
-  if (entry && entry.visibility === "public") {
-    broadcastFeedEvent({
-      type: "rfq.cancelled",
-      rfqId,
-      data: entry.rfqData,
-      status: "KILLED",
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: now,
+      visibility: cached.visibility,
+      allowedMakers: cached.allowedMakers,
     });
 
-    notifyRfqExpiredOrKilled("killed", {
-      id: rfqId,
-      tokenIn: entry.rfqData.tokenIn,
-      tokenOut: entry.rfqData.tokenOut,
-    });
-  }
-
-  // Clean up from in-memory store (for all visibilities)
-  if (token) {
-    rfqStore.delete(token);
-    rfqById.delete(rfqId);
-    quoteStore.delete(rfqId);
-    if (entry) {
-      const tokens = walletIndex.get(entry.wallet);
-      if (tokens) {
-        tokens.delete(token);
-        if (tokens.size === 0) walletIndex.delete(entry.wallet);
-      }
+    if (cached.visibility === "public") {
+      broadcastFeedEvent({
+        type: "rfq.cancelled",
+        rfqId,
+        data: cached.data,
+        status: "KILLED",
+        timestamp: now,
+      });
+      notifyRfqExpiredOrKilled("killed", {
+        id: rfqId,
+        tokenIn: cached.data.tokenIn,
+        tokenOut: cached.data.tokenOut,
+      });
     }
   }
 
+  evictCache(rfqId);
   return true;
-}
-
-// ---------------------------------------------------------------------------
-// Legacy SSE subscriber management (used by /api/rfq/stream)
-// ---------------------------------------------------------------------------
-
-/**
- * Register an SSE subscriber. Returns an unsubscribe function.
- */
-export function addSSESubscriber(writer: SSEWriter): () => void {
-  sseSubscribers.add(writer);
-  return () => {
-    sseSubscribers.delete(writer);
-  };
-}
-
-/**
- * Broadcast an event to all legacy SSE subscribers.
- */
-function broadcastSSE(event: object): void {
-  const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const sub of sseSubscribers) {
-    try {
-      sub.write(payload);
-    } catch {
-      // Remove broken subscribers
-      sseSubscribers.delete(sub);
-    }
-  }
 }

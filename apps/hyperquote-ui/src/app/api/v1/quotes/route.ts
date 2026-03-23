@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = submitQuote(body.rfqId, body.quote, body.token);
+  const result = await submitQuote(body.rfqId, body.quote, body.token);
 
   if (!result.accepted) {
     return NextResponse.json(result, { status: 400 });

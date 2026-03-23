@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
   try {
     if (source === "live") {
       // In-memory active RFQs (volatile, fast)
-      const rfqs = listPublicRFQs();
+      const rfqs = await listPublicRFQs();
       return NextResponse.json({ items: rfqs, source: "live" });
     }
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     // "both" — merge live + recent from DB
-    const live = listPublicRFQs();
+    const live = await listPublicRFQs();
     const recent = await prisma.feedRfq.findMany({
       where: { visibility: "public" },
       orderBy: { createdAt: "desc" },
@@ -211,7 +211,7 @@ export async function POST(request: NextRequest) {
 
   // Register in the in-memory registry (handles limits, rate limiting, SSE, Prisma)
   const ip = getClientIp(request);
-  const result = registerRFQ({
+  const result = await registerRFQ({
     wallet: agent.wallet,
     visibility,
     expiry,

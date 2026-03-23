@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-real-ip") ??
     "unknown";
 
-  const result = registerRFQ({
+  const result = await registerRFQ({
     wallet: body.wallet,
     visibility: body.visibility,
     expiry: body.expiry,
@@ -75,6 +75,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const count = getActiveCount(wallet);
+  const count = await getActiveCount(wallet);
   return NextResponse.json(count);
 }

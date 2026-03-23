@@ -265,15 +265,49 @@ model FeedRfq {
   status       String   @default("OPEN")
   quoteCount   Int      @default(0) @map("quote_count")
   visibility   String   @default("public")            // "public" | "private"
+  shareToken   String?  @unique @map("share_token")   // UUID for private RFQ access
+  allowedMakers String? @map("allowed_makers")         // JSON array of lowercase 0x addresses
   fillTxHash   String?  @map("fill_tx_hash")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
+
+  quotes  FeedQuote[]
 
   @@index([status])
   @@index([createdAt])
   @@index([taker])
   @@index([expiry])
   @@map("feed_rfqs")
+}
+
+// ---------------------------------------------------------------------------
+// 9b. Feed Quotes
+// ---------------------------------------------------------------------------
+// Persistent record of maker quotes submitted for RFQs.
+// One quote per maker per RFQ (upsert on resubmission).
+// Cascade-deleted when the parent FeedRfq is deleted.
+
+model FeedQuote {
+  id         String   @id @default(uuid())
+  rfqId      String   @map("rfq_id")
+  feedRfq    FeedRfq  @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  maker      String                              // lowercase 0x address
+  taker      String                              // quote taker field (0x0 for open)
+  kind       Int      @default(0)                // QuoteKind
+  tokenIn    String   @map("token_in")
+  tokenOut   String   @map("token_out")
+  amountIn   String   @map("amount_in")          // raw BigInt string
+  amountOut  String   @map("amount_out")          // raw BigInt string
+  expiry     Int                                  // unix seconds
+  nonce      String                               // raw BigInt string
+  signature  String                               // EIP-712 sig
+  requestId  String   @map("request_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([rfqId, maker])                        // one quote per maker per RFQ
+  @@index([rfqId])
+  @@index([maker])
+  @@map("feed_quotes")
 }
 
 // ---------------------------------------------------------------------------

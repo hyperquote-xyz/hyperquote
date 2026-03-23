@@ -103,7 +103,7 @@ export async function POST(
   // ── Ownership check ──
   // Verify the calling agent owns this RFQ (agent.wallet === RFQ taker)
 
-  let rfqOwner = getRFQOwner(id);
+  let rfqOwner = await getRFQOwner(id);
 
   if (!rfqOwner) {
     // RFQ may have expired from memory — check Prisma
@@ -142,7 +142,7 @@ export async function POST(
   let visibility: "public" | "private" = "public";
 
   // Try in-memory first
-  const live = getRFQById(id);
+  const live = await getRFQById(id);
   if (live) {
     tokenIn = live.rfq.tokenIn.address.toLowerCase();
     tokenOut = live.rfq.tokenOut.address.toLowerCase();

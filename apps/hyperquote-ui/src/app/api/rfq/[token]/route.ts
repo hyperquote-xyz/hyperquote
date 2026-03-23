@@ -19,7 +19,7 @@ export async function GET(
     );
   }
 
-  const rfqData = getRFQByShareToken(token);
+  const rfqData = await getRFQByShareToken(token);
 
   if (!rfqData) {
     return NextResponse.json(

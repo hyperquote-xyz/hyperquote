@@ -25,7 +25,7 @@ export async function GET(
   // Private RFQs need the share token
   const shareToken = request.nextUrl.searchParams.get("token") ?? undefined;
 
-  const result = getRFQById(id, shareToken);
+  const result = await getRFQById(id, shareToken);
 
   if (!result) {
     return NextResponse.json(

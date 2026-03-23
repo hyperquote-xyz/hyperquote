@@ -24,7 +24,7 @@ export async function GET(
 
   logActivity(agent, "quotes.list", { rfqId: id });
 
-  const result = getRFQById(id, shareToken);
+  const result = await getRFQById(id, shareToken);
   if (!result) {
     return NextResponse.json(
       { error: "RFQ not found or expired. Quotes are only available for live RFQs." },

@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
     createdAt: Math.floor(Date.now() / 1000),
   };
 
-  const result = submitQuote(body.rfqId, quote, body.shareToken);
+  const result = await submitQuote(body.rfqId, quote, body.shareToken);
 
   logActivity(agent, "quote.submit", {
     rfqId: body.rfqId,

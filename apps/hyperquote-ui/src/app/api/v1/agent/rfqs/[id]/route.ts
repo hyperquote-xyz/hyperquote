@@ -26,7 +26,7 @@ export async function GET(
   logActivity(agent, "rfq.detail", { rfqId: id });
 
   // Try in-memory first (active, non-expired)
-  const live = getRFQById(id, shareToken);
+  const live = await getRFQById(id, shareToken);
   if (live) {
     return NextResponse.json({
       source: "live",
