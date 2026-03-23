@@ -13,7 +13,7 @@ export const NFT_BADGES = {
     name: "Lucky Hypio Winners",
     slug: "hypio" as const,
     boost: 1.25,
-    icon: "/badges/hypio.png",
+    icon: "/badges/hypurr.png",
     tooltip: "Hypio Holder \u2014 1.25x Points Boost",
   },
   hypurr: {
@@ -21,7 +21,7 @@ export const NFT_BADGES = {
     name: "Hypurr",
     slug: "hypurr" as const,
     boost: 1.5,
-    icon: "/badges/hypurr.png",
+    icon: "/badges/hypio.png",
     tooltip: "Hypurr Holder \u2014 1.5x Points Boost",
   },
 } as const;
