@@ -2,10 +2,13 @@
  * Seed test pools with synthetic state for audit testing.
  * Uses EXACT token addresses as they exist in the DB (from seed.ts).
  */
+import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client.js";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL || "file:./dev.db" });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is not set");
+const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
