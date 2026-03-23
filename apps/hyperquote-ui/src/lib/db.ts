@@ -5,14 +5,10 @@
  * Hot Module Replacement in development. In production, a single instance
  * is created per server process.
  *
- * Currently uses SQLite (BetterSqlite3 adapter) for local development.
- *
- * PRODUCTION MIGRATION (PostgreSQL):
- *   1. Install adapter: `npm install @prisma/adapter-pg pg`
- *   2. Change prisma/schema.prisma: `provider = "postgresql"`
- *   3. Replace BetterSqlite3 adapter below with PrismaPg adapter
- *   4. Run `npx prisma generate && npx prisma migrate deploy`
- *   5. Set DATABASE_URL to your PostgreSQL connection string
+ * Uses PostgreSQL via @prisma/adapter-pg.
+ * Set DATABASE_URL in environment:
+ *   - Production: postgresql://user:pass@host:5432/dbname?sslmode=require
+ *   - Local dev:  postgresql://postgres:postgres@localhost:5432/hyperquote
  *
  * Usage:
  *   import { prisma } from "@/lib/db";
@@ -20,16 +16,21 @@
  */
 
 import { PrismaClient } from "@/generated/prisma/client";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
 function createPrismaClient(): PrismaClient {
-  const adapter = new PrismaBetterSqlite3({
-    url: process.env.DATABASE_URL || "file:./prisma/dev.db",
-  });
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL is not set. See .env.example for the required format."
+    );
+  }
+
+  const adapter = new PrismaPg({ connectionString });
   return new PrismaClient({
     adapter,
     log:

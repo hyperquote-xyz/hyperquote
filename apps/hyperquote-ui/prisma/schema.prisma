@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // Prisma ORM schema for protocol registry, pool discovery, state tracking,
 // and RFQ baseline/performance persistence.
-// Uses SQLite for local dev, Postgres for production.
+// Uses PostgreSQL (Neon / Supabase recommended for serverless).
 //
 // Tables:
 //   1. protocol_registry   — DefiLlama-sourced protocol universe
@@ -21,19 +21,13 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  // For production Postgres, change to:
-  // provider = "postgresql"
+  provider = "postgresql"
 }
 
 // ---------------------------------------------------------------------------
-// Enums — SQLite doesn't support native enums, so Prisma maps these to strings.
-// When migrating to Postgres, these become real enum types.
+// Enums — stored as String fields with documented allowed values.
+// Future: convert to native PostgreSQL enums for stricter type safety.
 // ---------------------------------------------------------------------------
-
-// Note: SQLite does not support Prisma enums natively.
-// We use String fields with documented allowed values instead.
-// When migrating to Postgres, convert these to proper enums.
 
 // ---------------------------------------------------------------------------
 // 1. Protocol Registry
@@ -162,7 +156,7 @@ model PoolStateSnapshot {
   pool        Pool     @relation(fields: [poolId], references: [poolId], onDelete: Cascade)
   blockNumber BigInt   @map("block_number")
   timestamp   DateTime
-  stateJson   String   @map("state_json")  // JSON string (SQLite doesn't have native JSON type)
+  stateJson   String   @map("state_json")  // JSON string
 
   @@id([poolId, blockNumber])
   @@map("pool_state_snapshots")

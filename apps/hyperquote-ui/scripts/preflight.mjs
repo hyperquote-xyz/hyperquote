@@ -48,6 +48,13 @@ const CRITICAL = [
     validationMsg: "Must be a valid non-zero 0x address",
   },
   {
+    name: "DATABASE_URL",
+    help: "PostgreSQL connection string (e.g. postgresql://user:pass@host:5432/dbname)",
+    validate: (v) => v.startsWith("postgresql://") || v.startsWith("postgres://"),
+    validationMsg: "Must be a postgresql:// connection string",
+    prodOnly: true,
+  },
+  {
     name: "NEXT_PUBLIC_APP_URL",
     help: "Public app URL (e.g. https://hyperquote.xyz)",
     validate: (v) => isUrl(v) && isNotLocalhost(v),
