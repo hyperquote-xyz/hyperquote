@@ -14,6 +14,8 @@ import {
   fetchHomeComparison,
   HomeComparisonData,
   EXAMPLE_AMOUNT_IN_DISPLAY,
+  EXAMPLE_TOKEN_IN,
+  EXAMPLE_TOKEN_OUT,
 } from "@/lib/home-estimates";
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -24,11 +26,11 @@ const REFRESH_INTERVAL_MS = 30_000;
 // ---------------------------------------------------------------------------
 
 const STALE_FALLBACK: HomeComparisonData = {
-  spotPrice: 0.0685,
-  rfqRefOut: 1_459_854,
-  hypercoreOut: 1_382_068,
-  hypercoreSlippagePct: 5.33,
-  evmOut: 1_028_306,
+  spotPrice: 62.5,
+  rfqRefOut: 1_600,
+  hypercoreOut: 1_580,
+  hypercoreSlippagePct: 1.25,
+  evmOut: 1_560,
   evmRouteLabel: null,
   fetchedAt: 0, // sentinel — we use this to detect stale data
 };
@@ -116,15 +118,15 @@ export function HomeComparisonCard() {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <h3 className="font-semibold">
-            {EXAMPLE_AMOUNT_IN_DISPLAY} USDH → PURR
+            {EXAMPLE_AMOUNT_IN_DISPLAY} {EXAMPLE_TOKEN_IN} → {EXAMPLE_TOKEN_OUT}
           </h3>
           <Tooltip>
             <TooltipTrigger asChild>
               <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-[240px] text-xs">
-              Stable conversions assume 1:1 (USDH/USDC/USD₮0) for this
-              benchmark.
+              Simulates buying {EXAMPLE_TOKEN_OUT} with 100k {EXAMPLE_TOKEN_IN} across
+              three venues. RFQ row is the zero-slippage ideal.
             </TooltipContent>
           </Tooltip>
         </div>
@@ -225,7 +227,7 @@ function VenueRowCard({
         </div>
         {row.available && row.amount !== null ? (
           <span className={cn("font-mono font-medium text-sm", amountColor)}>
-            {fmtAmount(row.amount)} PURR
+            {fmtAmount(row.amount)} {EXAMPLE_TOKEN_OUT}
           </span>
         ) : loading ? (
           <span className="inline-block w-28 h-4 rounded bg-muted animate-pulse" />
@@ -290,7 +292,7 @@ function SavingsCallout({ rows }: { rows: VenueRow[] }) {
       <div className="flex items-center justify-center gap-2 text-success">
         <TrendingUp className="h-5 w-5" />
         <span className="text-2xl font-bold">
-          +{fmtAmount(saved)} PURR
+          +{fmtAmount(saved)} {EXAMPLE_TOKEN_OUT}
         </span>
       </div>
       <div className="text-sm text-muted-foreground mt-1">

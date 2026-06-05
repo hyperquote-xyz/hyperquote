@@ -1,17 +1,14 @@
 /**
- * HT.xyz PURR Benchmark — EVM-only Swap Quote
+ * HT.xyz HYPE Benchmark — EVM-only Swap Quote
  *
  * GET /api/v1/bench/ht/purr
  *
- * Calls HT.xyz core API (POST /trade/getSwapInfo)
- * with enableHyperCore: false → EVM-only DEX routing.
+ * Calls HT.xyz R1 quote API (GET /api/v1/trade/quote)
+ * for EVM-only DEX routing.
  *
- * 100,000 USDH → PURR.
- *   USDH has 6 decimals → raw input = 100000 * 10^6 = "100000000000"
- *   PURR has 18 decimals, but HT returns outputAmount already human-readable.
- *
- * When the direct USDH → PURR route fails, automatically tries multi-hop
- * routing through liquid intermediates (USDC, WHYPE, USD₮0).
+ * 100,000 USDC → HYPE.
+ *   USDC has 6 decimals → raw input = 100000 * 10^6 = "100000000000"
+ *   HYPE (WHYPE) has 18 decimals → outAmount is in wei, divide by 10^18.
  *
  * 10s in-memory cache. 10s timeout.
  */
@@ -22,7 +19,7 @@ import { NextResponse } from "next/server";
 // Types
 // ---------------------------------------------------------------------------
 
-interface HTPurrResponse {
+interface HTHypeResponse {
   evmOut: number | null;
   routeLabel: string | null;
   updatedAt: number;
@@ -33,114 +30,27 @@ interface HTPurrResponse {
 // Config
 // ---------------------------------------------------------------------------
 
-const HT_BASE_URL = "https://core.ht.xyz/api/v1/trade";
+const HT_QUOTE_URL = "https://core.ht.xyz/api/v1/trade/quote";
 const HT_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 10_000;
 
-// 100k USDH with 6 decimals = 100000 * 10^6
+// 100k USDC with 6 decimals = 100000 * 10^6
 const INPUT_AMOUNT = "100000000000";
-const USDH_ADDRESS = "0x111111a1a0667d36bd57c0a9f569b98057111111";
-const PURR_ADDRESS = "0x9b498C3c8A0b8CD8BA1D9851d40D186F1872b44E";
-
-/** Liquid intermediates for multi-hop when direct USDH→PURR fails */
-const INTERMEDIATES = [
-  { address: "0xb88339cb7199b77e23db6e890353e22632ba630f", symbol: "USDC", decimals: 6 },
-  { address: "0x5555555555555555555555555555555555555555", symbol: "WHYPE", decimals: 18 },
-  { address: "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb", symbol: "USD₮0", decimals: 6 },
-];
+const USDC_ADDRESS = "0xb88339cb7199b77e23db6e890353e22632ba630f";
+const WHYPE_ADDRESS = "0x5555555555555555555555555555555555555555";
+const SLIPPAGE_BPS = 50; // 0.5%
 
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
 
-let cached: { data: HTPurrResponse; fetchedAt: number } | null = null;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Call HT.xyz getSwapInfo for a specific pair. Returns human-readable output or null. */
-async function htxyzSwap(
-  inputAddress: string,
-  outputAddress: string,
-  inputAmount: string,
-  signal: AbortSignal,
-): Promise<{ outputAmount: number; rawOutputAmount: string } | null> {
-  const res = await fetch(`${HT_BASE_URL}/getSwapInfo`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      inputAmount,
-      slippage: 0.3,
-      inputTokenAddress: inputAddress,
-      outputTokenAddress: outputAddress,
-      feeAddress: "0x0000000000000000000000000000000000000000",
-      feeBps: 0,
-      enableHyperCore: false,
-    }),
-    signal,
-  });
-
-  if (!res.ok) return null;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const json: any = await res.json();
-  const data = json.body ?? json;
-
-  if (data.outputAmount == null) return null;
-
-  const outputAmount = parseFloat(String(data.outputAmount));
-  if (isNaN(outputAmount) || outputAmount <= 0) return null;
-
-  return { outputAmount, rawOutputAmount: String(data.outputAmount) };
-}
-
-/**
- * Try multi-hop routing through intermediates.
- * For each intermediate, calls leg1 (USDH→intermediate) then leg2 (intermediate→PURR).
- * Returns the best result by output amount.
- */
-async function tryMultiHop(
-  signal: AbortSignal,
-): Promise<{ evmOut: number; routeLabel: string } | null> {
-  const results = await Promise.allSettled(
-    INTERMEDIATES.map(async (intermediate) => {
-      // Leg 1: USDH → intermediate
-      const leg1 = await htxyzSwap(USDH_ADDRESS, intermediate.address, INPUT_AMOUNT, signal);
-      if (!leg1) return null;
-
-      // Convert leg1 human-readable output to raw amount for leg2 input
-      const leg1RawOut = BigInt(
-        Math.floor(leg1.outputAmount * 10 ** intermediate.decimals),
-      ).toString();
-
-      // Leg 2: intermediate → PURR
-      const leg2 = await htxyzSwap(intermediate.address, PURR_ADDRESS, leg1RawOut, signal);
-      if (!leg2) return null;
-
-      return {
-        evmOut: leg2.outputAmount,
-        routeLabel: `USDH → ${intermediate.symbol} → PURR`,
-      };
-    }),
-  );
-
-  let best: { evmOut: number; routeLabel: string } | null = null;
-  for (const r of results) {
-    if (r.status !== "fulfilled" || r.value === null) continue;
-    if (!best || r.value.evmOut > best.evmOut) {
-      best = r.value;
-    }
-  }
-
-  return best;
-}
+let cached: { data: HTHypeResponse; fetchedAt: number } | null = null;
 
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function GET(): Promise<NextResponse<HTPurrResponse>> {
+export async function GET(): Promise<NextResponse<HTHypeResponse>> {
   const now = Date.now();
 
   // Serve from cache if fresh
@@ -152,45 +62,50 @@ export async function GET(): Promise<NextResponse<HTPurrResponse>> {
   const timeout = setTimeout(() => controller.abort(), HT_TIMEOUT_MS);
 
   try {
-    // Step 1: Try direct USDH → PURR
-    const direct = await htxyzSwap(USDH_ADDRESS, PURR_ADDRESS, INPUT_AMOUNT, controller.signal);
+    const params = new URLSearchParams({
+      inputMint: USDC_ADDRESS,
+      outputMint: WHYPE_ADDRESS,
+      amount: INPUT_AMOUNT,
+      slippageBps: String(SLIPPAGE_BPS),
+    });
 
-    if (direct) {
-      clearTimeout(timeout);
-      const result: HTPurrResponse = {
-        evmOut: direct.outputAmount,
-        routeLabel: "USDH → PURR",
-        updatedAt: now,
-        error: null,
-      };
-      cached = { data: result, fetchedAt: now };
-      return NextResponse.json(result);
-    }
+    const res = await fetch(`${HT_QUOTE_URL}?${params.toString()}`, {
+      method: "GET",
+      signal: controller.signal,
+    });
 
-    // Step 2: Direct failed — try multi-hop through intermediates
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[bench/ht/purr] Direct USDH→PURR failed, trying multi-hop...");
-    }
-
-    const multiHop = await tryMultiHop(controller.signal);
     clearTimeout(timeout);
 
-    if (multiHop) {
-      if (process.env.NODE_ENV === "development") {
-        console.debug("[bench/ht/purr] Multi-hop success:", multiHop.routeLabel);
-      }
-      const result: HTPurrResponse = {
-        evmOut: multiHop.evmOut,
-        routeLabel: multiHop.routeLabel,
-        updatedAt: now,
-        error: null,
-      };
-      cached = { data: result, fetchedAt: now };
-      return NextResponse.json(result);
+    if (!res.ok) {
+      throw new Error(`HT.xyz quote API returned HTTP ${res.status}`);
     }
 
-    // Both direct and multi-hop failed
-    throw new Error("No route found (direct or multi-hop)");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json: any = await res.json();
+    const data = json.body ?? json;
+
+    if (data.outAmount == null) {
+      throw new Error("No outAmount in HT.xyz quote response");
+    }
+
+    // outAmount is in HYPE wei (18 decimals) — convert to human-readable
+    const outAmountRaw = BigInt(data.outAmount);
+    const evmOut = Number(outAmountRaw) / 1e18;
+
+    if (isNaN(evmOut) || evmOut <= 0) {
+      throw new Error("Invalid outAmount from HT.xyz quote");
+    }
+
+    const routeLabel = "USDC → HYPE";
+
+    const result: HTHypeResponse = {
+      evmOut,
+      routeLabel,
+      updatedAt: now,
+      error: null,
+    };
+    cached = { data: result, fetchedAt: now };
+    return NextResponse.json(result);
   } catch (err) {
     clearTimeout(timeout);
     const message =
@@ -200,9 +115,9 @@ export async function GET(): Promise<NextResponse<HTPurrResponse>> {
           : err.message
         : "HT.xyz swap quote failed";
 
-    console.warn("[bench/ht/purr] Error:", message);
+    console.warn("[bench/ht/hype] Error:", message);
 
-    const result: HTPurrResponse = {
+    const result: HTHypeResponse = {
       evmOut: null,
       routeLabel: null,
       updatedAt: now,

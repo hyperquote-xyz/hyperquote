@@ -1,18 +1,16 @@
 /**
- * HyperCore PURR Benchmark — Spot Price + Orderbook Simulation
+ * HyperCore HYPE Benchmark — Spot Price + Orderbook Simulation
  *
  * GET /api/v1/bench/hypercore/purr
  *
- * Fetches the PURR L2 orderbook from Hyperliquid, computes:
- *   - Mid-price (spot reference in quote-stable terms)
+ * Fetches the HYPE L2 orderbook from Hyperliquid, computes:
+ *   - Mid-price (spot reference in USDC terms)
  *   - RFQ reference output (100k / midPrice, zero-slippage ideal)
  *   - HyperCore market-buy output (walk asks for $100k)
  *   - Slippage vs RFQ reference
  *
- * Stable routing note:
- *   HL PURR spot is quoted in USDC. We assume all stables (USDH, USDC,
- *   USDTO) are 1:1 for this benchmark. The orderbook walk simulates
- *   spending 100,000 of the venue's quote stable, equivalent to 100k USDH.
+ * HYPE is quoted in USDC on HyperCore, so the orderbook walk simulates
+ * spending 100,000 USDC to buy HYPE.
  *
  * 10s in-memory cache. 5s fetch timeout.
  */
@@ -72,7 +70,7 @@ export async function GET(): Promise<NextResponse<HyperCorePurrResponse>> {
     const res = await fetch(HL_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "l2Book", coin: "PURR", nSigFigs: 2 }),
+      body: JSON.stringify({ type: "l2Book", coin: "HYPE", nSigFigs: 2 }),
       signal: controller.signal,
     });
 
@@ -96,8 +94,7 @@ export async function GET(): Promise<NextResponse<HyperCorePurrResponse>> {
     }
 
     // Hyperliquid l2Book: levels[0] = bids (descending), levels[1] = asks (ascending)
-    // PURR is quoted in USDC on HL. We treat USDC ≡ USDH ≡ USDTO at 1:1 for
-    // this benchmark, so prices are directly in "stable-dollar" terms.
+    // HYPE is quoted in USDC on HL, so prices are directly in USD terms.
     const bids: L2Level[] = levels[0]; // buy orders, best (highest) bid first
     const asks: L2Level[] = levels[1]; // sell orders, best (lowest) ask first
 
@@ -110,8 +107,7 @@ export async function GET(): Promise<NextResponse<HyperCorePurrResponse>> {
 
     const spotPrice = (bestBid + bestAsk) / 2;
 
-    // RFQ reference: zero-slippage ideal at mid-price
-    // Assumes 100k USDH ≡ 100k USDC (1:1 stable assumption)
+    // RFQ reference: zero-slippage ideal at mid-price (100k USDC)
     const rfqRefOut = TRADE_SIZE_USD / spotPrice;
 
     // Walk asks simulating $100k market buy (in quote-stable terms)
@@ -142,7 +138,7 @@ export async function GET(): Promise<NextResponse<HyperCorePurrResponse>> {
           : err.message
         : "HyperCore benchmark failed";
 
-    console.warn("[bench/hypercore/purr] Error:", message);
+    console.warn("[bench/hypercore/hype] Error:", message);
 
     const result: HyperCorePurrResponse = {
       spotPrice: null,

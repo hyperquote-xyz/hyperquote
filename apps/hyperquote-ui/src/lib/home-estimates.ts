@@ -2,8 +2,8 @@
  * Home Page Estimate Coordinator
  *
  * Fetches live benchmark data from two server-side API routes:
- *   /api/v1/bench/hypercore/purr — Hyperliquid L2 orderbook walk
- *   /api/v1/bench/ht/purr        — HT.xyz EVM & combined routing
+ *   /api/v1/bench/hypercore/purr — Hyperliquid L2 orderbook walk (HYPE)
+ *   /api/v1/bench/ht/purr        — HT.xyz EVM DEX routing (USDC → HYPE)
  *
  * All slippage is computed client-side using rfqRefOut as reference.
  * 15s client cache.
@@ -14,23 +14,25 @@
 // ---------------------------------------------------------------------------
 
 export const EXAMPLE_AMOUNT_IN_DISPLAY = "100,000";
+export const EXAMPLE_TOKEN_IN = "USDC";
+export const EXAMPLE_TOKEN_OUT = "HYPE";
 
 // ---------------------------------------------------------------------------
 // Result shape
 // ---------------------------------------------------------------------------
 
 export interface HomeComparisonData {
-  /** PURR mid-price in USD (from HyperCore orderbook) */
+  /** HYPE mid-price in USD (from HyperCore orderbook) */
   spotPrice: number | null;
   /** RFQ reference: 100k / midPrice (zero-slippage ideal) */
   rfqRefOut: number | null;
-  /** HyperCore market-buy walk result (PURR received) */
+  /** HyperCore market-buy walk result (HYPE received) */
   hypercoreOut: number | null;
   /** HyperCore slippage vs RFQ reference */
   hypercoreSlippagePct: number | null;
-  /** HT.xyz EVM-only DEX routing (PURR received) */
+  /** HT.xyz EVM-only DEX routing (HYPE received) */
   evmOut: number | null;
-  /** DEX route path label (e.g. "USDH → USDC → PURR") */
+  /** DEX route path label (e.g. "USDC → HYPE") */
   evmRouteLabel: string | null;
   /** Timestamp of last successful fetch */
   fetchedAt: number;
