@@ -649,11 +649,16 @@ export function SwapProduction({ initialParams }: SwapProductionProps = {}) {
       {/* Wrap modal — shown inline when wrap gating triggers */}
       {showWrapGating && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm" onClick={() => setShowWrapGating(false)}>
-          <div onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <WrapModal
-              trigger={<button className="hidden" />}
-              onWrapSuccess={() => setShowWrapGating(false)}
-            />
+          <div className="bg-card border border-border rounded-xl p-6 max-w-sm mx-4 shadow-xl" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2">Wrap HYPE First</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              You need to wrap your native HYPE to WHYPE before swapping. Use the Wrap button in the header.
+            </p>
+            <div className="flex gap-2">
+              <button className="flex-1 px-4 py-2 rounded-lg bg-muted text-sm" onClick={() => setShowWrapGating(false)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
