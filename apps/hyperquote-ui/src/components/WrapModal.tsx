@@ -34,6 +34,10 @@ interface WrapModalProps {
   onWrapSuccess?: () => void;
   /** Called after a successful unwrap transaction */
   onUnwrapSuccess?: () => void;
+  /** Externally controlled open state (overrides internal state) */
+  externalOpen?: boolean;
+  /** Called when the modal wants to close (required when using externalOpen) */
+  onExternalClose?: () => void;
 }
 
 export function WrapModal({
@@ -42,8 +46,18 @@ export function WrapModal({
   defaultAmount = "",
   onWrapSuccess,
   onUnwrapSuccess,
+  externalOpen,
+  onExternalClose,
 }: WrapModalProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = externalOpen ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    if (externalOpen !== undefined) {
+      if (!v) onExternalClose?.();
+    } else {
+      setInternalOpen(v);
+    }
+  };
   const [tab, setTab] = useState<"wrap" | "unwrap">(defaultTab);
   const [amount, setAmount] = useState(defaultAmount);
   const {
@@ -110,7 +124,7 @@ export function WrapModal({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {externalOpen === undefined && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
