@@ -2,8 +2,8 @@
  * Home Page Estimate Coordinator
  *
  * Fetches live benchmark data from two server-side API routes:
- *   /api/v1/bench/hypercore/purr — Hyperliquid L2 orderbook walk (HYPE)
- *   /api/v1/bench/ht/purr        — HT.xyz EVM DEX routing (USDC → HYPE)
+ *   /api/v1/bench/hypercore/purr — Hyperliquid L2 orderbook walk (PURR)
+ *   /api/v1/bench/ht/purr        — HT.xyz EVM DEX routing (USDC → PURR)
  *
  * All slippage is computed client-side using rfqRefOut as reference.
  * 15s client cache.
@@ -15,7 +15,7 @@
 
 export const EXAMPLE_AMOUNT_IN_DISPLAY = "100,000";
 export const EXAMPLE_TOKEN_IN = "USDC";
-export const EXAMPLE_TOKEN_OUT = "HYPE";
+export const EXAMPLE_TOKEN_OUT = "PURR";
 
 // ---------------------------------------------------------------------------
 // Result shape

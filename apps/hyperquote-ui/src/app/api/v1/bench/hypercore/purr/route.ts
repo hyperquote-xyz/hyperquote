@@ -70,7 +70,7 @@ export async function GET(): Promise<NextResponse<HyperCorePurrResponse>> {
     const res = await fetch(HL_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "l2Book", coin: "HYPE", nSigFigs: 2 }),
+      body: JSON.stringify({ type: "l2Book", coin: "PURR", nSigFigs: 2 }),
       signal: controller.signal,
     });
 

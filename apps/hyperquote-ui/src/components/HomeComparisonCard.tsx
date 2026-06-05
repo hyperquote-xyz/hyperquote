@@ -26,11 +26,11 @@ const REFRESH_INTERVAL_MS = 30_000;
 // ---------------------------------------------------------------------------
 
 const STALE_FALLBACK: HomeComparisonData = {
-  spotPrice: 62.5,
-  rfqRefOut: 1_600,
-  hypercoreOut: 1_580,
-  hypercoreSlippagePct: 1.25,
-  evmOut: 1_560,
+  spotPrice: 0.105,
+  rfqRefOut: 952_381,
+  hypercoreOut: 892_155,
+  hypercoreSlippagePct: 6.32,
+  evmOut: null,
   evmRouteLabel: null,
   fetchedAt: 0, // sentinel — we use this to detect stale data
 };

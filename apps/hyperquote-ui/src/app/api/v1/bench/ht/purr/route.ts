@@ -6,9 +6,9 @@
  * Calls HT.xyz R1 quote API (GET /api/v1/trade/quote)
  * for EVM-only DEX routing.
  *
- * 100,000 USDC → HYPE.
+ * 100,000 USDC → PURR.
  *   USDC has 6 decimals → raw input = 100000 * 10^6 = "100000000000"
- *   HYPE (WHYPE) has 18 decimals → outAmount is in wei, divide by 10^18.
+ *   PURR has 18 decimals → outAmount is in wei, divide by 10^18.
  *
  * 10s in-memory cache. 10s timeout.
  */
@@ -37,7 +37,7 @@ const CACHE_TTL_MS = 10_000;
 // 100k USDC with 6 decimals = 100000 * 10^6
 const INPUT_AMOUNT = "100000000000";
 const USDC_ADDRESS = "0xb88339cb7199b77e23db6e890353e22632ba630f";
-const WHYPE_ADDRESS = "0x5555555555555555555555555555555555555555";
+const PURR_ADDRESS = "0x9b498c3c8a0b8cd8ba1d9851d40d186f1872b44e";
 const SLIPPAGE_BPS = 50; // 0.5%
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
   try {
     const params = new URLSearchParams({
       inputMint: USDC_ADDRESS,
-      outputMint: WHYPE_ADDRESS,
+      outputMint: PURR_ADDRESS,
       amount: INPUT_AMOUNT,
       slippageBps: String(SLIPPAGE_BPS),
     });
@@ -88,7 +88,7 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
       throw new Error("No outAmount in HT.xyz quote response");
     }
 
-    // outAmount is in HYPE wei (18 decimals) — convert to human-readable
+    // outAmount is in PURR wei (18 decimals) — convert to human-readable
     const outAmountRaw = BigInt(data.outAmount);
     const evmOut = Number(outAmountRaw) / 1e18;
 
@@ -96,7 +96,7 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
       throw new Error("Invalid outAmount from HT.xyz quote");
     }
 
-    const routeLabel = "USDC → HYPE";
+    const routeLabel = "USDC → PURR";
 
     const result: HTHypeResponse = {
       evmOut,
@@ -115,7 +115,7 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
           : err.message
         : "HT.xyz swap quote failed";
 
-    console.warn("[bench/ht/hype] Error:", message);
+    console.warn("[bench/ht/purr] Error:", message);
 
     const result: HTHypeResponse = {
       evmOut: null,
