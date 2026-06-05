@@ -16,7 +16,7 @@ import { QuoteBuilder } from "./QuoteBuilder";
 import { TokenBadge } from "./TokenBadge";
 import { useQuoteExpiry } from "@/hooks/useCountdown";
 import { useMakerRFQ } from "@/hooks/useRFQ";
-import { useBenchmark } from "@/hooks/useBenchmark";
+import { useMakerReferences } from "@/hooks/useMakerReferences";
 import { QuoteKind, RFQRequest, RFQQuote, quoteToJSON } from "@/types";
 import { formatAmount, formatAddress, cn, safeSymbol } from "@/lib/utils";
 import { TakerBadge } from "@/components/TakerBadge";
@@ -72,7 +72,7 @@ export function ResponseDrawer({
   }>({ amountIn: 0n, amountOut: 0n, quoteExpiry: 0, isValid: false });
 
   const { formattedTime, isExpired, isUrgent } = useQuoteExpiry(request?.expiry);
-  const benchmark = useBenchmark(open ? request : null);
+  const { benchmark, bestRoute, theoretical, hcHumanOut } = useMakerReferences(open ? request : null);
 
   // Reset on open/close
   const handleOpenChange = (val: boolean) => {
@@ -285,52 +285,71 @@ export function ResponseDrawer({
             )}
           </div>
 
-          {/* ── Section A2: Market Benchmark Panel ── */}
+          {/* ── Section A2: Market References Panel ── */}
           {!isExpired && (
-            <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2">
+            <div className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3">
               <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 <BarChart3 className="h-3 w-3" />
-                On-chain Baseline
+                Market References
               </div>
               {benchmark.loading ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Fetching on-chain baseline…
+                  Fetching venue references…
                 </div>
-              ) : benchmark.ammOutput ? (
-                <div className="space-y-1.5 text-xs">
+              ) : (
+                <div className="space-y-2.5 text-xs">
+                  {/* Public Best Route */}
+                  {bestRoute ? (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground font-medium">Public Best Route</span>
+                        <span className="font-mono font-medium">
+                          {bestRoute.amountOut.toLocaleString("en-US", { maximumFractionDigits: 4 })} {safeSymbol(request.tokenOut)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground/80">
+                        Source: {bestRoute.source} · {bestRoute.routeLabel} · {bestRoute.confidenceLabel}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Public Best Route</span>
+                      <span className="text-muted-foreground/60">Unavailable</span>
+                    </div>
+                  )}
+
+                  {/* HyperCore Spot */}
                   <div className="flex justify-between items-center">
-                    <span className="text-muted-foreground">Best on-chain route</span>
+                    <span className="text-muted-foreground">HyperCore Spot</span>
                     <span className="font-mono">
-                      {(() => {
-                        try {
-                          return formatAmount(BigInt(benchmark.ammOutput!), request.tokenOut.decimals, 4);
-                        } catch { return benchmark.ammOutput; }
-                      })()}{" "}
-                      {safeSymbol(request.tokenOut)}
+                      {hcHumanOut > 0
+                        ? `${hcHumanOut.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${safeSymbol(request.tokenOut)}`
+                        : "—"
+                      }
                     </span>
                   </div>
-                  {benchmark.ammPrice != null && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Eff. price</span>
-                      <span className="font-mono">{benchmark.ammPrice.toFixed(6)}</span>
+
+                  {/* Theoretical */}
+                  {theoretical?.available ? (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Theoretical</span>
+                        <span className="font-mono">
+                          {theoretical.amountOut.toLocaleString("en-US", { maximumFractionDigits: 4 })} {safeSymbol(request.tokenOut)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground/80">
+                        {theoretical.sourceLabel}
+                      </div>
                     </div>
-                  )}
-                  {benchmark.ammImpactBps != null && (
+                  ) : (
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Price impact</span>
-                      <span className="font-mono">{benchmark.ammImpactBps} bps</span>
+                      <span className="text-muted-foreground">Theoretical</span>
+                      <span className="text-muted-foreground/60">Unavailable</span>
                     </div>
                   )}
                 </div>
-              ) : benchmark.error ? (
-                <p className="text-xs text-muted-foreground/60 py-1">
-                  On-chain baseline unavailable — quote without reference
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground/60 py-1">
-                  No on-chain route data for this pair
-                </p>
               )}
             </div>
           )}

@@ -45,13 +45,30 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-real-ip") ??
     "unknown";
 
-  const result = await registerRFQ({
-    wallet: body.wallet,
+  console.log("[POST /api/rfq] validated, calling registerRFQ...", {
+    wallet: body.wallet.slice(0, 10),
     visibility: body.visibility,
-    expiry: body.expiry,
-    rfqData: body.rfqData,
-    ip,
+    rfqId: body.rfqData?.id?.slice(0, 8),
+    ip: ip.slice(0, 10),
   });
+
+  let result;
+  try {
+    result = await registerRFQ({
+      wallet: body.wallet,
+      visibility: body.visibility,
+      expiry: body.expiry,
+      rfqData: body.rfqData,
+      ip,
+    });
+    console.log("[POST /api/rfq] registerRFQ returned:", JSON.stringify(result).slice(0, 200));
+  } catch (err) {
+    console.error("[POST /api/rfq] registerRFQ THREW:", err);
+    return NextResponse.json(
+      { allowed: false, reason: "Internal error: " + (err instanceof Error ? err.message : String(err)) },
+      { status: 500 }
+    );
+  }
 
   if (!result.allowed) {
     return NextResponse.json(result, { status: 429 });
@@ -75,6 +92,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const count = await getActiveCount(wallet);
-  return NextResponse.json(count);
+  console.log("[GET /api/rfq] calling getActiveCount for", wallet.slice(0, 10));
+  try {
+    const count = await getActiveCount(wallet);
+    console.log("[GET /api/rfq] result:", count);
+    return NextResponse.json(count);
+  } catch (err) {
+    console.error("[GET /api/rfq] THREW:", err instanceof Error ? err.message : err);
+    console.error("[GET /api/rfq] error type:", err?.constructor?.name);
+    console.error("[GET /api/rfq] code:", (err as any)?.code);
+    console.error("[GET /api/rfq] full:", err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : "unknown" }, { status: 500 });
+  }
 }

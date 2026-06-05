@@ -24,7 +24,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { formatAddress } from "@/lib/utils";
+import { formatAddress, cn } from "@/lib/utils";
 
 const CHAIN_ID = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID ?? "999");
 const RFQ_CONTRACT = process.env.NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS ?? "";
@@ -209,89 +209,111 @@ function MakerStatsCard({ address }: { address: string }) {
 // Feed Filters sidebar card (auto-saved to localStorage)
 // ---------------------------------------------------------------------------
 
+const LAUNCH_TOKENS = ["HYPE", "kHYPE", "PURR", "KNTQ", "USDC"];
+const SIZE_PRESETS = [
+  { label: "Any", value: null },
+  { label: "$10k+", value: 10_000 },
+  { label: "$25k+", value: 25_000 },
+  { label: "$50k+", value: 50_000 },
+  { label: "$100k+", value: 100_000 },
+  { label: "$250k+", value: 250_000 },
+];
+
 function FeedFiltersCard() {
   const { prefs, updatePrefs, loaded } = useMakerPreferences();
-  const [watchlistInput, setWatchlistInput] = useState("");
-
-  // Sync watchlist input when prefs load
-  useEffect(() => {
-    if (loaded && prefs.tokenWatchlist.length > 0) {
-      setWatchlistInput(prefs.tokenWatchlist.join(", "));
-    }
-  }, [loaded, prefs.tokenWatchlist]);
 
   if (!loaded) return null;
+
+  const selectedTokens = new Set(prefs.tokenWatchlist.map((t: string) => t.toUpperCase()));
+  const hasActiveFilters = selectedTokens.size > 0 || (prefs.minSizeUsd && prefs.minSizeUsd > 0);
+
+  const toggleToken = (token: string) => {
+    const upper = token.toUpperCase();
+    const next = new Set(selectedTokens);
+    if (next.has(upper)) next.delete(upper);
+    else next.add(upper);
+    updatePrefs({ tokenWatchlist: Array.from(next) });
+  };
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Settings className="h-4 w-4 text-muted-foreground" />
-          My Feed Filters
-        </CardTitle>
-        <p className="text-[11px] text-muted-foreground mt-1">
-          Applies only to your view of the live RFQ feed (saved in this browser)
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="h-4 w-4 text-muted-foreground" />
+            Feed Filters
+          </CardTitle>
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-muted-foreground"
+              onClick={() => updatePrefs({ tokenWatchlist: [], minSizeUsd: null })}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Auto-saved · applies to your feed view
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Min RFQ Size */}
+        {/* Token chips */}
         <div className="space-y-1.5">
-          <Label htmlFor="min-size" className="text-xs text-muted-foreground">
-            Min Size (USD, stable pairs only)
-          </Label>
-          <Input
-            id="min-size"
-            type="number"
-            placeholder="No minimum"
-            className="h-9 text-sm"
-            value={prefs.minSizeUsd ?? ""}
-            onChange={(e) =>
-              updatePrefs({
-                minSizeUsd: e.target.value ? Number(e.target.value) : null,
-              })
-            }
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Applies only to RFQs with stablecoin-denominated size
-          </p>
+          <label className="text-xs text-muted-foreground">Tokens</label>
+          <div className="flex flex-wrap gap-1.5">
+            {LAUNCH_TOKENS.map((token) => (
+              <button
+                key={token}
+                onClick={() => toggleToken(token)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs font-medium transition-colors border",
+                  selectedTokens.has(token)
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/30 text-muted-foreground border-border/50 hover:border-border"
+                )}
+              >
+                {token}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Token Watchlist */}
+        {/* Size presets */}
         <div className="space-y-1.5">
-          <Label htmlFor="watchlist" className="text-xs text-muted-foreground">
-            Token Watchlist
-          </Label>
-          <Input
-            id="watchlist"
-            placeholder="e.g. HYPE, USDC, PURR"
-            className="h-9 text-sm"
-            value={watchlistInput}
-            onChange={(e) => {
-              const raw = e.target.value;
-              setWatchlistInput(raw);
-              // Parse: split on commas or spaces, trim, uppercase, deduplicate
-              const tokens = [
-                ...new Set(
-                  raw
-                    .split(/[,\s]+/)
-                    .map((s) => s.trim().toUpperCase())
-                    .filter(Boolean)
-                ),
-              ];
-              updatePrefs({ tokenWatchlist: tokens });
-            }}
-          />
-          <p className="text-[11px] text-muted-foreground">
-            Only show RFQs involving these tokens. Leave empty to show all.
-          </p>
+          <label className="text-xs text-muted-foreground">Minimum Size</label>
+          <div className="flex flex-wrap gap-1.5">
+            {SIZE_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => updatePrefs({ minSizeUsd: preset.value })}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors border",
+                  (prefs.minSizeUsd ?? null) === preset.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/30 text-muted-foreground border-border/50 hover:border-border"
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Alert Preferences pointer */}
+        {/* Active filter summary */}
+        {hasActiveFilters && (
+          <div className="text-[10px] text-muted-foreground pt-2 border-t border-border/30">
+            Filtering: {prefs.minSizeUsd ? `≥$${(prefs.minSizeUsd/1000).toFixed(0)}k` : "Any size"}
+            {selectedTokens.size > 0 && ` · ${Array.from(selectedTokens).join(", ")}`}
+          </div>
+        )}
+
+        {/* Alert pointer */}
         <div className="flex items-center gap-2 pt-1 border-t border-border/30">
           <Bell className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-[11px] text-muted-foreground">
-            Alert preferences are configured in the{" "}
-            <span className="text-foreground font-medium">Alerts</span> tab
+          <span className="text-[10px] text-muted-foreground">
+            Configure alerts in the <span className="text-foreground font-medium">Alerts</span> tab
           </span>
         </div>
       </CardContent>
@@ -303,28 +325,48 @@ function FeedFiltersCard() {
 // Private RFQ callout card
 // ---------------------------------------------------------------------------
 
-function PrivateRfqCallout() {
+function MakerActivityCard() {
+  const { address } = useAccount();
+  const [stats, setStats] = useState<{
+    quotesSent: number; quotesWon: number; volumeQuoted: number; volumeFilled: number; hitRate: string;
+  }>({ quotesSent: 0, quotesWon: 0, volumeQuoted: 0, volumeFilled: 0, hitRate: "—" });
+
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/v1/maker/stats?wallet=${address}`)
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(() => {});
+  }, [address]);
+
+  const rows = [
+    { label: "Quotes Sent", value: String(stats.quotesSent) },
+    { label: "Won", value: String(stats.quotesWon) },
+    { label: "Hit Rate", value: stats.hitRate },
+    { label: "Volume Quoted", value: stats.volumeQuoted > 0 ? `$${stats.volumeQuoted.toLocaleString()}` : "$0" },
+    { label: "Volume Filled", value: stats.volumeFilled > 0 ? `$${stats.volumeFilled.toLocaleString()}` : "$0" },
+  ];
+
   return (
-    <Card className="border-dashed">
-      <CardContent className="py-5">
-        <div className="flex flex-col items-center text-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <Lock className="h-5 w-5 text-primary" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Large trades?</p>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Create a private RFQ to receive quotes from selected makers only.
-              Reduce information leakage on size.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" className="gap-1.5" asChild>
-            <Link href="/swap">
-              Create Private RFQ
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </Button>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary" />
+          Maker Statistics
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-3">
+          {rows.map((s) => (
+            <div key={s.label} className="space-y-0.5">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className="text-sm font-mono font-medium">{s.value}</p>
+            </div>
+          ))}
         </div>
+        <p className="text-[10px] text-muted-foreground mt-3 pt-3 border-t border-border/30">
+          Statistics update as you quote and win RFQs
+        </p>
       </CardContent>
     </Card>
   );
@@ -399,7 +441,7 @@ export default function MakerPage() {
         {/* Right — Preferences + Private RFQ Callout (1/3) */}
         <div className="space-y-6">
           <FeedFiltersCard />
-          <PrivateRfqCallout />
+          <MakerActivityCard />
         </div>
       </div>
 

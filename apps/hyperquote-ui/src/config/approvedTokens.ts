@@ -62,6 +62,9 @@ const LAUNCH_ASSETS: ApprovedToken[] = [
     verified: true,
     verificationSource: "manual",
     venue: "both",
+    hyperliquidCoin: "@336",
+    hlIndex: 121,
+    hlWeiDecimals: 8,
   },
   {
     address: "0x9b498c3c8a0b8cd8ba1d9851d40d186f1872b44e",
@@ -92,28 +95,13 @@ const LAUNCH_ASSETS: ApprovedToken[] = [
     verified: true,
     verificationSource: "manual",
     venue: "both",
-    hyperliquidCoin: undefined,
+    hyperliquidCoin: "@334",
     hypercoreAddress: "0xbd31bd605c0a1b82c72aae3587f9061f",
     hlIndex: 124,
     hlWeiDecimals: 8,
   },
-  {
-    // HPL — HyperCore-only (no EVM address), listed for display/selection
-    // Settlement will route through HyperCore spot
-    address: "0x0000000000000000000000000000000000000000" as `0x${string}`, // placeholder — HyperCore-only
-    symbol: "HPL",
-    name: "HyperLend",
-    decimals: 18,
-    logoUrl: undefined,
-    localLogo: "HPL.png",
-    isStable: false,
-    tier: "verified",
-    verified: true,
-    verificationSource: "manual",
-    venue: "hypercore",
-    hypercoreAddress: "0x5e887f0c6c3deec190c36186bf23369f",
-    hlIndex: 120,
-  },
+  // HPL removed from launch — no PRJX pool, thin HC liquidity.
+  // Re-add when DEX pool is established or HC depth improves.
 ];
 
 /**
@@ -133,36 +121,6 @@ const STABLE_ASSETS: ApprovedToken[] = [
     verificationSource: "manual",
     isBridgePreferred: true,
     venue: "both",
-  },
-  {
-    address: "0xB8ce59Fc3717aDA4C02eadF9682A9e934f625ebb",
-    symbol: "USD₮0",
-    name: "USD₮0",
-    decimals: 6,
-    logoUrl: "https://coin-images.coingecko.com/coins/images/53705/small/usdt0.jpg",
-    localLogo: "USDT0.png",
-    isStable: true,
-    tier: "core",
-    verified: true,
-    verificationSource: "manual",
-    isBridgePreferred: true,
-    venue: "both",
-  },
-  {
-    address: "0x111111a1a0667d36bd57c0a9f569b98057111111",
-    symbol: "USDH",
-    name: "USDH",
-    decimals: 6,
-    logoUrl: undefined,
-    localLogo: "USDH.png",
-    isStable: true,
-    tier: "core",
-    verified: true,
-    verificationSource: "manual",
-    isBridgePreferred: true,
-    venue: "both",
-    hyperliquidCoin: "@230",
-    hlWeiDecimals: 8,
   },
 ];
 

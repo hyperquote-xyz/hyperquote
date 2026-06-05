@@ -183,6 +183,7 @@ function checkRateLimit(
 
 async function countActive(wallet: string): Promise<{ public: number; private: number }> {
   const now = Math.floor(Date.now() / 1000);
+  console.log("[countActive] calling prisma.feedRfq.count() with now=", now, "wallet=", wallet.slice(0, 10));
   const [pub, priv] = await Promise.all([
     prisma.feedRfq.count({
       where: { taker: wallet, status: { in: ["OPEN", "QUOTED"] }, visibility: "public", expiry: { gt: now } },
@@ -191,6 +192,7 @@ async function countActive(wallet: string): Promise<{ public: number; private: n
       where: { taker: wallet, status: { in: ["OPEN", "QUOTED"] }, visibility: "private", expiry: { gt: now } },
     }),
   ]);
+  console.log("[countActive] result:", { public: pub, private: priv });
   return { public: pub, private: priv };
 }
 
@@ -350,9 +352,12 @@ export async function registerRFQ(params: {
 }): Promise<RegisterResult> {
   const wallet = params.wallet.toLowerCase();
 
+  console.log("[registerRFQ] ENTER", { wallet: wallet.slice(0, 10), visibility: params.visibility, rfqId: params.rfqData?.id?.slice(0, 8) });
+
   // Rate limit check (in-memory, fast)
   const rateCheck = checkRateLimit(params.ip, wallet);
   if (!rateCheck.allowed) {
+    console.log("[registerRFQ] rate-limited");
     const active = await countActive(wallet);
     return {
       allowed: false,
@@ -361,8 +366,18 @@ export async function registerRFQ(params: {
     };
   }
 
+  console.log("[registerRFQ] rate limit passed, calling countActive...");
   // Active count check (DB-backed)
-  const active = await countActive(wallet);
+  let active;
+  try {
+    active = await countActive(wallet);
+    console.log("[registerRFQ] countActive returned:", active);
+  } catch (err) {
+    console.error("[registerRFQ] countActive THREW:", err instanceof Error ? err.message : err);
+    console.error("[registerRFQ] countActive stack:", err instanceof Error ? err.stack : "no stack");
+    // Return gracefully — don't block on count failure
+    active = { public: 0, private: 0 };
+  }
   if (params.visibility === "public" && active.public >= MAX_PUBLIC_PER_WALLET) {
     return {
       allowed: false,
@@ -383,6 +398,7 @@ export async function registerRFQ(params: {
   const rfqData = params.rfqData;
 
   // Write to Postgres FIRST — if this fails, the RFQ does not exist
+  console.log("[registerRFQ] about to call prisma.feedRfq.create()...");
   try {
     await prisma.feedRfq.create({
       data: {
@@ -404,11 +420,17 @@ export async function registerRFQ(params: {
           : null,
       },
     });
+    console.log("[registerRFQ] prisma.feedRfq.create() SUCCEEDED");
   } catch (err) {
-    console.error("[rfqRegistry] Failed to persist RFQ:", err);
+    console.error("[registerRFQ] prisma.feedRfq.create() FAILED");
+    console.error("[registerRFQ] error type:", err?.constructor?.name);
+    console.error("[registerRFQ] error message:", err instanceof Error ? err.message : String(err));
+    console.error("[registerRFQ] error code:", (err as any)?.code);
+    console.error("[registerRFQ] error meta:", JSON.stringify((err as any)?.meta));
+    console.error("[registerRFQ] full error:", err);
     return {
       allowed: false,
-      reason: "Failed to create RFQ",
+      reason: "Failed to create RFQ: " + (err instanceof Error ? err.message : String(err)),
       activeCount: active,
     };
   }

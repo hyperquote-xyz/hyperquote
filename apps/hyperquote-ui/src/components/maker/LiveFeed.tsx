@@ -94,18 +94,6 @@ export function LiveFeed({
           </SelectContent>
         </Select>
 
-        {/* Mode */}
-        <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as typeof modeFilter)}>
-          <SelectTrigger className="w-[120px] h-8 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All modes</SelectItem>
-            <SelectItem value="exact_in">Exact In</SelectItem>
-            <SelectItem value="exact_out">Exact Out</SelectItem>
-          </SelectContent>
-        </Select>
-
         {/* Spacer */}
         <div className="flex-1" />
 

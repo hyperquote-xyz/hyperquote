@@ -49,6 +49,12 @@ import {
   MOCK_FEED_NOTIONALS,
 } from "@/lib/mockFeedData";
 import { STATUS_BADGE } from "./constants";
+
+/** Normalize WHYPE → HYPE for user-facing display. Stored data unchanged. */
+const displaySymbol = (sym: string | undefined): string => {
+  if (!sym) return "?";
+  return sym === "WHYPE" ? "HYPE" : sym;
+};
 import {
   TokenFilterBar,
   ALL_FILTER_SYMBOLS,
@@ -374,11 +380,11 @@ const FeedRow = memo(function FeedRow({
       {/* Pair */}
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="font-medium truncate text-xs">
-          {item.tokenIn?.symbol ?? "?"}
+          {displaySymbol(item.tokenIn?.symbol)}
         </span>
         <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
         <span className="font-medium truncate text-xs">
-          {item.tokenOut?.symbol ?? "?"}
+          {displaySymbol(item.tokenOut?.symbol)}
         </span>
       </div>
 
@@ -398,7 +404,7 @@ const FeedRow = memo(function FeedRow({
         )}
         {" "}
         <span className="text-muted-foreground">
-          {isExactIn ? item.tokenIn?.symbol : item.tokenOut?.symbol}
+          {displaySymbol(isExactIn ? item.tokenIn?.symbol : item.tokenOut?.symbol)}
         </span>
         {notionalUsd != null && (
           <div className="text-[10px] text-muted-foreground">
@@ -456,10 +462,14 @@ function RelativeTime({ createdAt }: { createdAt: string }) {
   }, [createdAt]);
 
   const created = new Date(createdAt);
-  const diffSec = Math.floor((Date.now() - created.getTime()) / 1000);
+  const rawDiff = Math.floor((Date.now() - created.getTime()) / 1000);
+  // Clamp: if the timestamp is in the future (negative diff), show "just now"
+  const diffSec = Math.max(0, rawDiff);
 
   let display: string;
-  if (diffSec < 60) {
+  if (diffSec < 5) {
+    display = "just now";
+  } else if (diffSec < 60) {
     display = `${diffSec}s ago`;
   } else if (diffSec < 3600) {
     display = `${Math.floor(diffSec / 60)}m ago`;

@@ -25,8 +25,10 @@ const ROOT = resolve(__dirname, "..");
 const isProd = process.env.NODE_ENV === "production";
 
 // ── Default values for local development ────────────────────────────────────
+const ANVIL_CONTRACT = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
 const DEV_DEFAULTS = {
-  NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS: "0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017",
   NEXT_PUBLIC_OPTIONS_ENGINE_ADDRESS: "0x0000000000000000000000000000000000000000",
   NEXT_PUBLIC_RELAY_WS_URL: "ws://127.0.0.1:8080",
   NEXT_PUBLIC_TERMINAL_API_URL: "http://127.0.0.1:4200",
@@ -189,7 +191,18 @@ for (const rec of RECOMMENDED) {
   }
 }
 
-// 4. Summary
+// 4. Anvil-on-mainnet guard — prevents accidentally pointing to Anvil contract on HyperEVM
+const configuredContract = process.env.NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS;
+const configuredChainId = process.env.NEXT_PUBLIC_CHAIN_ID;
+if (configuredContract?.toLowerCase() === ANVIL_CONTRACT.toLowerCase() && configuredChainId && configuredChainId !== "31337") {
+  log(RED, "FAIL", `NEXT_PUBLIC_SPOT_RFQ_CONTRACT_ADDRESS is set to LOCAL ANVIL address (${ANVIL_CONTRACT.slice(0,10)}...)`);
+  log(RED, "    ", `but NEXT_PUBLIC_CHAIN_ID=${configuredChainId} (not local Anvil 31337)`);
+  log(RED, "    ", `This will send transactions to a non-contract address on mainnet!`);
+  log(DIM, "    ", `Use production address: 0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017`);
+  errors++;
+}
+
+// 5. Summary
 console.log(`${DIM}${"─".repeat(50)}${RESET}`);
 
 if (errors > 0) {

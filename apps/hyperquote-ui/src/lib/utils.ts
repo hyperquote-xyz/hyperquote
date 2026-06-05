@@ -16,12 +16,17 @@ export function stripControls(s: string): string {
   return s.replace(/[\u0000-\u001F\u007F]/g, "").trim();
 }
 
-/** Safe token symbol: always returns a non-empty string. */
+/**
+ * Safe token symbol: always returns a non-empty string.
+ * Normalizes WHYPE → HYPE for user-facing display (WHYPE is the ERC-20
+ * wrapper for native HYPE — users should never see "WHYPE").
+ */
 export function safeSymbol(
   token: Pick<Token, "symbol"> | null | undefined
 ): string {
   const raw = stripControls(token?.symbol ?? "");
-  return raw.length > 0 ? raw : "UNKNOWN";
+  const sym = raw.length > 0 ? raw : "UNKNOWN";
+  return sym === "WHYPE" ? "HYPE" : sym;
 }
 
 /** Safe token name: falls back to symbol, then "Unknown". */

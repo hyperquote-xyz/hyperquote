@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { SwapInterface } from "@/components/SwapInterface";
+import { SwapProduction } from "@/components/swap-v2/SwapProduction";
 import { getTokenByAddress } from "@/config/tokens";
 import { toast } from "@/components/ui/use-toast";
 
@@ -38,11 +38,10 @@ function SwapContent() {
     }
   }, [tokenInParam, tokenOutParam]);
 
-  // Build valid params — only pass tokens that actually resolve
   const validTokenIn = tokenInParam && tokenInParam.startsWith("0x") && getTokenByAddress(tokenInParam)
     ? tokenInParam
     : tokenInParam && !tokenInParam.startsWith("0x")
-      ? tokenInParam // symbol-based params pass through
+      ? tokenInParam
       : undefined;
 
   const validTokenOut = tokenOutParam && tokenOutParam.startsWith("0x") && getTokenByAddress(tokenOutParam)
@@ -61,18 +60,12 @@ function SwapContent() {
 
   const hasParams = Object.values(initialParams).some(Boolean);
 
-  return <SwapInterface initialParams={hasParams ? initialParams : undefined} />;
+  return <SwapProduction initialParams={hasParams ? initialParams : undefined} />;
 }
 
 export default function SwapPage() {
   return (
-    <div className="container mx-auto px-4 py-8 md:py-12">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold mb-2">RFQ Swap</h1>
-        <p className="text-muted-foreground">
-          Request quotes from liquidity providers and execute atomic swaps on HyperEVM.
-        </p>
-      </div>
+    <div className="container mx-auto px-4 py-6 md:py-10">
       <Suspense fallback={null}>
         <SwapContent />
       </Suspense>

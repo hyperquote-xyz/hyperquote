@@ -116,7 +116,7 @@ export function Header() {
             href="/swap"
             className="text-sm font-medium text-foreground/90 hover:text-foreground transition-colors"
           >
-            RFQ Swap
+            Swap
           </Link>
           <Link
             href="/feed"

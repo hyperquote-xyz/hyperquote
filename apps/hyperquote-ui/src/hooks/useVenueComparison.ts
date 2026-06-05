@@ -133,6 +133,10 @@ export function useVenueComparison(
               res.dex.ok === false && res.dex.reason === "transient_failure"
                 ? (prev.dex ?? res.dex)
                 : res.dex,
+            ht:
+              res.ht.ok === false && res.ht.reason === "transient_failure"
+                ? (prev.ht ?? res.ht)
+                : res.ht,
             midRef: res.midRef ?? prev.midRef,
             timingMs: res.timingMs,
           };

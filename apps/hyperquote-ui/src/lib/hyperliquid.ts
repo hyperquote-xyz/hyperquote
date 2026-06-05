@@ -1,5 +1,6 @@
 import { AMMEstimate, Token } from "@/types";
 import { ALL_TOKENS } from "@/config/tokens";
+import { APPROVED_TOKEN_MAP } from "@/config/approvedTokens";
 
 // ---------------------------------------------------------------------------
 // USD price oracle — stable detection + Hyperliquid mid-price fallback
@@ -93,9 +94,33 @@ const SYMBOL_TO_HL_COIN: Record<string, string> = Object.fromEntries(
 /**
  * Map a HyperEVM token to a Hyperliquid spot coin name.
  * Returns null if the token has no HL spot market.
+ *
+ * Resolution order:
+ * 1. APPROVED_TOKEN_MAP (launch tokens — manually verified USDC-pair coins)
+ * 2. ALL_TOKENS (spotMeta-derived — may point to USDH pairs with no liquidity)
+ * 3. WHYPE → HYPE mapping
+ *
+ * IMPORTANT: Approved tokens take priority because spotMeta maps some tokens
+ * to USDH pairs (e.g. KNTQ→@254, kHYPE→@250) which have no orderbook.
+ * The approved config has the correct USDC-pair coins (@334, @336).
  */
 export function tokenToHLCoin(token: Token): string | null {
-  return SYMBOL_TO_HL_COIN[token.symbol] ?? null;
+  // WHYPE → HYPE: settlement token maps to HYPE's HL coin
+  if (token.symbol === "WHYPE") {
+    return APPROVED_TOKEN_MAP.get("HYPE")?.hyperliquidCoin
+      ?? SYMBOL_TO_HL_COIN["HYPE"]
+      ?? null;
+  }
+
+  // Primary: approved token config (manually verified, USDC-pair coins with liquidity)
+  const approved = APPROVED_TOKEN_MAP.get(token.symbol.toUpperCase());
+  if (approved?.hyperliquidCoin) return approved.hyperliquidCoin;
+
+  // Fallback: ALL_TOKENS spotMeta map
+  const fromAll = SYMBOL_TO_HL_COIN[token.symbol];
+  if (fromAll) return fromAll;
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------

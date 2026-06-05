@@ -24,6 +24,8 @@ import {
   type HypercoreEstimateResult,
 } from "@/lib/hyperliquid";
 import { resolveSettlementToken } from "@/lib/native-wrap";
+import { quotePrjxRoute, type PrjxRouteResult } from "@/lib/prjxQuoter";
+import { fetchHtQuote } from "@/lib/reference-engine/ht";
 
 // ---------------------------------------------------------------------------
 // Failure reasons — structured, never just "Unavailable"
@@ -82,6 +84,8 @@ export type VenueResult = VenueSuccess | VenuePartial | VenueFailure;
 export interface VenueComparisonResult {
   hypercore: VenueResult;
   dex: VenueResult;
+  /** HT R1 aggregator result (7+ DEXs) */
+  ht: VenueResult;
   midRef: MidPriceRef | null;
   /** Total wall-clock time for the entire parallel fetch (ms) */
   timingMs: number;
@@ -394,6 +398,46 @@ async function searchHtxyzMaxFill(
 }
 
 // ---------------------------------------------------------------------------
+// PRJX DEX quote — on-chain QuoterV2 (replaces HT.xyz for launch)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a real DEX quote from PRJX on-chain pools via QuoterV2.
+ * Returns AMMEstimate or null (matching the HT.xyz interface).
+ *
+ * Uses automatic routing: direct → via USDC → via WHYPE.
+ */
+async function fetchPrjxQuote(
+  tokenIn: Token,
+  tokenOut: Token,
+  amountIn: bigint,
+  signal?: AbortSignal,
+): Promise<AMMEstimate | null> {
+  // Calculate ideal output from mid-price for slippage computation
+  const priceIn = await getUsdPrice(tokenIn);
+  const priceOut = await getUsdPrice(tokenOut);
+  const normalizedIn = Number(amountIn) / 10 ** tokenIn.decimals;
+  const idealOutputTokens = priceIn && priceOut && priceOut > 0
+    ? (normalizedIn * priceIn) / priceOut
+    : 0;
+
+  const result = await quotePrjxRoute(tokenIn, tokenOut, amountIn, idealOutputTokens, signal);
+
+  if (result.status === "no_pool" || result.amountOut === 0n) return null;
+
+  return {
+    source: "PRJX DEX",
+    amountOut: result.amountOut,
+    priceImpact: result.slippagePct,
+    effectivePrice: normalizedIn > 0 ? result.amountOutHuman / normalizedIn : undefined,
+    poolLiquidity: 0n,
+    route: result.route,
+    isDirect: result.isDirect,
+    hops: result.isDirect ? 1 : 2,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Shared UI text — maps failure reason → user-facing explanation
 // ---------------------------------------------------------------------------
 
@@ -477,26 +521,27 @@ export async function estimateVenues(
   // Early: abort
   if (signal?.aborted) {
     const aborted: VenueFailure = { ok: false, reason: "aborted", routeLabel: fallbackRoute };
-    return { hypercore: aborted, dex: aborted, midRef: null, timingMs: 0 };
+    return { hypercore: aborted, dex: aborted, ht: aborted, midRef: null, timingMs: 0 };
   }
 
   // Early: no amount
   if (amountIn <= 0n) {
     const empty: VenueFailure = { ok: false, reason: "unsupported_pair", routeLabel: fallbackRoute };
-    return { hypercore: empty, dex: empty, midRef: null, timingMs: 0 };
+    return { hypercore: empty, dex: empty, ht: empty, midRef: null, timingMs: 0 };
   }
 
-  // ----- Parallel fetch: HyperCore (rich), DEX, Mid-Price -----
-  const [hlSettled, dexSettled, midSettled] = await Promise.allSettled([
+  // ----- Parallel fetch: HyperCore, PRJX, HT R1, Mid-Price -----
+  const [hlSettled, dexSettled, htSettled, midSettled] = await Promise.allSettled([
     withRetry(() => estimateHypercoreRich(tokenIn, tokenOut, amountIn), signal),
-    withRetry(() => fetchHtxyzQuote(tokenIn, tokenOut, amountIn, signal), signal),
+    withRetry(() => fetchPrjxQuote(tokenIn, tokenOut, amountIn, signal), signal),
+    withRetry(() => fetchHtQuote(tokenIn, tokenOut, amountIn, signal), signal),
     getMidPriceRef(tokenIn, tokenOut, amountIn, amountOut).catch(() => null),
   ]);
 
   // Check abort after await
   if (signal?.aborted) {
     const aborted: VenueFailure = { ok: false, reason: "aborted", routeLabel: fallbackRoute };
-    return { hypercore: aborted, dex: aborted, midRef: null, timingMs: performance.now() - t0 };
+    return { hypercore: aborted, dex: aborted, ht: aborted, midRef: null, timingMs: performance.now() - t0 };
   }
 
   const midRef = midSettled.status === "fulfilled" ? midSettled.value : null;
@@ -598,59 +643,33 @@ export async function estimateVenues(
       routeLabel: fallbackRoute,
     };
   } else {
-    // Full quote returned null → try multi-hop → binary search → no_dex_route
-    if (!signal?.aborted) {
-      // Step 1: Try multi-hop routing through liquid intermediates
-      const multiHop = await fetchHtxyzMultiHopQuote(tokenIn, tokenOut, amountIn, signal);
-      if (multiHop) {
-        const slippageVsMid =
-          midRef && midRef.referenceOut > 0n
-            ? impactExactIn(midRef.referenceOut, multiHop.amountOut)
-            : null;
-        dex = {
-          ok: true,
-          estimate: multiHop,
-          routeLabel: buildRouteLabel(tokenIn, tokenOut, multiHop.route),
-          slippageVsMid,
-        };
-      } else {
-        // Step 2: Try binary search for partial fill on direct route
-        const partialSearch = await searchHtxyzMaxFill(tokenIn, tokenOut, amountIn, signal);
-        if (partialSearch) {
-          // Scale mid-price reference to the filled portion (same fix as HC partials)
-          const scaledRef = midRef && midRef.referenceOut > 0n
-            ? BigInt(Math.round(Number(midRef.referenceOut) * partialSearch.filledPct))
-            : 0n;
-          const slippageVsMid = scaledRef > 0n && partialSearch.estimate.amountOut > 0n
-            ? impactExactIn(scaledRef, partialSearch.estimate.amountOut)
-            : null;
-          dex = {
-            ok: "partial",
-            filledPct: partialSearch.filledPct,
-            filledIn: partialSearch.amountIn,
-            filledOut: partialSearch.estimate.amountOut,
-            remainingIn: amountIn - partialSearch.amountIn,
-            avgPrice: partialSearch.estimate.effectivePrice ?? 0,
-            slippagePct: slippageVsMid ?? 0,
-            slippageVsMid,
-            routeLabel: buildRouteLabel(tokenIn, tokenOut, partialSearch.estimate.route),
-            reason: "insufficient_liquidity",
-          };
-        } else {
-          dex = {
-            ok: false,
-            reason: "no_dex_route",
-            routeLabel: fallbackRoute,
-          };
-        }
-      }
-    } else {
-      dex = {
-        ok: false,
-        reason: "aborted",
-        routeLabel: fallbackRoute,
-      };
-    }
+    // PRJX quoter already handles multi-hop (via USDC, via WHYPE) internally.
+    // If it returned null, there is genuinely no viable DEX route.
+    dex = {
+      ok: false,
+      reason: signal?.aborted ? "aborted" : "no_dex_route",
+      routeLabel: fallbackRoute,
+    };
+  }
+
+  // ----- Post-process HT R1 -----
+  let ht: VenueResult;
+  if (htSettled.status === "fulfilled" && htSettled.value != null) {
+    const est = htSettled.value;
+    const slippageVsMid =
+      midRef && midRef.referenceOut > 0n
+        ? impactExactIn(midRef.referenceOut, est.amountOut)
+        : null;
+    ht = {
+      ok: true,
+      estimate: est,
+      routeLabel: buildRouteLabel(tokenIn, tokenOut, est.route),
+      slippageVsMid,
+    };
+  } else if (htSettled.status === "rejected") {
+    ht = { ok: false, reason: "transient_failure", routeLabel: fallbackRoute };
+  } else {
+    ht = { ok: false, reason: "no_dex_route", routeLabel: fallbackRoute };
   }
 
   const timingMs = performance.now() - t0;
@@ -658,6 +677,7 @@ export async function estimateVenues(
   // ----- Dev logging -----
   devLog("hypercore", hypercore, hlTimingMs, params);
   devLog("dex", dex, timingMs, params);
+  devLog("ht", ht, timingMs, params);
 
-  return { hypercore, dex, midRef, timingMs };
+  return { hypercore, dex, ht, midRef, timingMs };
 }

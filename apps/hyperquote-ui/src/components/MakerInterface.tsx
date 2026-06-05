@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -49,6 +49,40 @@ export function MakerInterface() {
   const [quotesHistory, setQuotesHistory] = useState<
     Array<{ quote: RFQQuote; status: "signed" | "sent" | "filled" }>
   >([]);
+
+  // Fetch persisted quotes from database on mount
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/v1/maker/quotes?wallet=${address}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.items && data.items.length > 0) {
+          const persisted = data.items.map((q: any) => ({
+            quote: {
+              maker: q.maker,
+              taker: "0x0000000000000000000000000000000000000000",
+              tokenIn: q.tokenIn?.address ?? "",
+              tokenOut: q.tokenOut?.address ?? "",
+              amountIn: BigInt(q.amountIn ?? "0"),
+              amountOut: BigInt(q.amountOut ?? "0"),
+              expiry: q.expiry,
+              nonce: BigInt(0),
+              kind: q.kind,
+              signature: q.signature,
+              requestId: q.rfqId,
+            },
+            status: q.rfqStatus === "FILLED" ? "filled" as const : q.rfqStatus === "EXPIRED" || q.rfqStatus === "KILLED" ? "signed" as const : "sent" as const,
+          }));
+          setQuotesHistory((prev) => {
+            // Merge: keep session quotes, add DB quotes that aren't duplicates
+            const sigs = new Set(prev.map((p) => p.quote.signature));
+            const newItems = persisted.filter((p: any) => !sigs.has(p.quote.signature));
+            return [...prev, ...newItems];
+          });
+        }
+      })
+      .catch(() => {}); // graceful degradation
+  }, [address]);
 
   // Merged requests: relay live + imported
   const allRequests = [...liveRequests, ...importedRequests];

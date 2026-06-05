@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 // SheetHeader/Title/Description are provided by the parent (FeedTable) for
 // Radix Dialog accessibility. This component renders a visual-only header.
 import { Badge } from "@/components/ui/badge";
@@ -24,11 +24,15 @@ import {
   MessageSquare,
   BarChart3,
   RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+
+/** Normalize WHYPE → HYPE for user-facing display */
+const ds = (sym: string | undefined): string => sym === "WHYPE" ? "HYPE" : (sym ?? "?");
 import { TakerBadge } from "@/components/TakerBadge";
 import type { FeedRfqItem } from "@/hooks/useFeedStream";
-import type { AMMEstimate, RFQQuoteJSON, Token } from "@/types";
+import type { AMMEstimate, RFQQuote, RFQQuoteJSON, Token } from "@/types";
 import { MOCK_MODE } from "@/lib/mockMode";
 import { ALL_TOKENS } from "@/config/tokens";
 import { useAccount } from "wagmi";
@@ -36,6 +40,10 @@ import { STATUS_BADGE } from "./constants";
 import { FeedQuotePanel } from "./FeedQuotePanel";
 import { useVenueComparison } from "@/hooks/useVenueComparison";
 import { type VenueComparisonResult, type VenuePartial, venueFailureText } from "@/lib/venueComparison";
+import { useTakerRFQ } from "@/hooks/useRFQ";
+import { ConfirmSwapModal } from "@/components/swap-v2/ConfirmSwapModal";
+import { resolveSettlementToken } from "@/lib/native-wrap";
+import { getTokenByAddress } from "@/config/tokens";
 
 /** Cast FeedRfqItem token info → full Token for venue estimate functions.
  *  Looks up ALL_TOKENS first so fields like `hyperliquidCoin` are available
@@ -92,9 +100,11 @@ export function RfqDetailDrawer({
   // Venue comparison — unified service
   const feedTokenIn = item.tokenIn ? asFeedToken(item.tokenIn) : null;
   const feedTokenOut = item.tokenOut ? asFeedToken(item.tokenOut) : null;
-  const rawAmountIn = isExactIn ? item.amountIn : item.amountOut;
-  const venueAmountStr = rawAmountIn && feedTokenIn
-    ? formatAmount(BigInt(rawAmountIn), feedTokenIn.decimals, 18)
+  // For exact-in, venue comparison uses the known amountIn.
+  // For exact-out, amountIn is unknown (only amountOut is fixed), so we can't
+  // meaningfully estimate venue prices — pass empty to disable the fetch.
+  const venueAmountStr = isExactIn && item.amountIn && feedTokenIn
+    ? formatAmount(BigInt(item.amountIn), feedTokenIn.decimals, 18)
     : "";
   const {
     result: venueResult,
@@ -198,15 +208,86 @@ export function RfqDetailDrawer({
       )
     : [];
 
+  // ── Taker execution (inline from drawer) ──
+  const {
+    fillQuote: takerFillQuote,
+    approveToken: takerApproveToken,
+    checkAllowance: takerCheckAllowance,
+    txState: takerTxState,
+    feePips: takerFeePips,
+    importQuoteJSON: takerImportQuoteJSON,
+  } = useTakerRFQ();
+
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [drawerNeedsApproval, setDrawerNeedsApproval] = useState(false);
+  const [bestQuoteForExecution, setBestQuoteForExecution] = useState<RFQQuote | null>(null);
+
+  // Derive best amountOut from quotes for the "Receives" display header.
+  // Not gated on role — the header is always visible.
+  const bestQuoteAmountOut: string | null = useMemo(() => {
+    if (quotes.items.length === 0) return null;
+    const amounts = quotes.items
+      .map((q) => { try { return BigInt(q.amountOut); } catch { return 0n; } })
+      .filter((a) => a > 0n);
+    if (amounts.length === 0) return null;
+    return amounts.reduce((a, b) => (a > b ? a : b)).toString();
+  }, [quotes.items]);
+
+  // Derive best quote from sorted quotes list
+  const bestQuote: RFQQuote | null = useMemo(() => {
+    if (!isTaker || quotes.items.length === 0) return null;
+    const sorted = [...quotes.items].sort((a, b) => {
+      try {
+        if (item.kind === 0) return Number(BigInt(b.amountOut) - BigInt(a.amountOut));
+        return Number(BigInt(a.amountIn) - BigInt(b.amountIn));
+      } catch { return 0; }
+    });
+    const best = sorted[0];
+    if (!best) return null;
+    return {
+      kind: best.kind,
+      maker: best.maker as `0x${string}`,
+      taker: best.taker as `0x${string}`,
+      tokenIn: best.tokenIn as `0x${string}`,
+      tokenOut: best.tokenOut as `0x${string}`,
+      amountIn: BigInt(best.amountIn),
+      amountOut: BigInt(best.amountOut),
+      expiry: best.expiry,
+      nonce: BigInt(best.nonce),
+      signature: best.signature as `0x${string}`,
+      requestId: best.requestId,
+      createdAt: best.createdAt,
+    };
+  }, [isTaker, quotes.items, item.kind]);
+
+  // Handlers for the confirmation modal
+  const handleDrawerConfirmExecute = useCallback(async () => {
+    if (!bestQuoteForExecution) return;
+    const constraint = bestQuoteForExecution.amountOut; // minOut for EXACT_IN
+    await takerFillQuote(bestQuoteForExecution, constraint);
+  }, [bestQuoteForExecution, takerFillQuote]);
+
+  const handleDrawerApprove = useCallback(async () => {
+    if (!bestQuoteForExecution) return;
+    const tokenInMeta = getTokenByAddress(bestQuoteForExecution.tokenIn);
+    if (!tokenInMeta) return;
+    const settlement = resolveSettlementToken(tokenInMeta);
+    const ok = await takerApproveToken(
+      settlement.address as `0x${string}`,
+      bestQuoteForExecution.amountIn,
+    );
+    if (ok) setDrawerNeedsApproval(false);
+  }, [bestQuoteForExecution, takerApproveToken]);
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* ── Section 1: Summary Header ─────────────────────────────────── */}
       <div className="flex flex-col space-y-1.5 text-left">
         <h2 className="text-lg font-semibold flex items-center gap-2 flex-wrap">
-          <span>{item.tokenIn?.symbol ?? "?"}</span>
+          <span>{ds(item.tokenIn?.symbol)}</span>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
-          <span>{item.tokenOut?.symbol ?? "?"}</span>
+          <span>{ds(item.tokenOut?.symbol)}</span>
           <Badge
             variant={statusCfg.variant}
             className={cn("text-xs", statusCfg.className)}
@@ -242,7 +323,7 @@ export function RfqDetailDrawer({
                 item.amountIn,
                 item.tokenIn?.decimals ?? 18,
               )}{" "}
-              {item.tokenIn?.symbol ?? "?"}
+              {ds(item.tokenIn?.symbol)}
             </div>
           </div>
           <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -251,11 +332,20 @@ export function RfqDetailDrawer({
               {isExactIn ? "Receives" : "Receives (Fixed)"}
             </div>
             <div className="font-mono text-sm font-medium truncate">
-              {safeFormatTokenAmount(
-                item.amountOut,
-                item.tokenOut?.decimals ?? 18,
-              )}{" "}
-              {item.tokenOut?.symbol ?? "?"}
+              {(() => {
+                if (!isExactIn) {
+                  // Exact Out: amountOut is the fixed/known amount
+                  return `${safeFormatTokenAmount(item.amountOut, item.tokenOut?.decimals ?? 18)} ${ds(item.tokenOut?.symbol)}`;
+                }
+                // Exact In: amountOut is unknown until quoted/filled
+                if (item.status === "FILLED" && bestQuoteAmountOut) {
+                  return `${safeFormatTokenAmount(bestQuoteAmountOut, item.tokenOut?.decimals ?? 18)} ${ds(item.tokenOut?.symbol)}`;
+                }
+                if ((item.status === "QUOTED" || item.status === "OPEN") && bestQuoteAmountOut) {
+                  return `~${safeFormatTokenAmount(bestQuoteAmountOut, item.tokenOut?.decimals ?? 18)} ${ds(item.tokenOut?.symbol)}`;
+                }
+                return `— ${ds(item.tokenOut?.symbol)}`;
+              })()}
             </div>
           </div>
         </div>
@@ -341,9 +431,43 @@ export function RfqDetailDrawer({
             </div>
           ) : (
             <div className="space-y-2">
-              {quotes.items.map((q, i) => (
-                <QuoteCard key={i} quote={q} item={item} />
-              ))}
+              {[...quotes.items]
+                .sort((a, b) => {
+                  // Exact In: best = highest amountOut; Exact Out: best = lowest amountIn
+                  try {
+                    if (item.kind === 0) return Number(BigInt(b.amountOut) - BigInt(a.amountOut));
+                    return Number(BigInt(a.amountIn) - BigInt(b.amountIn));
+                  } catch { return 0; }
+                })
+                .map((q, i) => (
+                  <QuoteCard key={i} quote={q} item={item} isBest={i === 0 && quotes.items.length > 1} />
+                ))}
+
+              {/* Accept Best Quote button — only for taker with active quotes */}
+              {bestQuote && !isExpired && item.status !== "FILLED" && item.status !== "KILLED" && (
+                <Button
+                  variant="success"
+                  size="sm"
+                  className="w-full gap-1.5 mt-3"
+                  onClick={async () => {
+                    setBestQuoteForExecution(bestQuote);
+                    // Check allowance
+                    const tokenInMeta = getTokenByAddress(bestQuote.tokenIn);
+                    if (tokenInMeta) {
+                      const settlement = resolveSettlementToken(tokenInMeta);
+                      const hasAllowance = await takerCheckAllowance(
+                        settlement.address as `0x${string}`,
+                        bestQuote.amountIn,
+                      );
+                      setDrawerNeedsApproval(!hasAllowance);
+                    }
+                    setConfirmModalOpen(true);
+                  }}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Accept Best Quote — {safeFormatTokenAmount(bestQuote.amountOut.toString(), item.tokenOut?.decimals ?? 18)} {ds(item.tokenOut?.symbol)}
+                </Button>
+              )}
             </div>
           )
         ) : (
@@ -470,6 +594,25 @@ export function RfqDetailDrawer({
           />
         </div>
       </div>
+
+      {/* Execution confirmation modal */}
+      {isTaker && (
+        <ConfirmSwapModal
+          open={confirmModalOpen}
+          onClose={() => setConfirmModalOpen(false)}
+          onConfirm={handleDrawerConfirmExecute}
+          quote={bestQuoteForExecution}
+          tokenIn={item.tokenIn ? { symbol: item.tokenIn.symbol, decimals: item.tokenIn.decimals ?? 18, address: item.tokenIn.address } : null}
+          tokenOut={item.tokenOut ? { symbol: item.tokenOut.symbol, decimals: item.tokenOut.decimals ?? 18, address: item.tokenOut.address } : null}
+          amountInUsd={null}
+          amountOutUsd={null}
+          publicBestAmount={bestVenueAmountOut ? formatAmount(BigInt(bestVenueAmountOut), item.tokenOut?.decimals ?? 18) : null}
+          feePips={takerFeePips}
+          txState={takerTxState}
+          needsApproval={drawerNeedsApproval}
+          onApprove={handleDrawerApprove}
+        />
+      )}
     </div>
   );
 }
@@ -481,14 +624,22 @@ export function RfqDetailDrawer({
 function QuoteCard({
   quote,
   item,
+  isBest = false,
 }: {
   quote: RFQQuoteJSON;
   item: FeedRfqItem;
+  isBest?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-muted/10 p-2.5 text-xs space-y-1">
+    <div className={cn(
+      "rounded-lg border p-2.5 text-xs space-y-1",
+      isBest ? "border-emerald-500/60 bg-emerald-500/5" : "border-border/50 bg-muted/10",
+    )}>
       <div className="flex justify-between">
-        <span className="text-muted-foreground">Maker</span>
+        <span className="text-muted-foreground flex items-center gap-1.5">
+          Maker
+          {isBest && <span className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0 rounded">BEST</span>}
+        </span>
         <span className="font-mono">
           {formatAddress(quote.maker as `0x${string}`, 4)}
         </span>
@@ -500,7 +651,7 @@ function QuoteCard({
             quote.amountOut,
             item.tokenOut?.decimals ?? 18,
           )}{" "}
-          {item.tokenOut?.symbol}
+          {ds(item.tokenOut?.symbol)}
         </span>
       </div>
       {quote.expiry && (
