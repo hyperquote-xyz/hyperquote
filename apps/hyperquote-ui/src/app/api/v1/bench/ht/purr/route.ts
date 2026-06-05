@@ -1,5 +1,5 @@
 /**
- * HT.xyz HYPE Benchmark — EVM-only Swap Quote
+ * HT.xyz PURR Benchmark — EVM-only Swap Quote
  *
  * GET /api/v1/bench/ht/purr
  *
@@ -8,7 +8,7 @@
  *
  * 100,000 USDC → PURR.
  *   USDC has 6 decimals → raw input = 100000 * 10^6 = "100000000000"
- *   PURR has 18 decimals → outAmount is in wei, divide by 10^18.
+ *   Response toAmount is human-readable (not wei).
  *
  * 10s in-memory cache. 10s timeout.
  */
@@ -19,7 +19,7 @@ import { NextResponse } from "next/server";
 // Types
 // ---------------------------------------------------------------------------
 
-interface HTHypeResponse {
+interface HTPurrResponse {
   evmOut: number | null;
   routeLabel: string | null;
   updatedAt: number;
@@ -38,19 +38,19 @@ const CACHE_TTL_MS = 10_000;
 const INPUT_AMOUNT = "100000000000";
 const USDC_ADDRESS = "0xb88339cb7199b77e23db6e890353e22632ba630f";
 const PURR_ADDRESS = "0x9b498c3c8a0b8cd8ba1d9851d40d186f1872b44e";
-const SLIPPAGE_BPS = 50; // 0.5%
+const DUMMY_RECEIVER = "0x0000000000000000000000000000000000000001";
 
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
 
-let cached: { data: HTHypeResponse; fetchedAt: number } | null = null;
+let cached: { data: HTPurrResponse; fetchedAt: number } | null = null;
 
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-export async function GET(): Promise<NextResponse<HTHypeResponse>> {
+export async function GET(): Promise<NextResponse<HTPurrResponse>> {
   const now = Date.now();
 
   // Serve from cache if fresh
@@ -63,10 +63,12 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
 
   try {
     const params = new URLSearchParams({
-      inputMint: USDC_ADDRESS,
-      outputMint: PURR_ADDRESS,
+      src: USDC_ADDRESS,
+      dst: PURR_ADDRESS,
       amount: INPUT_AMOUNT,
-      slippageBps: String(SLIPPAGE_BPS),
+      slippage: "0.3",
+      receiver: DUMMY_RECEIVER,
+      includeHyperCore: "false",
     });
 
     const res = await fetch(`${HT_QUOTE_URL}?${params.toString()}`, {
@@ -82,23 +84,21 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const json: any = await res.json();
-    const data = json.body ?? json;
 
-    if (data.outAmount == null) {
-      throw new Error("No outAmount in HT.xyz quote response");
+    if (json.error || !json.toAmount) {
+      throw new Error(json.error ?? "No toAmount in HT.xyz response");
     }
 
-    // outAmount is in PURR wei (18 decimals) — convert to human-readable
-    const outAmountRaw = BigInt(data.outAmount);
-    const evmOut = Number(outAmountRaw) / 1e18;
+    // toAmount is human-readable (e.g. "952380.95")
+    const evmOut = parseFloat(json.toAmount);
 
     if (isNaN(evmOut) || evmOut <= 0) {
-      throw new Error("Invalid outAmount from HT.xyz quote");
+      throw new Error("Invalid toAmount from HT.xyz quote");
     }
 
     const routeLabel = "USDC → PURR";
 
-    const result: HTHypeResponse = {
+    const result: HTPurrResponse = {
       evmOut,
       routeLabel,
       updatedAt: now,
@@ -117,7 +117,7 @@ export async function GET(): Promise<NextResponse<HTHypeResponse>> {
 
     console.warn("[bench/ht/purr] Error:", message);
 
-    const result: HTHypeResponse = {
+    const result: HTPurrResponse = {
       evmOut: null,
       routeLabel: null,
       updatedAt: now,
