@@ -131,9 +131,19 @@ function loadConfig(): MakerConfig {
   const USDC = "0x0000000000000000000000000000000000000002";
   const USDH = "0x0000000000000000000000000000000000000003";
 
+  // Prefer an explicit key; only fall back to the well-known Anvil #1 key for
+  // the local demo (chainId 31337, non-production), with a loud warning.
+  let privateKey = process.env.MAKER_PRIVATE_KEY ?? "";
+  if (!privateKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("MAKER_PRIVATE_KEY is required in production. Refusing to start with the Anvil demo key.");
+    }
+    console.warn("⚠️  [main] MAKER_PRIVATE_KEY not set — using well-known Anvil #1 key. LOCAL DEMO ONLY. Never use on a live network.");
+    privateKey = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+  }
+
   return {
-    // Anvil account 1 (default maker)
-    privateKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    privateKey,
     chainId: 31337,
     engineAddress: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     allowedUnderlying: [WHYPE],

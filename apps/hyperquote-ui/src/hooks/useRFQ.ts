@@ -284,7 +284,7 @@ export function useTakerRFQ() {
    * - Prevents future quotes from being accepted for this RFQ
    */
   const cancelRFQ = useCallback(
-    (requestId: string) => {
+    async (requestId: string) => {
       const now = Math.floor(Date.now() / 1000);
       setTrackedRequests((prev) =>
         prev.map((t) =>
@@ -302,12 +302,22 @@ export function useTakerRFQ() {
         setTxState({ status: "idle" });
       }
 
-      // Notify server of cancellation (fire-and-forget)
-      fetch(`/api/v1/rfqs/${requestId}/cancel`, {
-        method: "POST",
-      }).catch((err) =>
-        console.warn("[HyperQuote] Failed to notify feed of cancel:", err)
-      );
+      // Notify server of cancellation — requires a taker wallet signature.
+      // The server recovers the signer and requires it to equal the RFQ taker.
+      try {
+        const { wagmiConfig } = await import("@/lib/wagmi");
+        const { signMessage } = await import("wagmi/actions");
+        const signature = await signMessage(wagmiConfig, {
+          message: `HyperQuote: cancel RFQ ${requestId}`,
+        });
+        await fetch(`/api/v1/rfqs/${requestId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ signature }),
+        });
+      } catch (err) {
+        console.warn("[HyperQuote] Failed to notify feed of cancel:", err);
+      }
     },
     [currentRequest]
   );

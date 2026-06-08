@@ -27,6 +27,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { computePoints } from "@/lib/points";
+import { verifyFillTransaction, allowUnverifiedFills } from "@/lib/onchainFill";
 
 interface FillBody {
   txHash: string;
@@ -53,41 +54,68 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate required fields
-  if (
-    !body.txHash ||
-    !body.taker ||
-    !body.maker ||
-    !body.tokenIn ||
-    !body.tokenOut ||
-    !body.amountIn ||
-    !body.amountOut ||
-    body.amountInUsd == null
-  ) {
+  // txHash and amountInUsd are always required.
+  if (!body.txHash || !/^0x[0-9a-fA-F]{64}$/.test(body.txHash)) {
     return NextResponse.json(
-      { error: "Missing required fields: txHash, taker, maker, tokenIn, tokenOut, amountIn, amountOut, amountInUsd" },
+      { error: "Missing or invalid txHash (expected 0x + 64 hex chars)" },
+      { status: 400 }
+    );
+  }
+  if (body.amountInUsd == null) {
+    return NextResponse.json(
+      { error: "Missing required field: amountInUsd" },
       { status: 400 }
     );
   }
 
-  // Validate addresses
-  if (!/^0x[0-9a-fA-F]{40}$/.test(body.taker) || !/^0x[0-9a-fA-F]{40}$/.test(body.maker)) {
-    return NextResponse.json(
-      { error: "Invalid taker or maker address format" },
-      { status: 400 }
-    );
-  }
-
-  // Validate BigInt strings
+  // ── Resolve TRUSTED fill values ──────────────────────────────────────────
+  // In production we derive maker/taker/tokens/amounts from the on-chain
+  // QuoteFilled event so a client cannot spoof a fill or inflate amounts.
+  let makerAddr: string;
+  let takerAddr: string;
+  let tokenInAddr: string;
+  let tokenOutAddr: string;
+  let amountInStr: string;
+  let amountOutStr: string;
   let amountOut: bigint;
-  try {
-    BigInt(body.amountIn);
-    amountOut = BigInt(body.amountOut);
-  } catch {
-    return NextResponse.json(
-      { error: "amountIn and amountOut must be valid BigInt strings" },
-      { status: 400 }
-    );
+
+  if (allowUnverifiedFills()) {
+    // Local-dev simulation path only (never active in production).
+    console.warn("[fills] ALLOW_UNVERIFIED_FILLS active — trusting client values (dev only)");
+    if (!body.taker || !body.maker || !body.tokenIn || !body.tokenOut || !body.amountIn || !body.amountOut) {
+      return NextResponse.json({ error: "Missing fill fields (dev mode)" }, { status: 400 });
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(body.taker) || !/^0x[0-9a-fA-F]{40}$/.test(body.maker)) {
+      return NextResponse.json({ error: "Invalid taker or maker address format" }, { status: 400 });
+    }
+    try {
+      BigInt(body.amountIn);
+      amountOut = BigInt(body.amountOut);
+    } catch {
+      return NextResponse.json({ error: "amountIn and amountOut must be valid BigInt strings" }, { status: 400 });
+    }
+    makerAddr = body.maker.toLowerCase();
+    takerAddr = body.taker.toLowerCase();
+    tokenInAddr = body.tokenIn.toLowerCase();
+    tokenOutAddr = body.tokenOut.toLowerCase();
+    amountInStr = body.amountIn;
+    amountOutStr = body.amountOut;
+  } else {
+    // Production: require a verified on-chain QuoteFilled event.
+    const verified = await verifyFillTransaction(body.txHash);
+    if (!verified) {
+      return NextResponse.json(
+        { error: "Forbidden: txHash does not contain a valid QuoteFilled event from the RFQ contract." },
+        { status: 403 }
+      );
+    }
+    makerAddr = verified.maker;
+    takerAddr = verified.taker;
+    tokenInAddr = verified.tokenIn;
+    tokenOutAddr = verified.tokenOut;
+    amountInStr = verified.amountIn.toString();
+    amountOutStr = verified.amountOut.toString();
+    amountOut = verified.amountOut;
   }
 
   try {
@@ -112,8 +140,6 @@ export async function POST(request: NextRequest) {
       : 0;
 
     const amountInUsd = body.amountInUsd;
-    const makerAddr = body.maker.toLowerCase();
-    const takerAddr = body.taker.toLowerCase();
     const isPrivate = body.visibility === "private";
 
     // Compute points using v2 engine (no NFT boost at record time)
@@ -145,10 +171,10 @@ export async function POST(request: NextRequest) {
           rfqId: body.rfqId ?? null,
           taker: takerAddr,
           maker: makerAddr,
-          tokenIn: body.tokenIn.toLowerCase(),
-          tokenOut: body.tokenOut.toLowerCase(),
-          amountIn: body.amountIn,
-          amountOut: body.amountOut,
+          tokenIn: tokenInAddr,
+          tokenOut: tokenOutAddr,
+          amountIn: amountInStr,
+          amountOut: amountOutStr,
           amountInUsd,
           baselineOut: baselineOutStr,
           improvementBps,
@@ -162,10 +188,10 @@ export async function POST(request: NextRequest) {
           txHash: body.txHash.toLowerCase(),
           maker: makerAddr,
           taker: takerAddr,
-          tokenIn: body.tokenIn.toLowerCase(),
-          tokenOut: body.tokenOut.toLowerCase(),
-          amountIn: body.amountIn,
-          amountOut: body.amountOut,
+          tokenIn: tokenInAddr,
+          tokenOut: tokenOutAddr,
+          amountIn: amountInStr,
+          amountOut: amountOutStr,
           notionalUsd: amountInUsd > 0 ? amountInUsd : null,
           isPrivate,
           benchmarkSource: benchmarkAvailable ? "sor" : null,

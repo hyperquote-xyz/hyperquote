@@ -57,6 +57,13 @@ const CRITICAL = [
     prodOnly: true,
   },
   {
+    name: "ADMIN_API_KEY",
+    help: "Admin key gating privileged SOR endpoints (>= 16 chars)",
+    validate: (v) => v.length >= 16,
+    validationMsg: "Must be at least 16 characters",
+    prodOnly: true,
+  },
+  {
     name: "NEXT_PUBLIC_APP_URL",
     help: "Public app URL (e.g. https://hyperquote.xyz)",
     validate: (v) => isUrl(v) && isNotLocalhost(v),
@@ -199,6 +206,13 @@ if (configuredContract?.toLowerCase() === ANVIL_CONTRACT.toLowerCase() && config
   log(RED, "    ", `but NEXT_PUBLIC_CHAIN_ID=${configuredChainId} (not local Anvil 31337)`);
   log(RED, "    ", `This will send transactions to a non-contract address on mainnet!`);
   log(DIM, "    ", `Use production address: 0x9A09592fc19F1e55FC36B8D9b47EBbc4B3207017`);
+  errors++;
+}
+
+// 4b. Refuse to build production with fill verification disabled.
+if (isProd && process.env.ALLOW_UNVERIFIED_FILLS === "true") {
+  log(RED, "FAIL", "ALLOW_UNVERIFIED_FILLS=true is not permitted in production");
+  log(DIM, "    ", "Fill records must be verified on-chain in production. Unset this flag.");
   errors++;
 }
 

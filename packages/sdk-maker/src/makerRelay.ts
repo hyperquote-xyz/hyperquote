@@ -28,17 +28,54 @@ import { RiskState, checkRisk, computeNotional } from "./risk.js";
 // Config
 // ---------------------------------------------------------------
 
+// Well-known Hardhat/Anvil account #1 key — LOCAL TEST ONLY, never funded on any live chain.
+const ANVIL_DEV_KEY =
+  "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
+/**
+ * Resolve the maker signing key.
+ *
+ * - If MAKER_PRIVATE_KEY is set, always use it.
+ * - Otherwise, the Anvil dev key is permitted ONLY when running against the
+ *   local Anvil chain (chainId 31337) AND not in production. A loud warning is
+ *   printed. In every other case startup HARD-FAILS — we never silently sign
+ *   with a well-known key on a live network.
+ */
+function resolveMakerPrivateKey(chainId: number): string {
+  const pk = process.env.MAKER_PRIVATE_KEY;
+  if (pk && pk.length > 0) return pk;
+
+  const isLocalChain = chainId === 31337;
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isLocalChain && !isProd) {
+    console.warn(
+      "\n⚠️  ============================================================\n" +
+        "⚠️  MAKER_PRIVATE_KEY not set — falling back to the well-known\n" +
+        "⚠️  Anvil account #1 key. LOCAL DEV ONLY (chainId 31337).\n" +
+        "⚠️  NEVER use this key on a live network — funds will be stolen.\n" +
+        "⚠️  ============================================================\n"
+    );
+    return ANVIL_DEV_KEY;
+  }
+
+  throw new Error(
+    `MAKER_PRIVATE_KEY is required (chainId=${chainId}, NODE_ENV=${process.env.NODE_ENV ?? "undefined"}). ` +
+      "Refusing to start: the Anvil dev key is only permitted on local chain 31337 in non-production. " +
+      "Set MAKER_PRIVATE_KEY to a real maker key."
+  );
+}
+
 function loadConfig(): MakerConfig {
   const WHYPE = process.env.WHYPE_ADDRESS ?? "0x0000000000000000000000000000000000000001";
   const USDC = process.env.USDC_ADDRESS ?? "0x0000000000000000000000000000000000000002";
   const USDH = process.env.USDH_ADDRESS ?? "0x0000000000000000000000000000000000000003";
 
+  const chainId = parseInt(process.env.CHAIN_ID ?? "31337");
+
   return {
-    // Anvil account 1
-    privateKey:
-      process.env.MAKER_PRIVATE_KEY ??
-      "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-    chainId: parseInt(process.env.CHAIN_ID ?? "31337"),
+    privateKey: resolveMakerPrivateKey(chainId),
+    chainId,
     engineAddress:
       process.env.ENGINE_ADDRESS ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     relayWsUrl: process.env.RELAY_WS_URL ?? "ws://127.0.0.1:8080",

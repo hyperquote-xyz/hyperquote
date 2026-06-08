@@ -13,8 +13,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scanAllProtocols } from "@/lib/router/scanner";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/adminAuth";
 
 export async function POST(req: NextRequest) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return auth.response;
   try {
     let body: { slugs?: string[]; fromBlock?: number } = {};
     try {

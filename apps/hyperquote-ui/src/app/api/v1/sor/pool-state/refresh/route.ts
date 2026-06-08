@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { batchRefreshStates } from "@/lib/router/state";
+import { requireAdmin } from "@/lib/adminAuth";
 
 // Serialiser for BigInt
 function serialise(obj: unknown): unknown {
@@ -27,6 +28,8 @@ function serialise(obj: unknown): unknown {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = requireAdmin(request);
+  if (!auth.ok) return auth.response;
   try {
     const body = await request.json().catch(() => ({}));
     const { slugs, forceRefresh, limit } = body as {

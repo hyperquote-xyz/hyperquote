@@ -10,8 +10,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { syncProtocolRegistry } from "@/lib/router/defillama";
+import { requireAdmin } from "@/lib/adminAuth";
 
 export async function POST(req: NextRequest) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return auth.response;
   try {
     let body: { includeVolume?: boolean; dryRun?: boolean } = {};
     try {

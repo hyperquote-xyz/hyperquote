@@ -189,8 +189,16 @@ export function RfqDetailDrawer({
 
     setCancelState("cancelling");
     try {
+      // Sign cancel authorization with the taker wallet.
+      const { wagmiConfig } = await import("@/lib/wagmi");
+      const { signMessage } = await import("wagmi/actions");
+      const signature = await signMessage(wagmiConfig, {
+        message: `HyperQuote: cancel RFQ ${item.id}`,
+      });
       const res = await fetch(`/api/v1/rfqs/${item.id}/cancel`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature }),
       });
       if (!res.ok) throw new Error("Cancel failed");
       setCancelState("cancelled");
