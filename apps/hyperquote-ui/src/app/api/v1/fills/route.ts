@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { computePoints } from "@/lib/points";
 import { verifyFillTransaction, allowUnverifiedFills } from "@/lib/onchainFill";
+import { resolveVerifiedNotionalUsd, logNotionalAudit } from "@/lib/notional";
 
 interface FillBody {
   txHash: string;
@@ -54,16 +55,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // txHash and amountInUsd are always required.
+  // Only txHash is required. amountInUsd from the client is IGNORED — the USD
+  // notional is always derived server-side (see resolveVerifiedNotionalUsd).
   if (!body.txHash || !/^0x[0-9a-fA-F]{64}$/.test(body.txHash)) {
     return NextResponse.json(
       { error: "Missing or invalid txHash (expected 0x + 64 hex chars)" },
-      { status: 400 }
-    );
-  }
-  if (body.amountInUsd == null) {
-    return NextResponse.json(
-      { error: "Missing required field: amountInUsd" },
       { status: 400 }
     );
   }
@@ -139,13 +135,24 @@ export async function POST(request: NextRequest) {
       ? Math.round((parseFloat(amountOut.toString()) / parseFloat(baselineOut!.toString()) - 1) * 10000)
       : 0;
 
-    const amountInUsd = body.amountInUsd;
     const isPrivate = body.visibility === "private";
 
-    // Compute points using v2 engine (no NFT boost at record time)
+    // ── Server-side USD notional (client amountInUsd is NEVER used) ──────────
+    const notional = await resolveVerifiedNotionalUsd({
+      rfqId: body.rfqId ?? null,
+      tokenInAddr,
+      tokenOutAddr,
+      amountInRaw: amountInStr,
+      amountOutRaw: amountOutStr,
+    });
+    logNotionalAudit("fills", body.rfqId, body.txHash, notional);
+    const verifiedUsd = notional.usd; // null when no trusted price was available
+    const usdForPoints = verifiedUsd ?? 0; // unavailable price => zero points (no inflation)
+
+    // Compute points using v2 engine — driven by verified notional only.
     const takerResult = computePoints({
       role: "taker",
-      notionalUsd: amountInUsd,
+      notionalUsd: usdForPoints,
       improvementBps,
       benchmarkAvailable,
       isPrivate,
@@ -155,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     const makerResult = computePoints({
       role: "maker",
-      notionalUsd: amountInUsd,
+      notionalUsd: usdForPoints,
       improvementBps,
       benchmarkAvailable,
       isPrivate,
@@ -163,7 +170,9 @@ export async function POST(request: NextRequest) {
       taker: takerAddr,
     });
 
-    // Create Fill record + FeedFill record in parallel
+    // Create Fill record + FeedFill record in parallel.
+    // Legacy amountInUsd/notionalUsd are written with the VERIFIED value so all
+    // existing consumers (leaderboard, maker stats, league) use trusted data.
     const [fill] = await Promise.all([
       prisma.fill.create({
         data: {
@@ -175,7 +184,10 @@ export async function POST(request: NextRequest) {
           tokenOut: tokenOutAddr,
           amountIn: amountInStr,
           amountOut: amountOutStr,
-          amountInUsd,
+          amountInUsd: usdForPoints,
+          verifiedNotionalUsd: verifiedUsd,
+          pricingSource: notional.source,
+          pricingTimestamp: notional.timestamp,
           baselineOut: baselineOutStr,
           improvementBps,
           takerPoints: takerResult.points,
@@ -192,7 +204,10 @@ export async function POST(request: NextRequest) {
           tokenOut: tokenOutAddr,
           amountIn: amountInStr,
           amountOut: amountOutStr,
-          notionalUsd: amountInUsd > 0 ? amountInUsd : null,
+          notionalUsd: verifiedUsd && verifiedUsd > 0 ? verifiedUsd : null,
+          verifiedNotionalUsd: verifiedUsd,
+          pricingSource: notional.source,
+          pricingTimestamp: notional.timestamp,
           isPrivate,
           benchmarkSource: benchmarkAvailable ? "sor" : null,
           benchmarkOut: baselineOutStr,

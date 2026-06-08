@@ -24,6 +24,28 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getTokenByAddress } from "@/config/tokens";
+import { getUsdPrice, USD_STABLES } from "@/lib/hyperliquid";
+
+/**
+ * Capture a SERVER-SIDE USD price per tokenIn at RFQ creation time.
+ * This is the trusted "path A" reference used later to value the fill.
+ * Returns null if no trusted price is available.
+ */
+async function captureReferenceUsd(
+  tokenInAddr: string
+): Promise<{ price: number; source: string } | null> {
+  const t = getTokenByAddress(tokenInAddr);
+  if (!t) return null;
+  if (USD_STABLES.has(t.symbol)) return { price: 1.0, source: "stable" };
+  try {
+    const p = await getUsdPrice(t);
+    if (p && p > 0) return { price: p, source: "hypercore" };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 
 interface BaselineBody {
   rfqId: string;
@@ -91,6 +113,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Capture a server-side USD reference price for tokenIn (trusted path A).
+    const ref = await captureReferenceUsd(body.tokenIn.toLowerCase());
+
     // Upsert — idempotent if called multiple times for the same rfqId
     const baseline = await prisma.rfqBaseline.upsert({
       where: { rfqId: body.rfqId },
@@ -105,6 +130,8 @@ export async function POST(request: NextRequest) {
         baselineBlockNumber: body.baselineBlockNumber,
         baselineTimestamp: body.baselineTimestamp,
         baselineRouteSummary: JSON.stringify(body.baselineRouteSummary ?? []),
+        referenceUsdPrice: ref?.price ?? null,
+        referenceUsdSource: ref?.source ?? null,
       },
       update: {
         // Overwrite if re-submitted (edge case: user re-creates same RFQ)
@@ -114,6 +141,8 @@ export async function POST(request: NextRequest) {
         baselineBlockNumber: body.baselineBlockNumber,
         baselineTimestamp: body.baselineTimestamp,
         baselineRouteSummary: JSON.stringify(body.baselineRouteSummary ?? []),
+        referenceUsdPrice: ref?.price ?? null,
+        referenceUsdSource: ref?.source ?? null,
       },
     });
 

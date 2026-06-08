@@ -28,6 +28,7 @@ import {
 import { markRfqFilled, getRFQOwner, getRFQById } from "@/lib/rfqRegistry";
 import { prisma } from "@/lib/db";
 import { computePoints } from "@/lib/points";
+import { resolveVerifiedNotionalUsd, logNotionalAudit } from "@/lib/notional";
 
 interface FillBody {
   txHash: string;
@@ -82,12 +83,8 @@ export async function POST(
     );
   }
 
-  if (body.amountInUsd == null || typeof body.amountInUsd !== "number") {
-    return NextResponse.json(
-      { error: "Missing or invalid amountInUsd (number)" },
-      { status: 400 }
-    );
-  }
+  // NOTE: body.amountInUsd is accepted for backwards-compat but IGNORED.
+  // USD notional is always derived server-side below.
 
   let amountOut: bigint;
   try {
@@ -199,10 +196,22 @@ export async function POST(
         )
       : 0;
 
-    // Compute points using v2 engine
+    // ── Server-side USD notional (client amountInUsd is NEVER used) ──────────
+    const notional = await resolveVerifiedNotionalUsd({
+      rfqId: id,
+      tokenInAddr: tokenIn,
+      tokenOutAddr: tokenOut,
+      amountInRaw: body.amountIn,
+      amountOutRaw: body.amountOut,
+    });
+    logNotionalAudit("agent/fill", id, body.txHash, notional);
+    const verifiedUsd = notional.usd;
+    const usdForPoints = verifiedUsd ?? 0;
+
+    // Compute points using v2 engine — driven by verified notional only.
     const takerResult = computePoints({
       role: "taker",
-      notionalUsd: body.amountInUsd,
+      notionalUsd: usdForPoints,
       improvementBps,
       benchmarkAvailable,
       isPrivate,
@@ -212,7 +221,7 @@ export async function POST(
 
     const makerResult = computePoints({
       role: "maker",
-      notionalUsd: body.amountInUsd,
+      notionalUsd: usdForPoints,
       improvementBps,
       benchmarkAvailable,
       isPrivate,
@@ -220,7 +229,7 @@ export async function POST(
       taker: takerAddr,
     });
 
-    // Create Fill + FeedFill records
+    // Create Fill + FeedFill records (verified USD written to legacy + audit cols)
     const [fill] = await Promise.all([
       prisma.fill.create({
         data: {
@@ -232,7 +241,10 @@ export async function POST(
           tokenOut: tokenOut || "0x",
           amountIn: body.amountIn,
           amountOut: body.amountOut,
-          amountInUsd: body.amountInUsd,
+          amountInUsd: usdForPoints,
+          verifiedNotionalUsd: verifiedUsd,
+          pricingSource: notional.source,
+          pricingTimestamp: notional.timestamp,
           baselineOut: baselineOutStr,
           improvementBps,
           takerPoints: takerResult.points,
@@ -250,8 +262,10 @@ export async function POST(
             tokenOut: tokenOut || "0x",
             amountIn: body.amountIn,
             amountOut: body.amountOut,
-            notionalUsd:
-              body.amountInUsd > 0 ? body.amountInUsd : null,
+            notionalUsd: verifiedUsd && verifiedUsd > 0 ? verifiedUsd : null,
+            verifiedNotionalUsd: verifiedUsd,
+            pricingSource: notional.source,
+            pricingTimestamp: notional.timestamp,
             isPrivate,
             benchmarkSource: benchmarkAvailable ? "sor" : null,
             benchmarkOut: baselineOutStr,

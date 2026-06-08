@@ -181,6 +181,10 @@ model RfqBaseline {
   baselineBlockNumber     String   @map("baseline_block_number")    // Block the SOR quote was based on
   baselineTimestamp       String   @map("baseline_timestamp")       // ISO timestamp from SOR meta
   baselineRouteSummary    String   @map("baseline_route_summary")   // JSON: [{ protocol, poolType, fractionPct }]
+  // Server-captured USD reference price per tokenIn at RFQ creation (NOT client-supplied).
+  // Used as the trusted "path A" source for verified fill notional.
+  referenceUsdPrice       Float?   @map("reference_usd_price")
+  referenceUsdSource      String?  @map("reference_usd_source")      // e.g. "stable" | "hypercore"
   createdAt               DateTime @default(now()) @map("created_at")
 
   performance RfqPerformance[]
@@ -231,7 +235,11 @@ model Fill {
   tokenOut        String   @map("token_out")
   amountIn        String   @map("amount_in")          // raw BigInt string
   amountOut       String   @map("amount_out")         // raw BigInt string
-  amountInUsd     Float    @map("amount_in_usd")
+  amountInUsd     Float    @map("amount_in_usd")       // = verifiedNotionalUsd (alias for legacy consumers)
+  // Server-verified USD notional + pricing audit trail. Points/rankings use this.
+  verifiedNotionalUsd Float?   @map("verified_notional_usd")
+  pricingSource       String?  @map("pricing_source")
+  pricingTimestamp    DateTime? @map("pricing_timestamp")
   baselineOut     String?  @map("baseline_out")       // raw BigInt string
   improvementBps  Int      @map("improvement_bps")
   takerPoints     Float    @map("taker_points")
@@ -329,7 +337,11 @@ model FeedFill {
   tokenOut          String   @map("token_out")
   amountIn          String?  @map("amount_in")            // raw BigInt string
   amountOut         String?  @map("amount_out")           // raw BigInt string
-  notionalUsd       Float?   @map("notional_usd")         // null if USD estimate unavailable
+  notionalUsd       Float?   @map("notional_usd")         // = verifiedNotionalUsd (alias for legacy consumers)
+  // Server-verified USD notional + pricing audit trail. Maker stats / league use this.
+  verifiedNotionalUsd Float?   @map("verified_notional_usd")
+  pricingSource       String?  @map("pricing_source")
+  pricingTimestamp    DateTime? @map("pricing_timestamp")
   isPrivate         Boolean  @default(false) @map("is_private")
   benchmarkSource   String?  @map("benchmark_source")     // e.g. "sor" or null
   benchmarkOut      String?  @map("benchmark_out")        // raw BigInt string
