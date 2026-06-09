@@ -68,6 +68,8 @@ export interface ConfirmSwapModalProps {
   txState: TxState;
   needsApproval: boolean;
   onApprove: () => void;
+  /** Maker solvency: when set, the quote is not executable and execute is blocked. */
+  makerIssue?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +141,7 @@ export function ConfirmSwapModal({
   txState,
   needsApproval,
   onApprove,
+  makerIssue,
 }: ConfirmSwapModalProps) {
   if (!quote || !tokenIn || !tokenOut) return null;
 
@@ -170,11 +173,17 @@ export function ConfirmSwapModal({
 
   const feePercent = (feePips / 10_000).toFixed(2);
 
+  const isSimulating = txState.status === "simulating";
   const isFilling = txState.status === "filling";
+  const isFinalizing = txState.status === "finalizing";
+  const isSyncing = txState.status === "syncing";
   const isSuccess = txState.status === "success";
   const isError = txState.status === "error";
+  const isBusy = isSimulating || isFilling || isFinalizing;
+  const makerBlocked = !!makerIssue;
   const canExecute =
     !needsApproval &&
+    !makerBlocked &&
     (txState.status === "idle" || txState.status === "approved");
 
   return (
@@ -270,6 +279,46 @@ export function ConfirmSwapModal({
           </div>
         )}
 
+        {/* ── Maker not executable (blocks execute) ────────────────── */}
+        {makerBlocked && !isSuccess && !isSyncing && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <span className="text-xs text-amber-500">{makerIssue}</span>
+          </div>
+        )}
+
+        {/* ── Simulating (pre-flight) ──────────────────────────────── */}
+        {isSimulating && (
+          <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card/40 p-3">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground">Checking the quote can settle…</span>
+          </div>
+        )}
+
+        {/* ── Finalizing (on-chain done, persisting records) ───────── */}
+        {isFinalizing && (
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+            <Loader2 className="h-4 w-4 animate-spin text-emerald-500 shrink-0 mt-0.5" />
+            <span className="text-xs text-emerald-500">Trade confirmed on-chain. Finalizing records…</span>
+          </div>
+        )}
+
+        {/* ── Syncing (on-chain done, records still catching up) ───── */}
+        {isSyncing && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-500 space-y-1">
+              <span className="font-medium">Trade confirmed on-chain, but records are still syncing. We&apos;ll keep retrying.</span>
+              {txState.fillTxHash && (
+                <a href={txUrl(txState.fillTxHash)} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 underline underline-offset-2 hover:text-amber-400 transition-colors">
+                  View transaction <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Error message ────────────────────────────────────────── */}
         {isError && txState.error && (
           <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
@@ -283,7 +332,7 @@ export function ConfirmSwapModal({
           <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
             <div className="text-xs text-emerald-500 space-y-1">
-              <span className="font-medium">Swap Complete!</span>
+              <span className="font-medium">Trade complete.</span>
               {txState.fillTxHash && (
                 <a
                   href={txUrl(txState.fillTxHash)}
@@ -301,45 +350,58 @@ export function ConfirmSwapModal({
 
         {/* ── Footer buttons ──────────────────────────────────────── */}
         <DialogFooter className="gap-2 sm:gap-2">
-          {/* Cancel — hidden while filling or after success */}
-          {!isFilling && !isSuccess && (
+          {/* Cancel — hidden while busy or after terminal success/sync */}
+          {!isBusy && !isSuccess && !isSyncing && (
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
           )}
 
-          {/* Approve */}
-          {needsApproval && !isFilling && !isSuccess && (
+          {/* Approve (only when executable and approval is needed) */}
+          {needsApproval && !makerBlocked && !isBusy && !isSuccess && !isSyncing && (
             <Button onClick={onApprove}>Approve {inSymbol}</Button>
           )}
 
           {/* Confirm & Execute */}
           {canExecute && (
-            <Button
-              variant="success"
-              onClick={onConfirm}
-            >
+            <Button variant="success" onClick={onConfirm}>
               Confirm &amp; Execute
             </Button>
           )}
 
-          {/* Executing spinner */}
-          {isFilling && (
+          {/* Simulating */}
+          {isSimulating && (
             <Button disabled variant="secondary">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Executing...
+              Checking…
             </Button>
           )}
 
-          {/* Success close */}
-          {isSuccess && (
+          {/* Executing */}
+          {isFilling && (
+            <Button disabled variant="secondary">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Executing…
+            </Button>
+          )}
+
+          {/* Finalizing */}
+          {isFinalizing && (
+            <Button disabled variant="secondary">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Finalizing…
+            </Button>
+          )}
+
+          {/* Close (success or syncing — on-chain settled either way) */}
+          {(isSuccess || isSyncing) && (
             <Button variant="outline" onClick={onClose}>
               Close
             </Button>
           )}
 
-          {/* Error retry */}
-          {isError && (
+          {/* Error retry (not for maker-blocked, which needs a different quote) */}
+          {isError && !makerBlocked && (
             <Button onClick={onConfirm}>Try Again</Button>
           )}
         </DialogFooter>

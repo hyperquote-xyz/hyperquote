@@ -164,7 +164,10 @@ export type TransactionStatus =
   | "idle"
   | "approving"
   | "approved"
+  | "simulating"      // 🔍 pre-flight simulation before sending the fill
   | "filling"
+  | "finalizing"      // ⏳ on-chain confirmed; persisting fill records (retrying)
+  | "syncing"         // ⚠️ on-chain confirmed but records still syncing
   | "success"
   | "error";
 

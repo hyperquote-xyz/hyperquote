@@ -331,16 +331,23 @@ export function getErrorMessage(error: unknown): string {
     InvalidTokenOut: "Invalid output token",
     InvalidAmountIn: "Invalid input amount",
     InvalidAmountOut: "Invalid output amount",
-    QuoteExpired: "Quote has expired",
-    InvalidNonce: "Maker has cancelled this quote",
+    QuoteExpired: "Quote expired. Choose another quote.",
+    InvalidNonce: "Maker cancelled this quote.",
     QuoteAlreadyUsed: "Quote has already been filled",
     InvalidSignature: "Invalid quote signature",
     TakerNotAllowed: "You are not authorized to fill this quote",
     TokenDeniedError: "One of the tokens is not allowed",
     MinOutNotMet: "Output amount is below your minimum",
     MaxInExceeded: "Input amount exceeds your maximum",
-    InsufficientAllowance: "Please approve the token first",
-    InsufficientBalance: "Insufficient token balance",
+    SameTokenPair: "Cannot swap a token for itself",
+    WrongQuoteKind: "Quote type mismatch",
+    // ERC-20 / SafeERC20 transfer failures (maker or taker can't settle)
+    ERC20InsufficientBalance: "Maker cannot settle this quote right now.",
+    ERC20InsufficientAllowance: "Maker has not approved this token for settlement.",
+    SafeERC20FailedOperation: "Maker cannot settle this quote right now.",
+    TransferFromFailed: "Maker cannot settle this quote right now.",
+    InsufficientAllowance: "Token approval required.",
+    InsufficientBalance: "You do not have enough balance.",
   };
 
   for (const [key, friendlyMessage] of Object.entries(errorMap)) {

@@ -25,6 +25,7 @@ import { QuoteKind, RFQVisibility, Token, QuoteWithMeta, requestToJSON, RFQQuote
 import { DEFAULT_TOKENS, getTokenByAddress, NATIVE_HYPE } from "@/config/tokens";
 import { APPROVED_TOKEN_MAP } from "@/config/approvedTokens";
 import { resolveSettlementToken, isNativeHype } from "@/lib/native-wrap";
+import { checkMakerSolvency, makerIssueMessage } from "@/lib/makerSolvency";
 import { validateLaunchPair, isSameTokenPair } from "@/lib/pairValidation";
 import { parseAmount, formatAmount, toDecimalStr, enrichQuote, cn, safeSymbol } from "@/lib/utils";
 import { WrapModal } from "@/components/WrapModal";
@@ -299,6 +300,7 @@ export function SwapProduction({ initialParams }: SwapProductionProps = {}) {
 
   // ── Confirmation modal ──
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [makerIssue, setMakerIssue] = useState<string | null>(null);
 
   // ── Form state ──
   const [tokenIn, setTokenIn] = useState<Token | null>(NATIVE_HYPE);
@@ -532,6 +534,14 @@ export function SwapProduction({ initialParams }: SwapProductionProps = {}) {
       if (fresh.whypeBalance < selectedQuote.amountIn) { setShowWrapGating(true); return; }
     }
 
+    // Maker solvency gate (blocks execute in the modal).
+    const mk = await checkMakerSolvency({
+      maker: selectedQuote.maker,
+      tokenOut: selectedQuote.tokenOut,
+      amountOut: selectedQuote.amountOut,
+    });
+    setMakerIssue(mk.executable ? null : makerIssueMessage(mk.issue));
+
     // Open the confirmation modal instead of filling directly
     setConfirmModalOpen(true);
   }, [selectedQuote, tokenIn, selectedValidation, refetchWrapBalances]);
@@ -680,6 +690,7 @@ export function SwapProduction({ initialParams }: SwapProductionProps = {}) {
         txState={txState}
         needsApproval={needsApproval}
         onApprove={handleApproveFromModal}
+        makerIssue={makerIssue}
       />
 
       {/* Footer */}

@@ -184,6 +184,30 @@ export const RFQ_ABI = [
     name: "MakerNonceIncremented",
     type: "event",
   },
+  // Custom errors — required so viem can decode reverts during fill simulation
+  // and surface a friendly message (see getErrorMessage).
+  { type: "error", name: "InvalidMaker", inputs: [] },
+  { type: "error", name: "InvalidTokenIn", inputs: [] },
+  { type: "error", name: "InvalidTokenOut", inputs: [] },
+  { type: "error", name: "InvalidAmountIn", inputs: [] },
+  { type: "error", name: "InvalidAmountOut", inputs: [] },
+  { type: "error", name: "QuoteExpired", inputs: [] },
+  { type: "error", name: "InvalidNonce", inputs: [] },
+  { type: "error", name: "QuoteAlreadyUsed", inputs: [] },
+  { type: "error", name: "InvalidSignature", inputs: [] },
+  { type: "error", name: "TakerNotAllowed", inputs: [] },
+  { type: "error", name: "SameTokenPair", inputs: [] },
+  { type: "error", name: "TokenDeniedError", inputs: [] },
+  { type: "error", name: "MinOutNotMet", inputs: [] },
+  { type: "error", name: "MaxInExceeded", inputs: [] },
+  { type: "error", name: "WrongQuoteKind", inputs: [] },
+  // OpenZeppelin ECDSA / ERC20 errors that can surface via the fill path
+  { type: "error", name: "ECDSAInvalidSignature", inputs: [] },
+  { type: "error", name: "ERC20InsufficientBalance", inputs: [
+    { name: "sender", type: "address" }, { name: "balance", type: "uint256" }, { name: "needed", type: "uint256" } ] },
+  { type: "error", name: "ERC20InsufficientAllowance", inputs: [
+    { name: "spender", type: "address" }, { name: "allowance", type: "uint256" }, { name: "needed", type: "uint256" } ] },
+  { type: "error", name: "SafeERC20FailedOperation", inputs: [ { name: "token", type: "address" } ] },
 ] as const;
 
 // ERC20 ABI (for approvals)

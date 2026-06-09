@@ -44,6 +44,7 @@ import { useTakerRFQ } from "@/hooks/useRFQ";
 import { ConfirmSwapModal } from "@/components/swap-v2/ConfirmSwapModal";
 import { resolveSettlementToken } from "@/lib/native-wrap";
 import { getTokenByAddress } from "@/config/tokens";
+import { checkMakerSolvency, checkMakerSolvencyBatch, makerIssueMessage } from "@/lib/makerSolvency";
 
 /** Cast FeedRfqItem token info → full Token for venue estimate functions.
  *  Looks up ALL_TOKENS first so fields like `hyperliquidCoin` are available
@@ -229,6 +230,9 @@ export function RfqDetailDrawer({
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [drawerNeedsApproval, setDrawerNeedsApproval] = useState(false);
   const [bestQuoteForExecution, setBestQuoteForExecution] = useState<RFQQuote | null>(null);
+  const [drawerMakerIssue, setDrawerMakerIssue] = useState<string | null>(null);
+  // Maker solvency by quote signature (executable vs unexecutable).
+  const [solvency, setSolvency] = useState<Map<string, import("@/lib/makerSolvency").MakerSolvency>>(new Map());
 
   // Derive best amountOut from quotes for the "Receives" display header.
   // Not gated on role — the header is always visible.
@@ -267,6 +271,21 @@ export function RfqDetailDrawer({
       createdAt: best.createdAt,
     };
   }, [isTaker, quotes.items, item.kind]);
+
+  // Run maker solvency checks across all quotes (executable vs unexecutable).
+  useEffect(() => {
+    if (!isTaker || quotes.items.length === 0) { setSolvency(new Map()); return; }
+    let cancelled = false;
+    checkMakerSolvencyBatch(
+      quotes.items.map((q) => ({
+        signature: q.signature,
+        maker: q.maker,
+        tokenOut: q.tokenOut,
+        amountOut: (() => { try { return BigInt(q.amountOut); } catch { return 0n; } })(),
+      }))
+    ).then((m) => { if (!cancelled) setSolvency(m); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [isTaker, quotes.items]);
 
   // Handlers for the confirmation modal
   const handleDrawerConfirmExecute = useCallback(async () => {
@@ -459,7 +478,14 @@ export function RfqDetailDrawer({
                   className="w-full gap-1.5 mt-3"
                   onClick={async () => {
                     setBestQuoteForExecution(bestQuote);
-                    // Check allowance
+                    // Maker solvency gate (blocks execute in the modal).
+                    const mk = await checkMakerSolvency({
+                      maker: bestQuote.maker,
+                      tokenOut: bestQuote.tokenOut,
+                      amountOut: bestQuote.amountOut,
+                    });
+                    setDrawerMakerIssue(mk.executable ? null : makerIssueMessage(mk.issue));
+                    // Check taker allowance
                     const tokenInMeta = getTokenByAddress(bestQuote.tokenIn);
                     if (tokenInMeta) {
                       const settlement = resolveSettlementToken(tokenInMeta);
@@ -619,6 +645,7 @@ export function RfqDetailDrawer({
           txState={takerTxState}
           needsApproval={drawerNeedsApproval}
           onApprove={handleDrawerApprove}
+          makerIssue={drawerMakerIssue}
         />
       )}
     </div>

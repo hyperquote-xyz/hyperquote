@@ -28,6 +28,8 @@ import {
   calculateExpiry,
   getErrorMessage,
 } from "@/lib/utils";
+import { checkMakerSolvency, makerIssueMessage } from "@/lib/makerSolvency";
+import { persistFillWithRetry } from "@/lib/postFill";
 
 // ── RFQ Lifecycle Types ──
 
@@ -432,50 +434,94 @@ export function useTakerRFQ() {
     async (quote: RFQQuote, constraint: bigint, opts?: { amountInUsd?: number; visibility?: string }): Promise<boolean> => {
       if (!address) return false;
 
+      const quoteStruct = {
+        kind: quote.kind,
+        maker: quote.maker,
+        taker: quote.taker,
+        tokenIn: quote.tokenIn,
+        tokenOut: quote.tokenOut,
+        amountIn: quote.amountIn,
+        amountOut: quote.amountOut,
+        expiry: BigInt(quote.expiry),
+        nonce: quote.nonce,
+      };
+
+      // ── P0-1: PRE-FLIGHT (no wallet prompt, no gas) ───────────────────────
+      // Block the transaction before signing if it would revert.
+      try {
+        setTxState({ status: "simulating" });
+
+        const { readContract, simulateContract } = await import("wagmi/actions");
+        const { wagmiConfig } = await import("@/lib/wagmi");
+
+        // 1) Maker solvency / approval (precise, side-specific message).
+        const mk = await checkMakerSolvency({
+          maker: quote.maker,
+          tokenOut: quote.tokenOut,
+          amountOut: quote.amountOut,
+        });
+        if (!mk.executable) {
+          setTxState({ status: "error", error: makerIssueMessage(mk.issue) });
+          return false;
+        }
+
+        // 2) Taker balance + allowance on tokenIn (taker always pays amountIn).
+        const [takerBal, takerAllow] = await Promise.all([
+          readContract(wagmiConfig, {
+            address: quote.tokenIn, abi: ERC20_ABI, functionName: "balanceOf", args: [address],
+          }) as Promise<bigint>,
+          readContract(wagmiConfig, {
+            address: quote.tokenIn, abi: ERC20_ABI, functionName: "allowance", args: [address, RFQ_CONTRACT_ADDRESS],
+          }) as Promise<bigint>,
+        ]);
+        if (takerBal < quote.amountIn) {
+          setTxState({ status: "error", error: "You do not have enough balance." });
+          return false;
+        }
+        if (takerAllow < quote.amountIn) {
+          setTxState({ status: "error", error: "Token approval required." });
+          return false;
+        }
+
+        // 3) Full contract simulation — catches expiry, nonce, signature,
+        //    quote-already-used, denylist, kind mismatch, and any token issue.
+        await simulateContract(wagmiConfig, {
+          account: address,
+          address: RFQ_CONTRACT_ADDRESS,
+          abi: RFQ_ABI,
+          functionName: quote.kind === QuoteKind.EXACT_IN ? "fillExactIn" : "fillExactOut",
+          args: [quoteStruct, quote.signature, constraint],
+        });
+      } catch (error) {
+        // Simulation failed → never prompt the wallet.
+        setTxState({ status: "error", error: getErrorMessage(error) });
+        return false;
+      }
+
+      // ── Send the transaction (simulation passed) ──────────────────────────
       try {
         setTxState({ status: "filling" });
 
-        const quoteStruct = {
-          kind: quote.kind,
-          maker: quote.maker,
-          taker: quote.taker,
-          tokenIn: quote.tokenIn,
-          tokenOut: quote.tokenOut,
-          amountIn: quote.amountIn,
-          amountOut: quote.amountOut,
-          expiry: BigInt(quote.expiry),
-          nonce: quote.nonce,
-        };
-
         let hash: `0x${string}`;
-
         if (quote.kind === QuoteKind.EXACT_IN) {
           hash = await writeContractAsync({
-            address: RFQ_CONTRACT_ADDRESS,
-            abi: RFQ_ABI,
-            functionName: "fillExactIn",
+            address: RFQ_CONTRACT_ADDRESS, abi: RFQ_ABI, functionName: "fillExactIn",
             args: [quoteStruct, quote.signature, constraint],
           });
         } else {
           hash = await writeContractAsync({
-            address: RFQ_CONTRACT_ADDRESS,
-            abi: RFQ_ABI,
-            functionName: "fillExactOut",
+            address: RFQ_CONTRACT_ADDRESS, abi: RFQ_ABI, functionName: "fillExactOut",
             args: [quoteStruct, quote.signature, constraint],
           });
         }
 
         setTxState({ status: "filling", fillTxHash: hash });
 
-        // Wait for confirmation
         const { waitForTransactionReceipt } = await import("wagmi/actions");
         const { wagmiConfig } = await import("@/lib/wagmi");
-        
         await waitForTransactionReceipt(wagmiConfig, { hash });
 
-        setTxState({ status: "success", fillTxHash: hash });
-
-        // Mark tracked request as filled
+        // On-chain settled. Mark tracked request filled immediately.
         if (quote.requestId) {
           const now = Math.floor(Date.now() / 1000);
           setTrackedRequests((prev) =>
@@ -485,53 +531,25 @@ export function useTakerRFQ() {
                 : t
             )
           );
-
-          // Persist performance record (fire-and-forget)
-          fetch("/api/v1/rfq/performance", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              rfqId: quote.requestId,
-              makerId: quote.maker,
-              makerAmountOut: quote.amountOut.toString(),
-              won: true,
-            }),
-          }).catch((err) =>
-            console.warn("[HyperQuote] Failed to persist performance:", err)
-          );
         }
 
-        // Persist fill for points program (fire-and-forget)
-        fetch("/api/v1/fills", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            txHash: hash,
-            rfqId: quote.requestId ?? null,
-            taker: quote.taker,
-            maker: quote.maker,
-            tokenIn: quote.tokenIn,
-            tokenOut: quote.tokenOut,
-            amountIn: quote.amountIn.toString(),
-            amountOut: quote.amountOut.toString(),
-            amountInUsd: opts?.amountInUsd ?? 0,
-            visibility: opts?.visibility ?? "public",
-          }),
-        }).catch((err) =>
-          console.warn("[HyperQuote] Failed to persist fill:", err)
-        );
+        // ── P0-3: RELIABLE POST-FILL RECONCILIATION (retry + idempotent) ────
+        setTxState({ status: "finalizing", fillTxHash: hash });
+        const persisted = await persistFillWithRetry({
+          txHash: hash,
+          rfqId: quote.requestId ?? null,
+          taker: quote.taker,
+          maker: quote.maker,
+          tokenIn: quote.tokenIn,
+          tokenOut: quote.tokenOut,
+          amountIn: quote.amountIn.toString(),
+          amountOut: quote.amountOut.toString(),
+          visibility: opts?.visibility ?? "public",
+        });
 
-        // Notify feed of fill (fire-and-forget)
-        if (quote.requestId) {
-          fetch(`/api/v1/rfqs/${quote.requestId}/fill`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ txHash: hash }),
-          }).catch((err) =>
-            console.warn("[HyperQuote] Failed to notify feed of fill:", err)
-          );
-        }
-
+        // Either way the swap succeeded on-chain; "syncing" tells the user
+        // records are still catching up (retries continue server-trust on next load).
+        setTxState({ status: persisted ? "success" : "syncing", fillTxHash: hash });
         return true;
       } catch (error) {
         setTxState({ status: "error", error: getErrorMessage(error) });
